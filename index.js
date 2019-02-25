@@ -13,14 +13,22 @@ elementlist :=
   empty
 
 expression :=
-  each identifier in identifier { elementlist } |
-  if identifier compare value { elementlist }
+  each identifier in variable { elementlist } |
+  if value compare value { elementlist }
 
 compare :=
   > | < | == | >= | <=
 
 value :=
-  string | number
+  string | number | variable
+
+variable :=
+  identifier subvariable 
+
+subvariable :=
+  [ value ] subvariable |
+  . identifier subvariable |
+  empty
 
 element :=
   tagdef [ elementlist ] |
@@ -53,7 +61,7 @@ idlist :=
 
 *************/
 
-function Compiler (prog, input) {
+function Compile (prog, input) {
   let i = 0
   let current
   let cache = { type: '', data: '', i: 0 }
@@ -63,6 +71,10 @@ function Compiler (prog, input) {
   let current_idlist = []
   let iterator
   let output = ''
+
+  function log_error (err) {
+    console.log('Error: ' + err)
+  }
 
   function save () {
     cache.type = current.type
@@ -94,6 +106,7 @@ function Compiler (prog, input) {
   }
 
   function accept (type) {
+    if (error) return
     if (current.type === type) {
       next()
       return true
@@ -103,8 +116,9 @@ function Compiler (prog, input) {
   }
 
   function expect (type) {
+    if (error) return
     if (current.type !== type) {
-      console.log('Unexpected token: ', current.data)
+      log_error('Unexpected token: ', current.data)
       error = true
     } else {
       next()
@@ -112,6 +126,7 @@ function Compiler (prog, input) {
   }
 
   function peek (type) {
+    if (error) return
     if (current.type === type) {
       return true
     } else {
@@ -120,6 +135,7 @@ function Compiler (prog, input) {
   }
 
   function elementlist () {
+    if (error) return
     if (peek('identifier')) {
       element()
       elementlist()
@@ -133,23 +149,32 @@ function Compiler (prog, input) {
   }
 
   function eachstatement () {
+    if (error) return
     expect('each')
     let it = current.data
     expect('identifier')
     expect('in')
-    let data = input[current.data]
+    let field = current.data
+    let data = input[field]
     expect('identifier')
     expect('[')
     save()
-    data.forEach(function (d) {
-      iterator = d
-      restore()
-      elementlist()
-    })
+    if (data.forEach !== undefined) {
+      data.forEach(function (d) {
+        iterator = d
+        restore()
+        elementlist()
+      })
+    } else {
+      log_error(field + ' is not an array')
+      error = true
+      return
+    }
     expect(']')
   }
 
   function element () {
+    if (error) return
     indents++
     if (peek('identifier')) {
       let id = current.data
@@ -171,11 +196,13 @@ function Compiler (prog, input) {
   }
 
   function tagdef () {
+    if (error) return
     tag()
     properties()
   }
 
   function tag () {
+    if (error) return
     expect('identifier')
     if (accept('.')) {
       classlist()
@@ -193,6 +220,7 @@ function Compiler (prog, input) {
   }
 
   function properties () {
+    if (error) return
     if (peek('identifier')) {
       let id = current.data
       emit_partial_line(' ' + id)
@@ -206,6 +234,8 @@ function Compiler (prog, input) {
   }
 
   function innertext () {
+    if (error) return
+
     let id = ''
     let start = 0, end = 0
     let data = current.data
@@ -222,6 +252,11 @@ function Compiler (prog, input) {
     }
 
     if (id.indexOf('.') !== -1) {
+      if (typeof iterator !== 'object') {
+        log_error(id.split('.')[0].trim() + ' is not an object')
+        error = true
+        return
+      }
       computed = iterator[id.split('.')[1].trim()]
     } else {
       computed = input[id.trim()]
@@ -235,6 +270,7 @@ function Compiler (prog, input) {
   }
 
   function classlist () {
+    if (error) return
     current_classlist.push(current.data)
     expect('identifier')
     if (accept('.')) {
@@ -245,6 +281,7 @@ function Compiler (prog, input) {
   }
 
   function idlist () {
+    if (error) return
     current_idlist.push(current.data)
     expect('identifier')
     if (accept('.')) {
@@ -286,7 +323,7 @@ function Compiler (prog, input) {
 
   function parse_inner (i) {
     let inner = ''
-    while (prog[i] !== '|') {
+    while (prog[i] !== '|' && i < prog.length) {
       inner += prog[i++]
     }
     return inner
@@ -296,14 +333,14 @@ function Compiler (prog, input) {
     return c === '[' || c === ']' || c === '.' || c == '#' || c === '='
   }
 
-  function isSpace (c) {
+  function is_space (c) {
     return c === ' ' || c === '\t' || c === '\r' || c === '\n'
   }
 
   function next () {
-    let c, tok, type
+    let c, data, type
 
-    while (isSpace(prog[i])) i++
+    while (is_space(prog[i])) i++
     c = prog[i]
 
     if (i >= prog.length) {
@@ -355,4 +392,4 @@ function Compiler (prog, input) {
   return output
 }
 
-module.exports = Compiler
+module.exports = Compile
