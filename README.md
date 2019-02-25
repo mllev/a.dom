@@ -17,13 +17,13 @@ const Compile = require('./index')
 let test = `
 html [
   body [
-    h1 | Hello, my name is {name} |
+    h1 | Hello, {value}! |
   ]
 ]
 `
 
 let html = Compile(test, {
-  name: 'Matthew'
+  value: 'Matthew'
 })
 
 console.log(html)
