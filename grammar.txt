@@ -1,0 +1,51 @@
+elementlist ::=
+  element elementlist |
+  expression elementlist
+  empty
+
+expression ::=
+  each identifier in variable { elementlist } |
+  if value compare value { elementlist }
+
+compare ::=
+  > | < | == | >= | <=
+
+value ::=
+  string | number | variable
+
+variable ::=
+  identifier subvariable 
+
+subvariable ::=
+  [ value ] subvariable |
+  . identifier subvariable |
+  empty
+
+element ::=
+  tagdef [ elementlist ] |
+  tagdef innertext |
+  innertext
+
+innertext ::=
+  | raw |
+
+tagdef ::=
+  tag properties
+
+tag ::=
+  identifier |
+  identifier . classlist |
+  identifier # idlist
+
+properties ::=
+  identifier = string properties |
+  identifier |
+  empty
+
+classlist ::=
+  identifier . classlist |
+  identifier
+
+idlist ::=
+  identifier # idlist |
+  identifier 

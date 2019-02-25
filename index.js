@@ -1,79 +1,18 @@
-/*************
-
-TERMINALS
-identifier . # = [ ] string raw
-
-NONTERMINALS
-elementlist element tagdef tag properties innertext idlist
-
-GRAMMAR
-elementlist :=
-  element elementlist |
-  expression elementlist
-  empty
-
-expression :=
-  each identifier in variable { elementlist } |
-  if value compare value { elementlist }
-
-compare :=
-  > | < | == | >= | <=
-
-value :=
-  string | number | variable
-
-variable :=
-  identifier subvariable 
-
-subvariable :=
-  [ value ] subvariable |
-  . identifier subvariable |
-  empty
-
-element :=
-  tagdef [ elementlist ] |
-  tagdef innertext |
-  innertext
-
-innertext :=
-  | raw |
-
-tagdef :=
-  tag properties
-
-tag :=
-  identifier |
-  identifier . classlist |
-  identifier # idlist
-
-properties :=
-  identifier = string properties |
-  identifier |
-  empty
-
-classlist :=
-  identifier . classlist |
-  identifier
-
-idlist :=
-  identifier # idlist |
-  identifier 
-
-*************/
-
 function Compile (prog, input) {
   let i = 0
-  let current
+  let current = { type: '', data: '', i: 0 }
   let cache = { type: '', data: '', i: 0 }
   let error = false
   let indents = -1
   let current_classlist = []
   let current_idlist = []
-  let iterator
+  let scopes = []
+  let current_depth = -1
   let output = ''
 
   function log_error (err) {
     console.log('Error: ' + err)
+    error = true
   }
 
   function save () {
@@ -119,7 +58,6 @@ function Compile (prog, input) {
     if (error) return
     if (current.type !== type) {
       log_error('Unexpected token: ', current.data)
-      error = true
     } else {
       next()
     }
@@ -161,13 +99,15 @@ function Compile (prog, input) {
     save()
     if (data.forEach !== undefined) {
       data.forEach(function (d) {
-        iterator = d
+        scopes.push({ data: d, identifier: it })
+        current_depth++
         restore()
         elementlist()
+        current_depth--
+        scopes.pop()
       })
     } else {
       log_error(field + ' is not an array')
-      error = true
       return
     }
     expect(']')
@@ -253,15 +193,19 @@ function Compile (prog, input) {
 
   function compute_value (value) {
     let computed
+    let ctx = scopes[current_depth]
     if (value.indexOf('.') !== -1) {
-      if (typeof iterator !== 'object') {
+      if (typeof ctx.data !== 'object') {
         log_error(value.split('.')[0].trim() + ' is not an object')
-        error = true
         return
       }
-      computed = iterator[value.split('.')[1].trim()]
-    } else {
+      computed = ctx.data[value.split('.')[1].trim()]
+    } else if (value.trim() === ctx.identifier) {
+      computed = ctx.data
+    } else if (input[value.trim()]) {
       computed = input[value.trim()]
+    } else {
+      log_error('Unknown identifier: ' + value.trim())
     }
     return computed
   }
@@ -269,6 +213,7 @@ function Compile (prog, input) {
   function replace_values (data, values) {
     let outp = ''
     let start_index = 0
+
     for (let i = 0; i < values.length; i++) {
       let end_index = values[i].start_index
       let v = compute_value(values[i].variable)
@@ -296,7 +241,11 @@ function Compile (prog, input) {
       })
     })
 
-    emit_line(replace_values(data, values))
+    if (values.length > 0) {
+      data = replace_values(data, values)
+    }
+
+    emit_line(data)
     expect('raw')
   }
 
@@ -375,10 +324,8 @@ function Compile (prog, input) {
     c = prog[i]
 
     if (i >= prog.length) {
-      current = {
-        type: 'eof',
-        data: undefined
-      }
+      current.type = 'eof',
+      current.data = undefined
       return
     }
 
@@ -408,10 +355,8 @@ function Compile (prog, input) {
       type = data
     }
 
-    current = {
-      type: type,
-      data: data
-    }
+    current.type = type
+    current.data = data
   }
 
   function run () {
