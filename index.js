@@ -233,13 +233,10 @@ function Compile (prog, input) {
     }
   }
 
-  function innertext () {
-    if (error) return
-
+  function iterate_over_variables (fn) {
     let id = ''
     let start = 0, end = 0
     let data = current.data
-    let computed
 
     for (let i = 0; i < data.length; i++) {
       if (data[i] === '{' && data[i-1] !== '\\') {
@@ -248,24 +245,58 @@ function Compile (prog, input) {
           id += data[i++]
         }
         end = i++
+        fn(id, start, end)
+        id = ''
       }
     }
+  }
 
-    if (id.indexOf('.') !== -1) {
+  function compute_value (value) {
+    let computed
+    if (value.indexOf('.') !== -1) {
       if (typeof iterator !== 'object') {
-        log_error(id.split('.')[0].trim() + ' is not an object')
+        log_error(value.split('.')[0].trim() + ' is not an object')
         error = true
         return
       }
-      computed = iterator[id.split('.')[1].trim()]
+      computed = iterator[value.split('.')[1].trim()]
     } else {
-      computed = input[id.trim()]
+      computed = input[value.trim()]
     }
+    return computed
+  }
 
-    if (start > 0 && end > 0) {
-      data = (data.slice(0, start) + computed + data.slice(end+1, data.length))
+  function replace_values (data, values) {
+    let outp = ''
+    let start_index = 0
+    for (let i = 0; i < values.length; i++) {
+      let end_index = values[i].start_index
+      let v = compute_value(values[i].variable)
+      outp += (data.slice(start_index, end_index) + v)
+      start_index = values[i].end_index + 1
     }
-    emit_line(data)
+    let last = values[values.length - 1]
+
+    if (last.end_index < (data.length - 1)) {
+      outp += data.slice(last.end_index + 1)
+    }
+    return outp
+  }
+
+  function innertext () {
+    if (error) return
+    let data = current.data
+    let values = []
+
+    iterate_over_variables (function (id, start, end) {
+      values.push({
+        variable: id,
+        start_index: start,
+        end_index: end
+      })
+    })
+
+    emit_line(replace_values(data, values))
     expect('raw')
   }
 
