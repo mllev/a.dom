@@ -23,7 +23,7 @@ html [
 `
 
 let html = Compile(test, {
-  value: 'Matthew'
+  value: 'world'
 })
 
 console.log(html)
