@@ -93,13 +93,13 @@ function Compile (prog, input) {
     expect('identifier')
     expect('in')
     let field = current.data
-    let data = input[field]
+    let data = compute_value(field)
     expect('identifier')
     expect('[')
     save()
     if (data.forEach !== undefined) {
       data.forEach(function (d) {
-        scopes.push({ data: d, identifier: it })
+        scopes.push({ [it]: d })
         current_depth++
         restore()
         elementlist()
@@ -166,7 +166,7 @@ function Compile (prog, input) {
       emit_partial_line(' ' + id)
       next()
       if (accept('=')) {
-        emit_partial_line('="' + current.data + '"')
+        emit_partial_line('="' + interpolate_values(current.data) + '"')
         expect('string')
         properties()
       }
@@ -193,19 +193,22 @@ function Compile (prog, input) {
 
   function compute_value (value) {
     let computed
+    let v = value.trim()
     let ctx = scopes[current_depth]
     if (value.indexOf('.') !== -1) {
-      if (typeof ctx.data !== 'object') {
-        log_error(value.split('.')[0].trim() + ' is not an object')
+      let field1 = v.split('.')[0].trim()
+      let field2 = v.split('.')[1].trim()
+
+      if (typeof ctx[field1] !== 'object') {
+        log_error(v.split('.')[0].trim() + ' is not an object')
         return
+      } else {
+        computed = ctx[field1][field2]
       }
-      computed = ctx.data[value.split('.')[1].trim()]
-    } else if (value.trim() === ctx.identifier) {
-      computed = ctx.data
-    } else if (input[value.trim()]) {
-      computed = input[value.trim()]
+    } else if (ctx[v]) {
+      computed = ctx[v]
     } else {
-      log_error('Unknown identifier: ' + value.trim())
+      log_error('Unknown identifier: ' + v)
     }
     return computed
   }
@@ -228,9 +231,7 @@ function Compile (prog, input) {
     return outp
   }
 
-  function innertext () {
-    if (error) return
-    let data = current.data
+  function interpolate_values (str) {
     let values = []
 
     iterate_over_variables (function (id, start, end) {
@@ -242,10 +243,16 @@ function Compile (prog, input) {
     })
 
     if (values.length > 0) {
-      data = replace_values(data, values)
+      str = replace_values(str, values)
     }
 
-    emit_line(data)
+    return str
+  }
+
+  function innertext () {
+    if (error) return
+    let data = current.data
+    emit_line(interpolate_values(data))
     expect('raw')
   }
 
@@ -362,6 +369,11 @@ function Compile (prog, input) {
   function run () {
     next()
     elementlist()
+  }
+
+  if (input) {
+    scopes.push(input)
+    current_depth++
   }
 
   run()
