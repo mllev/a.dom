@@ -196,11 +196,12 @@ function Compile (prog, input) {
     let v = value.trim()
     let ctx = scopes[current_depth]
     if (value.indexOf('.') !== -1) {
-      let field1 = v.split('.')[0].trim()
-      let field2 = v.split('.')[1].trim()
+      let parts = v.split('.')
+      let field1 = parts[0].trim()
+      let field2 = parts[1].trim()
 
       if (typeof ctx[field1] !== 'object') {
-        log_error(v.split('.')[0].trim() + ' is not an object')
+        log_error(field1 + ' is not an object')
         return
       } else {
         computed = ctx[field1][field2]
