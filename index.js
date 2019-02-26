@@ -210,6 +210,7 @@ function Compile (prog, input) {
       computed = ctx[v]
     } else {
       log_error('Unknown identifier: ' + v)
+      return
     }
     return computed
   }
@@ -298,7 +299,7 @@ function Compile (prog, input) {
   function parse_string (i) {
     let str = ''
     let del = prog[i++]
-    while (prog[i] !== del) {
+    while (prog[i] !== del && i < prog.length) {
       if (prog[i] === '\\') {
         str += prog[++i]
       } else {
