@@ -17,7 +17,7 @@ const Compile = require('./index')
 let test = `
 html [
   body [
-    h1 | Hello, {value}! |
+    h1 | Hello, #{value}! |
   ]
 ]
 `

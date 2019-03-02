@@ -13,23 +13,23 @@ function benchmark (fn) {
 let test = `
 html [
   body [
-    h1 class='{h1class1} {h1class2}' | List 1 |
+    h1 class='#{h1class1} #{h1class2}' | List 1 |
     ul.class-shorthand [
       each item in items1 [
-        li | {item} |
+        li | #{item} |
       ]
     ]
     h1 | List 2 |
     ul [
       each item in items2 [
-        li | {item.data} |
+        li | #{item.data} |
       ]
     ]
     h1 | List 2 |
     ul [
       each item in items3 [
         each i in item [
-          li | {i} |
+          li | #{i} |
         ]
       ]
     ]

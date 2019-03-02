@@ -179,12 +179,13 @@ function Compile (prog, input) {
     let data = current.data
 
     for (let i = 0; i < data.length; i++) {
-      if (data[i] === '{' && data[i-1] !== '\\') {
-        start = i++
-        while (data[i] !== '}') {
+      if (data[i] === '#' && data[i+1] === '{') {
+        i += 2
+        start = i
+        while (data[i] !== '}' && i < data.length) {
           id += data[i++]
         }
-        end = i++
+        end = i - 1
         fn(id, start, end)
         id = ''
       }
@@ -220,15 +221,15 @@ function Compile (prog, input) {
     let start_index = 0
 
     for (let i = 0; i < values.length; i++) {
-      let end_index = values[i].start_index
+      let end_index = values[i].start_index - 2
       let v = compute_value(values[i].variable)
       outp += (data.slice(start_index, end_index) + v)
-      start_index = values[i].end_index + 1
+      start_index = values[i].end_index + 2
     }
     let last = values[values.length - 1]
 
-    if (last.end_index < (data.length - 1)) {
-      outp += data.slice(last.end_index + 1)
+    if (last.end_index < (data.length - 2)) {
+      outp += data.slice(last.end_index + 2)
     }
     return outp
   }
@@ -236,7 +237,7 @@ function Compile (prog, input) {
   function interpolate_values (str) {
     let values = []
 
-    iterate_over_variables (function (id, start, end) {
+    iterate_over_variables(function (id, start, end) {
       values.push({
         variable: id,
         start_index: start,
