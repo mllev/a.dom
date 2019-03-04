@@ -9,6 +9,7 @@ function Compile (prog, input) {
   let scopes = []
   let current_depth = -1
   let output = ''
+  let conditionally_print = true
 
   function log_error (err) {
     console.log('Error: ' + err)
@@ -32,11 +33,11 @@ function Compile (prog, input) {
     for (let i = 0; i < indents; i++) {
       space += '    '
     }
-    output += space
+    if (conditionally_print) output += space
   }
 
   function emit_partial_line (str) {
-    output += str
+    if (conditionally_print) output += str
   }
 
   function emit_line (line) {
@@ -83,7 +84,64 @@ function Compile (prog, input) {
     } else if (peek('each')) {
       eachstatement()
       elementlist()
+    } else if (peek('if')) {
+      ifstatement()
+      elementlist()
     }
+  }
+
+  function value () {
+    if (peek('identifier') || peek('string') || peek('number')) {
+      let d = current.data
+      next()
+      return d
+    }
+    return undefined
+  }
+
+  function ifstatement() {
+    if (error) return
+    expect('if')
+    let v1 = {
+      type: current.type,
+      data: value()
+    }
+    let should_print = false
+    let cmp = current.data
+    if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==')) {
+      log_error('Unexpected token ' + current.type)
+      return
+    }
+    let v2 = {
+      type: current.type,
+      data: value()
+    }
+    if (v1.type !== v2.type) {
+      log_error('Cannot compare ' + v1.type + ' and ' + v2.type)
+      return
+    }
+    switch (cmp) {
+      case '<=':
+        should_print = (v1.data <= v2.data)
+        break
+      case '<':
+        should_print = (v1.data < v2.data)
+        break
+      case '>=':
+        should_print = (v1.data >= v2.data)
+        break
+      case '>':
+        should_print = (v1.data > v2.data)
+        break
+      case '==':
+        should_print = (v1.data == v2.data)
+        break
+    }
+    expect('[')
+    conditionally_print = should_print
+    elementlist()
+    conditionally_print = true
+    expect(']')
   }
 
   function eachstatement () {
@@ -311,6 +369,24 @@ function Compile (prog, input) {
     return str
   }
 
+  // cheating
+  function parse_number (i) {
+    let num = ''
+    let dot_found = false
+    while (i < prog.length) {
+      if (is_num(prog[i])) {
+        num += prog[i]
+      } else if (prog[i] === '.' && dot_found === false) {
+        num += prog[i]
+        dot_found = false
+      } else {
+        break
+      }
+      i++
+    }
+    return num
+  }
+
   function parse_inner (i) {
     let inner = ''
     while (prog[i] !== '|' && i < prog.length) {
@@ -320,7 +396,7 @@ function Compile (prog, input) {
   }
 
   function is_sym (c) {
-    return c === '[' || c === ']' || c === '.' || c == '#' || c === '='
+    return c === '[' || c === ']' || c === '.' || c == '#'
   }
 
   function is_space (c) {
@@ -339,7 +415,35 @@ function Compile (prog, input) {
       return
     }
 
-    if (is_alpha(c)) {
+    if (c === '=') {
+      if (prog[i+1] === '=') {
+        type = '=='
+        i += 2
+        data = type
+      } else {
+        type = c
+        data = c
+        i++
+      }
+    } else if (c === '>') {
+      if (prog[i+1] === '=') {
+        type = '>='
+        i += 2
+      } else {
+        type = '>'
+        i++
+      }
+      data = type
+    } else if (c === '<') {
+      if (prog[i+1] === '=') {
+        type = '<='
+        i += 2
+      } else {
+        type = '<'
+        i++
+      }
+      data = type
+    } else if (is_alpha(c)) {
       type = 'identifier'
       data = identifier(i)
       i += data.length
@@ -356,13 +460,23 @@ function Compile (prog, input) {
       type = 'raw'
       data = parse_inner(i)
       i += data.length + 1
+    } else if (is_num(c)) {
+      type = 'number'
+      data = parse_number(i)
+      i += data.length
+      data = parseFloat(data)
     } else {
       type = 'unknown'
       data = prog[i++]
     }
 
-    if (data === 'each' || data === 'in') {
+    if (data === 'each' || data === 'in' || data === 'if') {
       type = data
+    }
+
+    if (data === 'true' || data === 'false') {
+      type = 'bool'
+      data = (data === 'true')
     }
 
     current.type = type

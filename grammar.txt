@@ -11,7 +11,7 @@ compare ::=
   > | < | == | >= | <=
 
 value ::=
-  string | number | variable
+  string | number | variable | boolean
 
 variable ::=
   identifier subvariable 
