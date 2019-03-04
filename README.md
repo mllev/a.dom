@@ -7,7 +7,7 @@ A templating engine for Javascript. HTML is just awful to write. This is better.
 - Simple, single function API - string input, string output
 - Elegant syntax but without whitespace sensitivity
 - Can be used in any javascript environment
-- basic control structures like if and each (these are not very robust yet)
+- basic control structures like if and each
 
 Here is the smallest complete example:
 
