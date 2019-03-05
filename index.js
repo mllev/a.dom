@@ -1,7 +1,7 @@
 function Compile (prog, input) {
   let i = 0
-  let current = { type: '', data: '', i: 0 }
-  let cache = { type: '', data: '', i: 0 }
+  let current = { type: '', data: '', i: 0, line: 0 }
+  let cache = { type: '', data: '', i: 0, line: 0 }
   let error = false
   let indents = -1
   let current_classlist = []
@@ -10,9 +10,10 @@ function Compile (prog, input) {
   let current_depth = -1
   let output = ''
   let conditionally_print = true
+  let global_line = 1
 
-  function log_error (err) {
-    console.log('Error: ' + err)
+  function log_error (err, line) {
+    console.log('Error line ' + line + ': ' + err)
     error = true
   }
 
@@ -20,12 +21,14 @@ function Compile (prog, input) {
     cache.type = current.type
     cache.data = current.data
     cache.i = i
+    cache.line = current.line
   }
 
   function restore () {
     i = cache.i
     current.type = cache.type
     current.data = cache.data
+    current.line = cache.line
   }
 
   function emit_indents () {
@@ -58,7 +61,7 @@ function Compile (prog, input) {
   function expect (type) {
     if (error) return
     if (current.type !== type) {
-      log_error('Unexpected token: ', current.data)
+      log_error('Unexpected token: ' + current.data, current.line)
     } else {
       next()
     }
@@ -107,17 +110,19 @@ function Compile (prog, input) {
       data: value()
     }
     let should_print = false
+    let scope_print_status = conditionally_print
     let cmp = current.data
     if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==')) {
-      log_error('Unexpected token ' + current.type)
+      log_error('Unexpected token ' + current.type, current.line)
       return
     }
+    let line = current.line
     let v2 = {
       type: current.type,
       data: value()
     }
     if (v1.type !== v2.type) {
-      log_error('Cannot compare ' + v1.type + ' and ' + v2.type)
+      log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
       return
     }
     switch (cmp) {
@@ -138,9 +143,12 @@ function Compile (prog, input) {
         break
     }
     expect('[')
-    conditionally_print = should_print
+    // don't accidentally allow printing if the outer conditional is false
+    if (scope_print_status === true) {
+      conditionally_print = should_print
+    }
     elementlist()
-    conditionally_print = true
+    conditionally_print = scope_print_status
     expect(']')
   }
 
@@ -151,6 +159,7 @@ function Compile (prog, input) {
     expect('identifier')
     expect('in')
     let field = current.data
+    let line = current.line
     let data = compute_value(field)
     expect('identifier')
     expect('[')
@@ -165,7 +174,7 @@ function Compile (prog, input) {
         scopes.pop()
       })
     } else {
-      log_error(field + ' is not an array')
+      log_error(field + ' is not an array', line)
       return
     }
     expect(']')
@@ -260,7 +269,7 @@ function Compile (prog, input) {
       let field2 = parts[1].trim()
 
       if (typeof ctx[field1] !== 'object') {
-        log_error(field1 + ' is not an object')
+        log_error(field1 + ' is not an object', 'unknown')
         return
       } else {
         computed = ctx[field1][field2]
@@ -268,7 +277,7 @@ function Compile (prog, input) {
     } else if (ctx[v]) {
       computed = ctx[v]
     } else {
-      log_error('Unknown identifier: ' + v)
+      log_error('Unknown identifier: ' + v, 'unknown')
       return
     }
     return computed
@@ -406,7 +415,12 @@ function Compile (prog, input) {
   function next () {
     let c, data, type
 
-    while (is_space(prog[i])) i++
+    while (is_space(prog[i])) {
+      if (prog[i] === '\n') {
+        global_line++
+      }
+      i++
+    }
     c = prog[i]
 
     if (i >= prog.length) {
@@ -466,7 +480,7 @@ function Compile (prog, input) {
       i += data.length
       data = parseFloat(data)
     } else {
-      type = 'unknown'
+      type = prog[i]
       data = prog[i++]
     }
 
@@ -481,6 +495,7 @@ function Compile (prog, input) {
 
     current.type = type
     current.data = data
+    current.line = global_line
   }
 
   function run () {
@@ -494,7 +509,12 @@ function Compile (prog, input) {
   }
 
   run()
-  return output
+
+  if (error) {
+    return undefined
+  } else {
+    return output
+  }
 }
 
 module.exports = Compile

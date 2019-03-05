@@ -14,7 +14,7 @@ let test = `
 html [
   body [
     h1 class='#{h1class1} #{h1class2}' | List 1 |
-    if 10 >= 9.99999 [
+    if 10 > 12 [
       if 1 <= 2 [
         ul.class-shorthand [
           each item in items1 [
