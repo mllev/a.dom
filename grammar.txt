@@ -4,8 +4,9 @@ elementlist ::=
   empty
 
 expression ::=
-  each identifier in variable { elementlist } |
-  if value compare value { elementlist }
+  each identifier in variable [ elementlist ] |
+  if value compare value [ elementlist ] |
+  if value compare value [ elementlist ] else [ elementlist ] |
 
 compare ::=
   > | < | == | >= | <=

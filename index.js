@@ -94,7 +94,7 @@ function Compile (prog, input) {
   }
 
   function value () {
-    if (peek('identifier') || peek('string') || peek('number')) {
+    if (peek('identifier') || peek('string') || peek('number') || peek('bool')) {
       let d = current.data
       next()
       return d
@@ -127,16 +127,36 @@ function Compile (prog, input) {
     }
     switch (cmp) {
       case '<=':
-        should_print = (v1.data <= v2.data)
+        if (v1.type !== 'number') {
+          log_error('Operator can only be used on numbers', line)
+          return
+        } else {
+          should_print = (v1.data <= v2.data)
+        }
         break
       case '<':
-        should_print = (v1.data < v2.data)
+        if (v1.type !== 'number') {
+          log_error('Operator can only be used on numbers', line)
+          return
+        } else {
+          should_print = (v1.data < v2.data)
+        }
         break
       case '>=':
-        should_print = (v1.data >= v2.data)
+        if (v1.type !== 'number') {
+          log_error('Operator can only be used on numbers', line)
+          return
+        } else {
+          should_print = (v1.data >= v2.data)
+        }
         break
       case '>':
-        should_print = (v1.data > v2.data)
+        if (v1.type !== 'number') {
+          log_error('Operator can only be used on numbers', line)
+          return
+        } else {
+          should_print = (v1.data > v2.data)
+        }
         break
       case '==':
         should_print = (v1.data == v2.data)
@@ -148,8 +168,16 @@ function Compile (prog, input) {
       conditionally_print = should_print
     }
     elementlist()
-    conditionally_print = scope_print_status
     expect(']')
+    if (accept('else')) {
+      if (scope_print_status === true) {
+        conditionally_print = !should_print
+      }
+      expect('[')
+      elementlist()
+      expect(']')
+    }
+    conditionally_print = scope_print_status
   }
 
   function eachstatement () {
@@ -484,7 +512,7 @@ function Compile (prog, input) {
       data = prog[i++]
     }
 
-    if (data === 'each' || data === 'in' || data === 'if') {
+    if (data === 'each' || data === 'in' || data === 'if' || data === 'else') {
       type = data
     }
 
@@ -511,6 +539,7 @@ function Compile (prog, input) {
   run()
 
   if (error) {
+    // throw the error maybe
     return undefined
   } else {
     return output

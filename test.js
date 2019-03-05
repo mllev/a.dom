@@ -14,13 +14,15 @@ let test = `
 html [
   body [
     h1 class='#{h1class1} #{h1class2}' | List 1 |
-    if 10 > 12 [
-      if 1 <= 2 [
+    if 10 > 8 [
+      if 1 >= 2 [
         ul.class-shorthand [
           each item in items1 [
             li | #{item} |
           ]
         ]
+      ] else [
+        span | ELSE CLAUSE |
       ]
     ]
     h1 | List 2 |
