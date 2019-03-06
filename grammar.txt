@@ -5,11 +5,19 @@ elementlist ::=
   customtagcall |
   empty
 
+valuelist ::=
+  value valuelist |
+  empty
+
+arglist ::=
+  identifier arglist |
+  empty
+
 customtagcall ::=
-  [ identifier ]
+  [ identifier valuelist ]
 
 customtagdef ::=
-  'tag' identifier [ element ]
+  'tag' identifier arglist [ element ]
 
 expression ::=
   each identifier in variable [ elementlist ] |

@@ -28,4 +28,3 @@ let html = Compile(test, {
 
 console.log(html)
 ```
-
