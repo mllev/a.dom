@@ -1,5 +1,5 @@
 const Compile = require('./index')
-// const fs = require('fs')
+const fs = require('fs')
 
 let html
 
@@ -11,9 +11,17 @@ function benchmark (fn) {
 }
 
 let test = `
+tag Button [
+  a href='/' [
+    button.button-styles | click |
+    span.button-flare []
+  ]
+]
+
 html [
   body [
     h1 class='#{h1class1} #{h1class2}' | List 1 |
+    [ Button ]
     if 10 > 8 [
       div | 10 greater than 8 |
       if 1 >= 2 [
@@ -26,6 +34,7 @@ html [
         span | ELSE CLAUSE |
       ]
     ]
+    [ Button ]
     h1 | List 2 |
     ul [
       each item in items2 [
@@ -35,8 +44,8 @@ html [
     h1 | List 2 |
     ul [
       each item in items3 [
-        each i in item [
-          li | #{i} |
+        each x in item [
+          li | #{x} |
         ]
       ]
     ]

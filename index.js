@@ -1,11 +1,12 @@
 function Compile (prog, input) {
   let cursor = 0
-  let current = { type: '', data: '', i: 0, line: 0 }
-  let cache = { type: '', data: '', i: 0, line: 0 }
+  let current = { type: '', data: '', line: 0 }
+  let cache = { type: '', data: '', cursor: 0, line: 0 }
   let error = false
   let indents = -1
   let current_classlist = []
   let current_idlist = []
+  let tags = []
   let scopes = []
   let current_depth = -1
   let output = ''
@@ -17,15 +18,22 @@ function Compile (prog, input) {
     error = true
   }
 
+  function set_state (type, data, i, line) {
+    current.type = type
+    current.data = data
+    cursor = i
+    current.line = line
+  }
+
   function save () {
     cache.type = current.type
     cache.data = current.data
-    cache.i = cursor
+    cache.cursor = cursor
     cache.line = current.line
   }
 
   function restore () {
-    cursor = cache.i
+    cursor = cache.cursor
     current.type = cache.type
     current.data = cache.data
     current.line = cache.line
@@ -90,7 +98,48 @@ function Compile (prog, input) {
     } else if (peek('if')) {
       ifstatement()
       elementlist()
+    } else if (peek('tag')) {
+      customtag()
+      elementlist()
+    } else if (accept('[')) {
+      let id = current.data
+      expect('identifier')
+      let line = current.line
+      let state = tags[id]
+      if (state) {
+        save()
+        set_state(state.type, state.data, state.i, state.line)
+        customtagbody()
+        restore()
+        expect(']')
+        elementlist()
+      } else {
+        log_error('Unknown tag: ' + id, line)
+        return
+      }
     }
+  }
+
+  function customtagbody () {
+    expect('[')
+    elementlist()
+    expect(']')
+  }
+
+  function customtag () {
+    expect('tag')
+    let id = current.data
+    expect('identifier')
+    tags[id] = {
+      i: cursor,
+      data: current.data,
+      type: current.type,
+      line: current.line
+    }
+    let scoped_print = global_print
+    global_print = false
+    customtagbody()
+    global_print = scoped_print
   }
 
   function value () {
@@ -110,7 +159,7 @@ function Compile (prog, input) {
       data: value()
     }
     let should_print = false
-    let scope_print_status = global_print
+    let scoped_print = global_print
     let cmp = current.data
     if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==')) {
       log_error('Unexpected token ' + current.type, current.line)
@@ -164,20 +213,20 @@ function Compile (prog, input) {
     }
     expect('[')
     // don't accidentally allow printing if the outer conditional is false
-    if (scope_print_status === true) {
+    if (scoped_print === true) {
       global_print = should_print
     }
     elementlist()
     expect(']')
     if (accept('else')) {
-      if (scope_print_status === true) {
+      if (scoped_print === true) {
         global_print = !should_print
       }
       expect('[')
       elementlist()
       expect(']')
     }
-    global_print = scope_print_status
+    global_print = scoped_print
   }
 
   function eachstatement () {
@@ -211,8 +260,8 @@ function Compile (prog, input) {
   function element () {
     if (error) return
     indents++
-    if (peek('identifier')) {
-      let id = current.data
+    let id = current.data
+    if (accept('identifier')) {
       emit_indents()
       emit_partial_line('<' + id)
       tagdef()
@@ -238,7 +287,6 @@ function Compile (prog, input) {
 
   function tag () {
     if (error) return
-    expect('identifier')
     if (accept('.')) {
       classlist()
     } else if (accept('#')) {
@@ -433,12 +481,20 @@ function Compile (prog, input) {
   }
 
   function is_sym (c) {
-    return c === '[' || c === ']' || c === '.' || c == '#'
+    return c === '[' || c === ']' || c === '.' || c == '#' || c == '(' || c == ')'
   }
 
   function is_space (c) {
     return c === ' ' || c === '\t' || c === '\r' || c === '\n'
   }
+
+  const keywords = [
+    'each',
+    'in',
+    'if',
+    'else',
+    'tag'
+  ]
 
   function next () {
     let c, data, type
@@ -512,7 +568,7 @@ function Compile (prog, input) {
       data = prog[cursor++]
     }
 
-    if (data === 'each' || data === 'in' || data === 'if' || data === 'else') {
+    if (keywords.indexOf(data) !== -1) {
       type = data
     }
 

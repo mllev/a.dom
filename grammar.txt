@@ -1,7 +1,15 @@
 elementlist ::=
   element elementlist |
-  expression elementlist
+  expression elementlist |
+  customtagdef elementlist |
+  customtagcall |
   empty
+
+customtagcall ::=
+  [ identifier ]
+
+customtagdef ::=
+  'tag' identifier [ element ]
 
 expression ::=
   each identifier in variable [ elementlist ] |
