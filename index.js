@@ -1,5 +1,5 @@
 function Compile (prog, input) {
-  let i = 0
+  let cursor = 0
   let current = { type: '', data: '', i: 0, line: 0 }
   let cache = { type: '', data: '', i: 0, line: 0 }
   let error = false
@@ -9,7 +9,7 @@ function Compile (prog, input) {
   let scopes = []
   let current_depth = -1
   let output = ''
-  let conditionally_print = true
+  let global_print = true
   let global_line = 1
 
   function log_error (err, line) {
@@ -20,12 +20,12 @@ function Compile (prog, input) {
   function save () {
     cache.type = current.type
     cache.data = current.data
-    cache.i = i
+    cache.i = cursor
     cache.line = current.line
   }
 
   function restore () {
-    i = cache.i
+    cursor = cache.i
     current.type = cache.type
     current.data = cache.data
     current.line = cache.line
@@ -36,11 +36,11 @@ function Compile (prog, input) {
     for (let i = 0; i < indents; i++) {
       space += '    '
     }
-    if (conditionally_print) output += space
+    if (global_print) output += space
   }
 
   function emit_partial_line (str) {
-    if (conditionally_print) output += str
+    if (global_print) output += str
   }
 
   function emit_line (line) {
@@ -110,7 +110,7 @@ function Compile (prog, input) {
       data: value()
     }
     let should_print = false
-    let scope_print_status = conditionally_print
+    let scope_print_status = global_print
     let cmp = current.data
     if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==')) {
       log_error('Unexpected token ' + current.type, current.line)
@@ -165,19 +165,19 @@ function Compile (prog, input) {
     expect('[')
     // don't accidentally allow printing if the outer conditional is false
     if (scope_print_status === true) {
-      conditionally_print = should_print
+      global_print = should_print
     }
     elementlist()
     expect(']')
     if (accept('else')) {
       if (scope_print_status === true) {
-        conditionally_print = !should_print
+        global_print = !should_print
       }
       expect('[')
       elementlist()
       expect(']')
     }
-    conditionally_print = scope_print_status
+    global_print = scope_print_status
   }
 
   function eachstatement () {
@@ -443,73 +443,73 @@ function Compile (prog, input) {
   function next () {
     let c, data, type
 
-    while (is_space(prog[i])) {
-      if (prog[i] === '\n') {
+    while (is_space(prog[cursor])) {
+      if (prog[cursor] === '\n') {
         global_line++
       }
-      i++
+      cursor++
     }
-    c = prog[i]
+    c = prog[cursor]
 
-    if (i >= prog.length) {
+    if (cursor >= prog.length) {
       current.type = 'eof',
       current.data = undefined
       return
     }
 
     if (c === '=') {
-      if (prog[i+1] === '=') {
+      if (prog[cursor+1] === '=') {
         type = '=='
-        i += 2
+        cursor += 2
         data = type
       } else {
         type = c
         data = c
-        i++
+        cursor++
       }
     } else if (c === '>') {
-      if (prog[i+1] === '=') {
+      if (prog[cursor+1] === '=') {
         type = '>='
-        i += 2
+        cursor += 2
       } else {
         type = '>'
-        i++
+        cursor++
       }
       data = type
     } else if (c === '<') {
-      if (prog[i+1] === '=') {
+      if (prog[cursor+1] === '=') {
         type = '<='
-        i += 2
+        cursor += 2
       } else {
         type = '<'
-        i++
+        cursor++
       }
       data = type
     } else if (is_alpha(c)) {
       type = 'identifier'
-      data = identifier(i)
-      i += data.length
+      data = identifier(cursor)
+      cursor += data.length
     } else if (is_sym(c)) {
       type = c
       data = c
-      i++
+      cursor++
     } else if (c === '"' || c === '\'') {
       type = 'string'
-      data = parse_string(i)
-      i += data.length + 2
+      data = parse_string(cursor)
+      cursor += data.length + 2
     } else if (c === '|') {
-      i++
+      cursor++
       type = 'raw'
-      data = parse_inner(i)
-      i += data.length + 1
+      data = parse_inner(cursor)
+      cursor += data.length + 1
     } else if (is_num(c)) {
       type = 'number'
-      data = parse_number(i)
-      i += data.length
+      data = parse_number(cursor)
+      cursor += data.length
       data = parseFloat(data)
     } else {
-      type = prog[i]
-      data = prog[i++]
+      type = prog[cursor]
+      data = prog[cursor++]
     }
 
     if (data === 'each' || data === 'in' || data === 'if' || data === 'else') {

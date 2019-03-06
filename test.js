@@ -15,6 +15,7 @@ html [
   body [
     h1 class='#{h1class1} #{h1class2}' | List 1 |
     if 10 > 8 [
+      div | 10 greater than 8 |
       if 1 >= 2 [
         ul.class-shorthand [
           each item in items1 [
