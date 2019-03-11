@@ -21,33 +21,32 @@ tag Button [
 html [
   body [
     h1 class='#{h1class1} #{h1class2}' | List 1 |
-    [ Button ]
-    if 10 > 8 [
+    if 10 > 8 {
       div | 10 greater than 8 |
-      if 1 >= 2 [
+      if 1 <= 2 {
         ul.class-shorthand [
-          each item in items1 [
+          each item in items1[0].items1inner {
             li | #{item} |
-          ]
+          }
         ]
-      ] else [
+      } else {
         span | ELSE CLAUSE |
-      ]
-    ]
+      }
+    }
     [ Button ]
     h1 | List 2 |
     ul [
-      each item in items2 [
+      each item in items2 {
         li | #{item.data} |
-      ]
+      }
     ]
     h1 | List 2 |
     ul [
-      each item in items3 [
-        each x in item [
-          li | #{x} |
-        ]
-      ]
+      each item in items3 {
+        each x in item {
+          li | #{x[0]} |
+        }
+      }
     ]
   ]
 ]
@@ -59,6 +58,7 @@ benchmark(() => {
     h1class1: 'font-thin',
     h1class2: 'font-blue',
     items1: [
+      { items1inner: ['feed the fish', 'eat the fish'] },
       'walk the dog',
       'buy a cheeseburger'
     ],
@@ -68,8 +68,8 @@ benchmark(() => {
     ],
     items3: [
       [
-        'sell car',
-        'buy more expensive car'
+        [ 'sell car' ],
+        [ 'buy more expensive car' ]
       ]
     ]
   })

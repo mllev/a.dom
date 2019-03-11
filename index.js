@@ -2,10 +2,12 @@ function Compile (prog, input) {
   let cursor = 0
   let current = { type: '', data: '', line: 0 }
   let cache = { type: '', data: '', cursor: 0, line: 0 }
+  let file = prog
   let error = false
   let indents = -1
   let current_classlist = []
   let current_idlist = []
+  let current_accessorlist = []
   let tags = []
   let scopes = []
   let current_depth = -1
@@ -18,11 +20,12 @@ function Compile (prog, input) {
     error = true
   }
 
-  function set_state (type, data, i, line) {
-    current.type = type
-    current.data = data
-    cursor = i
-    current.line = line
+  function set_state (state, f) {
+    current.type = state.type
+    current.data = state.data
+    cursor = state.cursor
+    current.line = state.line
+    file = f || file
   }
 
   function save () {
@@ -30,9 +33,11 @@ function Compile (prog, input) {
     cache.data = current.data
     cache.cursor = cursor
     cache.line = current.line
+    cache.file = file
   }
 
   function restore () {
+    file = cache.file
     cursor = cache.cursor
     current.type = cache.type
     current.data = cache.data
@@ -108,7 +113,7 @@ function Compile (prog, input) {
       let state = tags[id]
       if (state) {
         save()
-        set_state(state.type, state.data, state.i, state.line)
+        set_state(state)
         customtagbody()
         restore()
         expect(']')
@@ -131,7 +136,7 @@ function Compile (prog, input) {
     let id = current.data
     expect('identifier')
     tags[id] = {
-      i: cursor,
+      cursor: cursor,
       data: current.data,
       type: current.type,
       line: current.line
@@ -151,7 +156,7 @@ function Compile (prog, input) {
     return undefined
   }
 
-  function ifstatement() {
+  function ifstatement () {
     if (error) return
     expect('if')
     let v1 = {
@@ -211,20 +216,20 @@ function Compile (prog, input) {
         should_print = (v1.data == v2.data)
         break
     }
-    expect('[')
+    expect('{')
     // don't accidentally allow printing if the outer conditional is false
     if (scoped_print === true) {
       global_print = should_print
     }
     elementlist()
-    expect(']')
+    expect('}')
     if (accept('else')) {
       if (scoped_print === true) {
         global_print = !should_print
       }
-      expect('[')
+      expect('{')
       elementlist()
-      expect(']')
+      expect('}')
     }
     global_print = scoped_print
   }
@@ -235,11 +240,10 @@ function Compile (prog, input) {
     let it = current.data
     expect('identifier')
     expect('in')
-    let field = current.data
     let line = current.line
-    let data = compute_value(field)
-    expect('identifier')
-    expect('[')
+    variable()
+    let data = compute_value()
+    expect('{')
     save()
     if (data.forEach !== undefined) {
       data.forEach(function (d) {
@@ -251,10 +255,10 @@ function Compile (prog, input) {
         scopes.pop()
       })
     } else {
-      log_error(field + ' is not an array', line)
+      log_error('Iterator is not an array', line)
       return
     }
-    expect(']')
+    expect('}')
   }
 
   function element () {
@@ -316,6 +320,31 @@ function Compile (prog, input) {
     }
   }
 
+  function variable () {
+    let a = current.data
+    expect('identifier')
+    current_accessorlist.push(a)
+    accessor()
+  }
+
+  function accessor () {
+    if (accept('.')) {
+      let a = current.data
+      expect('identifier')
+      current_accessorlist.push(a)
+      accessor()
+    } else if (accept('[')) {
+      let a = current.data
+      if (accept('string') || accept('number')) {
+        expect(']')
+        current_accessorlist.push(a)
+        accessor()
+      } else {
+        log_error('Unexpected token: ' + current.type)
+      }
+    }
+  }
+
   function iterate_over_variables (fn) {
     let id = ''
     let start = 0, end = 0
@@ -335,28 +364,39 @@ function Compile (prog, input) {
     }
   }
 
-  function compute_value (value) {
-    let computed
-    let v = value.trim()
-    let ctx = scopes[current_depth]
-    if (value.indexOf('.') !== -1) {
-      let parts = v.split('.')
-      let field1 = parts[0].trim()
-      let field2 = parts[1].trim()
-
-      if (typeof ctx[field1] !== 'object') {
-        log_error(field1 + ' is not an object', 'unknown')
-        return
-      } else {
-        computed = ctx[field1][field2]
+  function compute_value () {
+    let val
+    for (let i = current_depth; i >= 0; i--) {
+      let ctx = scopes[i]
+      if (ctx[current_accessorlist[0]]) {
+        val = ctx[current_accessorlist[0]]
+        break
       }
-    } else if (ctx[v]) {
-      computed = ctx[v]
-    } else {
-      log_error('Unknown identifier: ' + v, 'unknown')
-      return
     }
-    return computed
+    if (!val) {
+      return undefined
+    }
+    for (let i = 1; i < current_accessorlist.length; i++) {
+      val = val[current_accessorlist[i]]
+    }
+    current_accessorlist = []
+    return val
+  }
+
+  function compute_interpolated_value (value) {
+    let state = {
+      type: current.type,
+      data: current.data,
+      cursor: cursor,
+      line: current.line
+    }
+    let f = file
+    set_state({ cursor: 0, type: '', data: '', line: current.line }, value)
+    next()
+    variable()
+    let v = compute_value()
+    set_state(state, f)
+    return v
   }
 
   function replace_values (data, values) {
@@ -365,7 +405,7 @@ function Compile (prog, input) {
 
     for (let i = 0; i < values.length; i++) {
       let end_index = values[i].start_index - 2
-      let v = compute_value(values[i].variable)
+      let v = compute_interpolated_value(values[i].variable)
       outp += (data.slice(start_index, end_index) + v)
       start_index = values[i].end_index + 2
     }
@@ -434,20 +474,20 @@ function Compile (prog, input) {
 
   function identifier (i) {
     let id = ''
-    while (is_alpha(prog[i]) || is_num(prog[i]) || prog[i] === '_' || prog[i] === '-') {
-      id += prog[i++]
+    while (is_alpha(file[i]) || is_num(file[i]) || file[i] === '_' || file[i] === '-') {
+      id += file[i++]
     }
     return id
   }
 
   function parse_string (i) {
     let str = ''
-    let del = prog[i++]
-    while (prog[i] !== del && i < prog.length) {
-      if (prog[i] === '\\') {
-        str += prog[++i]
+    let del = file[i++]
+    while (file[i] !== del && i < file.length) {
+      if (file[i] === '\\') {
+        str += file[++i]
       } else {
-        str += prog[i]
+        str += file[i]
       }
       i++
     }
@@ -458,11 +498,11 @@ function Compile (prog, input) {
   function parse_number (i) {
     let num = ''
     let dot_found = false
-    while (i < prog.length) {
-      if (is_num(prog[i])) {
-        num += prog[i]
-      } else if (prog[i] === '.' && dot_found === false) {
-        num += prog[i]
+    while (i < file.length) {
+      if (is_num(file[i])) {
+        num += file[i]
+      } else if (file[i] === '.' && dot_found === false) {
+        num += file[i]
         dot_found = false
       } else {
         break
@@ -474,8 +514,8 @@ function Compile (prog, input) {
 
   function parse_inner (i) {
     let inner = ''
-    while (prog[i] !== '|' && i < prog.length) {
-      inner += prog[i++]
+    while (file[i] !== '|' && i < file.length) {
+      inner += file[i++]
     }
     return inner
   }
@@ -499,22 +539,22 @@ function Compile (prog, input) {
   function next () {
     let c, data, type
 
-    while (is_space(prog[cursor])) {
-      if (prog[cursor] === '\n') {
+    while (is_space(file[cursor])) {
+      if (file[cursor] === '\n') {
         global_line++
       }
       cursor++
     }
-    c = prog[cursor]
+    c = file[cursor]
 
-    if (cursor >= prog.length) {
+    if (cursor >= file.length) {
       current.type = 'eof',
       current.data = undefined
       return
     }
 
     if (c === '=') {
-      if (prog[cursor+1] === '=') {
+      if (file[cursor+1] === '=') {
         type = '=='
         cursor += 2
         data = type
@@ -524,7 +564,7 @@ function Compile (prog, input) {
         cursor++
       }
     } else if (c === '>') {
-      if (prog[cursor+1] === '=') {
+      if (file[cursor+1] === '=') {
         type = '>='
         cursor += 2
       } else {
@@ -533,7 +573,7 @@ function Compile (prog, input) {
       }
       data = type
     } else if (c === '<') {
-      if (prog[cursor+1] === '=') {
+      if (file[cursor+1] === '=') {
         type = '<='
         cursor += 2
       } else {
@@ -564,8 +604,8 @@ function Compile (prog, input) {
       cursor += data.length
       data = parseFloat(data)
     } else {
-      type = prog[cursor]
-      data = prog[cursor++]
+      type = file[cursor]
+      data = file[cursor++]
     }
 
     if (keywords.indexOf(data) !== -1) {

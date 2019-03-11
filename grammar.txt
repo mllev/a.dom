@@ -20,9 +20,9 @@ customtagdef ::=
   'tag' identifier arglist [ element ]
 
 expression ::=
-  each identifier in variable [ elementlist ] |
-  if value compare value [ elementlist ] |
-  if value compare value [ elementlist ] else [ elementlist ] |
+  each identifier in variable { elementlist } |
+  if value compare value { elementlist } |
+  if value compare value { elementlist } else { elementlist } |
 
 compare ::=
   > | < | == | >= | <=
@@ -31,11 +31,11 @@ value ::=
   string | number | variable | boolean
 
 variable ::=
-  identifier subvariable 
+  identifier accessor 
 
-subvariable ::=
-  [ value ] subvariable |
-  . identifier subvariable |
+accessor ::=
+  [ value ] accessor |
+  . identifier accessor |
   empty
 
 element ::=
