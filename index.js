@@ -7,6 +7,7 @@ function Compile (prog, input) {
   let current_classlist = []
   let current_idlist = []
   let current_accessorlist = []
+  let scalar_value = undefined
   let tags = []
   let scopes = []
   let current_depth = -1
@@ -51,7 +52,8 @@ function Compile (prog, input) {
 
   function emit_line (line) {
     emit_indents()
-    emit_partial_line(line + '\n')
+    emit_partial_line(line)
+    emit_partial_line('\n')
   }
 
   function accept (type) {
@@ -67,7 +69,7 @@ function Compile (prog, input) {
   function expect (type) {
     if (error) return
     if (current.type !== type) {
-      log_error('Unexpected token: ' + current.data, current.line)
+      log_error('Unexpected token: ' + current.type, current.line)
     } else {
       next()
     }
@@ -141,20 +143,23 @@ function Compile (prog, input) {
   }
 
   function value () {
-    if (peek('identifier') || peek('string') || peek('number') || peek('bool')) {
-      let d = current.data
+    if (peek('identifier')) {
+      scalar_value = undefined
+      variable()
+    } else if (peek('string') || peek('number') || peek('bool')) {
+      scalar_value = current.data
       next()
-      return d
     }
-    return undefined
   }
 
   function ifstatement () {
     if (error) return
     expect('if')
+    value()
+    let val = compute_value()
     let v1 = {
-      type: current.type,
-      data: value()
+      type: typeof val,
+      data: val
     }
     let should_print = false
     let scoped_print = global_print
@@ -164,9 +169,11 @@ function Compile (prog, input) {
       return
     }
     let line = current.line
+    value()
+    val = compute_value()
     let v2 = {
-      type: current.type,
-      data: value()
+      type: typeof val,
+      data: val
     }
     if (v1.type !== v2.type) {
       log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
@@ -238,7 +245,7 @@ function Compile (prog, input) {
     let data = compute_value()
     expect('{')
     let state = get_state()
-    if (data.forEach !== undefined) {
+    if (data !== undefined && data.forEach !== undefined) {
       data.forEach(function (d) {
         scopes.push({ [it]: d })
         current_depth++
@@ -248,7 +255,7 @@ function Compile (prog, input) {
         scopes.pop()
       })
     } else {
-      log_error('Iterator is not an array', line)
+      log_error('Cannot use each with ' + (typeof data) + ' type', line)
       return
     }
     expect('}')
@@ -316,6 +323,7 @@ function Compile (prog, input) {
   function variable () {
     let a = current.data
     expect('identifier')
+    scalar_value = undefined
     current_accessorlist.push(a)
     accessor()
   }
@@ -359,6 +367,9 @@ function Compile (prog, input) {
 
   function compute_value () {
     let val
+    if (scalar_value !== undefined) {
+      return scalar_value
+    }
     for (let i = current_depth; i >= 0; i--) {
       let ctx = scopes[i]
       if (ctx[current_accessorlist[0]]) {

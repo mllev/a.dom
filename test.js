@@ -10,8 +10,8 @@ function benchmark (fn) {
   console.info('Execution time (hr): %ds %dms', hrend[0], hrend[1] / 1000000)
 }
 
-let test = `
-tag Button [
+let test =
+`tag Button [
   a href='/' [
     button.button-styles | click |
     span.button-flare []
@@ -21,8 +21,8 @@ tag Button [
 html [
   body [
     h1 class='#{h1class1[0]} #{h1class2}' | List 1 |
-    if 10 > 8 {
-      div | 10 greater than 8 |
+    if testNum.val[0][1] >= testNum.val[0][0] {
+      div | #{testNum.val[0][1]} less than #{testNum.val[0][0]} |
       if 1 <= 2 {
         ul.class-shorthand [
           each item in items1[0].items1inner {
@@ -32,7 +32,7 @@ html [
       } else {
         span | ELSE CLAUSE |
       }
-    }
+    } else { span | NOPE | }
     [ Button ]
     h1 | List 2 |
     ul [
@@ -49,12 +49,12 @@ html [
       }
     ]
   ]
-]
-`
+]`
 
 benchmark(() => {
   // let test = fs.readFileSync('big-test.template', 'utf-8')
   html = Compile(test, {
+    testNum: { val: [[500, 400]] },
     h1class1: ['font-thin'],
     h1class2: 'font-blue',
     items1: [
