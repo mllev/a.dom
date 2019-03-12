@@ -556,7 +556,9 @@ function Compile (prog, input) {
     'in',
     'if',
     'else',
-    'tag'
+    'tag',
+    'doctype',
+    'html5'
   ]
 
   function next () {
@@ -645,8 +647,16 @@ function Compile (prog, input) {
     current.line = global_line
   }
 
+  function doctype () {
+    if (accept('doctype')) {
+      expect('html5')
+      emit_line('<!DOCTYPE html>')
+    }
+  }
+
   function run () {
     next()
+    doctype()
     elementlist()
   }
 

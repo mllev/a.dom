@@ -11,27 +11,29 @@ function benchmark (fn) {
 }
 
 let test =
-`tag Button text1 text2 [
+`doctype html5
+
+tag Button text1 text2 [
   a href='/' [
-    button.button-styles | #{text1[0]} |
+    button.button-styles | #{text1} |
     span.button-flare []
   ]
 ]
 
-tag MyForm [
+tag MyForm submitMsg [
   form action='/' method='POST' [
     input name='email';
     input name='password' type='password';
-    input name='submit' type='submit';
-    [ Button buttonText1 ]
-    [ Button buttonText2 ]
+    input name='submit' type='submit' value='#{submitMsg}';
+    [ Button buttonText1[0] ]
+    [ Button buttonText2[0] ]
   ]
 ]
 
 html [
   body [
-    [ MyForm ]
-    [ MyForm ]
+    [ MyForm 'submit' ]
+    [ MyForm 'submit' ]
     h1 class='#{h1class1[0]} #{h1class2}' | List 1 |
     if testNum.val[0][1] >= testNum.val[0][0] {
       div | #{testNum.val[0][1]} less than #{testNum.val[0][0]} |
