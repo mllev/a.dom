@@ -7,6 +7,7 @@ function Compile (prog, input) {
   let current_classlist = []
   let current_idlist = []
   let current_accessorlist = []
+  let current_arglist = []
   let scalar_value = undefined
   let tags = []
   let scopes = []
@@ -107,11 +108,21 @@ function Compile (prog, input) {
       let line = current.line
       let state = tags[id]
       if (state) {
+        let local_data = {}
+        current_arglist = []
+        valuelist()
+        current_arglist.forEach(function (arg, idx) {
+          local_data[state.args[idx]] = arg
+        })
         let prev_state = get_state()
         set_state(state)
+        scopes.push(local_data)
+        current_depth++
         customtagbody()
         set_state(prev_state)
         expect(']')
+        current_depth--
+        scopes.pop()
         elementlist()
       } else {
         log_error('Unknown tag: ' + id, line)
@@ -126,18 +137,29 @@ function Compile (prog, input) {
     expect(']')
   }
 
+  function arglist () {
+    let id = current.data
+    if (accept('identifier')) {
+      current_arglist.push(id)
+      arglist()
+    }
+  }
+
   function customtag () {
     expect('tag')
     let id = current.data
     expect('identifier')
+    let scoped_print = global_print
+    global_print = false
+    current_arglist = []
+    arglist()
     tags[id] = {
       cursor: cursor,
       data: current.data,
       type: current.type,
-      line: current.line
+      line: current.line,
+      args: current_arglist
     }
-    let scoped_print = global_print
-    global_print = false
     customtagbody()
     global_print = scoped_print
   }
@@ -149,6 +171,14 @@ function Compile (prog, input) {
     } else if (peek('string') || peek('number') || peek('bool')) {
       scalar_value = current.data
       next()
+    }
+  }
+
+  function valuelist () {
+    if (peek('identifier') || peek('string') || peek('number') || peek('bool')) {
+      value()
+      current_arglist.push(compute_value())
+      valuelist()
     }
   }
 
@@ -259,6 +289,8 @@ function Compile (prog, input) {
         expect(']')
         emit_line('</' + id + '>')
       } else if (accept(';')) {
+        // xhtml self closing tags 
+        // make configurable
         emit_partial_line(' />\n')
       } else {
         emit_partial_line('>\n')
@@ -356,6 +388,7 @@ function Compile (prog, input) {
   function compute_value () {
     let val
     if (scalar_value !== undefined) {
+      current_accessorlist = []
       return scalar_value
     }
     for (let i = current_depth; i >= 0; i--) {
@@ -366,6 +399,7 @@ function Compile (prog, input) {
       }
     }
     if (!val) {
+      current_accessorlist = []
       return undefined
     }
     for (let i = 1; i < current_accessorlist.length; i++) {

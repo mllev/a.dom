@@ -11,9 +11,9 @@ function benchmark (fn) {
 }
 
 let test =
-`tag Button [
+`tag Button text1 text2 [
   a href='/' [
-    button.button-styles | click |
+    button.button-styles | #{text1[0]} |
     span.button-flare []
   ]
 ]
@@ -23,8 +23,8 @@ tag MyForm [
     input name='email';
     input name='password' type='password';
     input name='submit' type='submit';
-    [ Button ]
-    [ Button ]
+    [ Button buttonText1 ]
+    [ Button buttonText2 ]
   ]
 ]
 
@@ -66,6 +66,8 @@ html [
 benchmark(() => {
   // let test = fs.readFileSync('big-test.template', 'utf-8')
   html = Compile(test, {
+    buttonText1: ['CLICK ME'],
+    buttonText2: ['REGISTER'],
     testNum: { val: [[500, 400]] },
     h1class1: ['font-thin'],
     h1class2: 'font-blue',
