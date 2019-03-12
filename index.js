@@ -1,7 +1,6 @@
 function Compile (prog, input) {
   let cursor = 0
   let current = { type: '', data: '', line: 0 }
-  let cache = { type: '', data: '', cursor: 0, line: 0 }
   let file = prog
   let error = false
   let indents = -1
@@ -20,28 +19,22 @@ function Compile (prog, input) {
     error = true
   }
 
-  function set_state (state, f) {
-    current.type = state.type
-    current.data = state.data
-    cursor = state.cursor
-    current.line = state.line
-    file = f || file
+  function set_state (state) {
+    current.type = state.type || ''
+    current.data = state.data || ''
+    cursor = state.cursor || 0
+    current.line = state.line || 0
+    file = state.file || file
   }
 
-  function save () {
-    cache.type = current.type
-    cache.data = current.data
-    cache.cursor = cursor
-    cache.line = current.line
-    cache.file = file
-  }
-
-  function restore () {
-    file = cache.file
-    cursor = cache.cursor
-    current.type = cache.type
-    current.data = cache.data
-    current.line = cache.line
+  function get_state () {
+    return {
+      type: current.type,
+      data: current.data,
+      cursor: cursor,
+      line: current.line,
+      file: file
+    }
   }
 
   function emit_indents () {
@@ -112,10 +105,10 @@ function Compile (prog, input) {
       let line = current.line
       let state = tags[id]
       if (state) {
-        save()
+        let prev_state = get_state()
         set_state(state)
         customtagbody()
-        restore()
+        set_state(prev_state)
         expect(']')
         elementlist()
       } else {
@@ -244,12 +237,12 @@ function Compile (prog, input) {
     variable()
     let data = compute_value()
     expect('{')
-    save()
+    let state = get_state()
     if (data.forEach !== undefined) {
       data.forEach(function (d) {
         scopes.push({ [it]: d })
         current_depth++
-        restore()
+        set_state(state)
         elementlist()
         current_depth--
         scopes.pop()
@@ -384,18 +377,15 @@ function Compile (prog, input) {
   }
 
   function compute_interpolated_value (value) {
-    let state = {
-      type: current.type,
-      data: current.data,
-      cursor: cursor,
-      line: current.line
-    }
-    let f = file
-    set_state({ cursor: 0, type: '', data: '', line: current.line }, value)
+    let state = get_state()
+    set_state({
+      line: current.line,
+      file: value
+    })
     next()
     variable()
     let v = compute_value()
-    set_state(state, f)
+    set_state(state)
     return v
   }
 

@@ -20,7 +20,7 @@ tag Button [
 
 html [
   body [
-    h1 class='#{h1class1} #{h1class2}' | List 1 |
+    h1 class='#{h1class1[0]} #{h1class2}' | List 1 |
     if 10 > 8 {
       div | 10 greater than 8 |
       if 1 <= 2 {
@@ -55,7 +55,7 @@ html [
 benchmark(() => {
   // let test = fs.readFileSync('big-test.template', 'utf-8')
   html = Compile(test, {
-    h1class1: 'font-thin',
+    h1class1: ['font-thin'],
     h1class2: 'font-blue',
     items1: [
       { items1inner: ['feed the fish', 'eat the fish'] },
