@@ -17,7 +17,8 @@ customtagcall ::=
   [ identifier valuelist ]
 
 customtagdef ::=
-  'tag' identifier arglist [ element ]
+  'tag' identifier arglist [ element ] |
+  'tag' identifier arglist ;
 
 expression ::=
   each identifier in variable { elementlist } |

@@ -18,8 +18,20 @@ let test =
   ]
 ]
 
+tag MyForm [
+  form action='/' method='POST' [
+    input name='email';
+    input name='password' type='password';
+    input name='submit' type='submit';
+    [ Button ]
+    [ Button ]
+  ]
+]
+
 html [
   body [
+    [ MyForm ]
+    [ MyForm ]
     h1 class='#{h1class1[0]} #{h1class2}' | List 1 |
     if testNum.val[0][1] >= testNum.val[0][0] {
       div | #{testNum.val[0][1]} less than #{testNum.val[0][0]} |

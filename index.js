@@ -179,38 +179,22 @@ function Compile (prog, input) {
       log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
       return
     }
+    if (cmp !== '==' && v1.type !== 'number') {
+      log_error('Operator can only be used on numbers', line)
+      return
+    }
     switch (cmp) {
       case '<=':
-        if (v1.type !== 'number') {
-          log_error('Operator can only be used on numbers', line)
-          return
-        } else {
-          should_print = (v1.data <= v2.data)
-        }
+        should_print = (v1.data <= v2.data)
         break
       case '<':
-        if (v1.type !== 'number') {
-          log_error('Operator can only be used on numbers', line)
-          return
-        } else {
-          should_print = (v1.data < v2.data)
-        }
+        should_print = (v1.data < v2.data)
         break
       case '>=':
-        if (v1.type !== 'number') {
-          log_error('Operator can only be used on numbers', line)
-          return
-        } else {
-          should_print = (v1.data >= v2.data)
-        }
+        should_print = (v1.data >= v2.data)
         break
       case '>':
-        if (v1.type !== 'number') {
-          log_error('Operator can only be used on numbers', line)
-          return
-        } else {
-          should_print = (v1.data > v2.data)
-        }
+        should_print = (v1.data > v2.data)
         break
       case '==':
         should_print = (v1.data == v2.data)
@@ -269,14 +253,18 @@ function Compile (prog, input) {
       emit_indents()
       emit_partial_line('<' + id)
       tagdef()
-      emit_partial_line('>\n')
       if (accept('[')) {
+        emit_partial_line('>\n')
         elementlist()
         expect(']')
+        emit_line('</' + id + '>')
+      } else if (accept(';')) {
+        emit_partial_line(' />\n')
       } else {
+        emit_partial_line('>\n')
         innertext()
+        emit_line('</' + id + '>')
       }
-      emit_line('</' + id + '>')
     } else {
       innertext()
     }
@@ -522,7 +510,7 @@ function Compile (prog, input) {
   }
 
   function is_sym (c) {
-    return c === '[' || c === ']' || c === '.' || c == '#' || c == '(' || c == ')'
+    return c === '[' || c === ']' || c === '.' || c === '#' || c === '(' || c === ')' || c === ';'
   }
 
   function is_space (c) {
