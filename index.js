@@ -13,8 +13,8 @@ function Compile (prog, input) {
   let scopes = []
   let current_depth = -1
   let output = ''
-  let global_print = true
   let global_line = 1
+  let parse_only = false
 
   function log_error (err, line) {
     console.log('Error line ' + line + ': ' + err)
@@ -44,11 +44,11 @@ function Compile (prog, input) {
     for (let i = 0; i < indents; i++) {
       space += '    '
     }
-    if (global_print) output += space
+    output += space
   }
 
   function emit_partial_line (str) {
-    if (global_print) output += str
+    output += str
   }
 
   function emit_line (line) {
@@ -100,33 +100,43 @@ function Compile (prog, input) {
       ifstatement()
       elementlist()
     } else if (peek('tag')) {
+      let t = parse_only
+      parse_only = true
       customtag()
+      parse_only = t
       elementlist()
     } else if (accept('[')) {
-      let id = current.data
-      expect('identifier')
-      let line = current.line
-      let state = tags[id]
-      if (state) {
-        let local_data = {}
-        current_arglist = []
-        valuelist()
-        current_arglist.forEach(function (arg, idx) {
-          local_data[state.args[idx]] = arg
-        })
-        let prev_state = get_state()
-        set_state(state)
-        scopes.push(local_data)
-        current_depth++
-        customtagbody()
-        set_state(prev_state)
-        expect(']')
-        current_depth--
-        scopes.pop()
-        elementlist()
+      if (parse_only === false) {
+        let id = current.data
+        expect('identifier')
+        let line = current.line
+        let state = tags[id]
+        if (state) {
+          let local_data = {}
+          current_arglist = []
+          valuelist()
+          current_arglist.forEach(function (arg, idx) {
+            local_data[state.args[idx]] = arg
+          })
+          let prev_state = get_state()
+          set_state(state)
+          scopes.push(local_data)
+          current_depth++
+          customtagbody()
+          set_state(prev_state)
+          expect(']')
+          current_depth--
+          scopes.pop()
+          elementlist()
+        } else {
+          log_error('Unknown tag: ' + id, line)
+          return
+        }
       } else {
-        log_error('Unknown tag: ' + id, line)
-        return
+        expect('identifier')
+        valuelist()
+        expect(']')
+        elementlist()
       }
     }
   }
@@ -149,8 +159,6 @@ function Compile (prog, input) {
     expect('tag')
     let id = current.data
     expect('identifier')
-    let scoped_print = global_print
-    global_print = false
     current_arglist = []
     arglist()
     tags[id] = {
@@ -161,7 +169,6 @@ function Compile (prog, input) {
       args: current_arglist
     }
     customtagbody()
-    global_print = scoped_print
   }
 
   function value () {
@@ -182,70 +189,84 @@ function Compile (prog, input) {
     }
   }
 
-  function ifstatement () {
-    if (error) return
-    expect('if')
-    value()
-    let val = compute_value()
-    let v1 = {
-      type: typeof val,
-      data: val
-    }
-    let should_print = false
-    let scoped_print = global_print
-    let cmp = current.data
+  function parse_cmp () {
     if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==')) {
       log_error('Unexpected token ' + current.type, current.line)
       return
     }
-    let line = current.line
+  }
+
+  function ifstatement () {
+    if (error) return
+    expect('if')
     value()
-    val = compute_value()
-    let v2 = {
-      type: typeof val,
-      data: val
-    }
-    if (v1.type !== v2.type) {
-      log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
-      return
-    }
-    if (cmp !== '==' && v1.type !== 'number') {
-      log_error('Operator can only be used on numbers', line)
-      return
-    }
-    switch (cmp) {
-      case '<=':
-        should_print = (v1.data <= v2.data)
-        break
-      case '<':
-        should_print = (v1.data < v2.data)
-        break
-      case '>=':
-        should_print = (v1.data >= v2.data)
-        break
-      case '>':
-        should_print = (v1.data > v2.data)
-        break
-      case '==':
-        should_print = (v1.data == v2.data)
-        break
-    }
-    expect('{')
-    // don't accidentally allow printing if the outer conditional is false
-    if (scoped_print === true) {
-      global_print = should_print
-    }
-    elementlist()
-    expect('}')
-    if (accept('else')) {
-      if (scoped_print === true) {
-        global_print = !should_print
+    if (parse_only === true) {
+      parse_cmp()
+      value()
+      expect('{')
+      elementlist()
+      expect('}')
+      if (accept('else')) {
+        expect('{')
+        elementlist()
+        expect('}')
+      }
+    } else {
+      let val = compute_value()
+      let v1 = {
+        type: typeof val,
+        data: val
+      }
+      let is_true
+      let cmp = current.data
+      parse_cmp()
+      let line = current.line
+      value()
+      val = compute_value()
+      let v2 = {
+        type: typeof val,
+        data: val
+      }
+      if (v1.type !== v2.type) {
+        log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
+        return
+      }
+      if (cmp !== '==' && v1.type !== 'number') {
+        log_error('Operator can only be used on numbers', line)
+        return
+      }
+      switch (cmp) {
+        case '<=':
+          is_true = (v1.data <= v2.data)
+          break
+        case '<':
+          is_true = (v1.data < v2.data)
+          break
+        case '>=':
+          is_true = (v1.data >= v2.data)
+          break
+        case '>':
+          is_true = (v1.data > v2.data)
+          break
+        case '==':
+          is_true = (v1.data == v2.data)
+          break
+      }
+      if (is_true === false) {
+        parse_only = false
       }
       expect('{')
       elementlist()
       expect('}')
+      if (accept('else')) {
+        if (is_true === false) {
+          parse_only = false
+        }
+        expect('{')
+        elementlist()
+        expect('}')
+      }
     }
-    global_print = scoped_print
   }
 
   function eachstatement () {
@@ -254,25 +275,32 @@ function Compile (prog, input) {
     let it = current.data
     expect('identifier')
     expect('in')
-    let line = current.line
-    variable()
-    let data = compute_value()
-    expect('{')
-    let state = get_state()
-    if (data !== undefined && data.forEach !== undefined) {
-      data.forEach(function (d) {
-        scopes.push({ [it]: d })
-        current_depth++
-        set_state(state)
-        elementlist()
-        current_depth--
-        scopes.pop()
-      })
+    if (parse_only === true) {
+      variable()
+      expect('{')
+      elementlist()
+      expect('}')
     } else {
-      log_error('Cannot use each with ' + (typeof data) + ' type', line)
-      return
+      let line = current.line
+      variable()
+      let data = compute_value()
+      expect('{')
+      let state = get_state()
+      if (data !== undefined && data.forEach !== undefined) {
+        data.forEach(function (d) {
+          scopes.push({ [it]: d })
+          current_depth++
+          set_state(state)
+          elementlist()
+          current_depth--
+          scopes.pop()
+        })
+      } else {
+        log_error('Cannot use each with ' + (typeof data) + ' type', line)
+        return
+      }
+      expect('}')
     }
-    expect('}')
   }
 
   function element () {
@@ -280,22 +308,34 @@ function Compile (prog, input) {
     indents++
     let id = current.data
     if (accept('identifier')) {
-      emit_indents()
-      emit_partial_line('<' + id)
+      if (parse_only === false) {
+        emit_indents()
+        emit_partial_line('<' + id)
+      }
       tagdef()
       if (accept('[')) {
-        emit_partial_line('>\n')
+        if (parse_only === false) {
+          emit_partial_line('>\n')
+        }
         elementlist()
         expect(']')
-        emit_line('</' + id + '>')
+        if (parse_only === false) {
+          emit_line('</' + id + '>')
+        }
       } else if (accept(';')) {
         // xhtml self closing tags 
         // make configurable
-        emit_partial_line(' />\n')
+        if (parse_only === false) {
+          emit_partial_line(' />\n')
+        }
       } else {
-        emit_partial_line('>\n')
-        innertext()
-        emit_line('</' + id + '>')
+        if (parse_only === false) {
+          emit_partial_line('>\n')
+          innertext()
+          emit_line('</' + id + '>')
+        } else {
+          innertext()
+        }
       }
     } else {
       innertext()
@@ -316,13 +356,15 @@ function Compile (prog, input) {
     } else if (accept('#')) {
       idlist()
     }
-    if (current_idlist.length > 0) {
-      emit_partial_line(' id="' + current_idlist.join(' ') + '"')
-      current_idlist = []
-    }
-    if (current_classlist.length > 0) {
-      emit_partial_line(' class="' + current_classlist.join(' ') + '"')
-      current_classlist = []
+    if (parse_only === false) {
+      if (current_idlist.length > 0) {
+        emit_partial_line(' id="' + current_idlist.join(' ') + '"')
+        current_idlist = []
+      }
+      if (current_classlist.length > 0) {
+        emit_partial_line(' class="' + current_classlist.join(' ') + '"')
+        current_classlist = []
+      }
     }
   }
 
@@ -330,12 +372,19 @@ function Compile (prog, input) {
     if (error) return
     if (peek('identifier')) {
       let id = current.data
-      emit_partial_line(' ' + id)
-      next()
-      if (accept('=')) {
-        emit_partial_line('="' + interpolate_values(current.data) + '"')
+      if (parse_only === true) {
+        next()
+        accept('=')
         expect('string')
         properties()
+      } else {
+        emit_partial_line(' ' + id)
+        next()
+        if (accept('=')) {
+          emit_partial_line('="' + interpolate_values(current.data) + '"')
+          expect('string')
+          properties()
+        }
       }
     }
   }
@@ -344,6 +393,7 @@ function Compile (prog, input) {
     let a = current.data
     expect('identifier')
     scalar_value = undefined
+    current_accessorlist = []
     current_accessorlist.push(a)
     accessor()
   }
@@ -388,7 +438,6 @@ function Compile (prog, input) {
   function compute_value () {
     let val
     if (scalar_value !== undefined) {
-      current_accessorlist = []
       return scalar_value
     }
     for (let i = current_depth; i >= 0; i--) {
@@ -399,13 +448,11 @@ function Compile (prog, input) {
       }
     }
     if (!val) {
-      current_accessorlist = []
       return undefined
     }
     for (let i = 1; i < current_accessorlist.length; i++) {
       val = val[current_accessorlist[i]]
     }
-    current_accessorlist = []
     return val
   }
 
@@ -461,7 +508,9 @@ function Compile (prog, input) {
   function innertext () {
     if (error) return
     let data = current.data
-    emit_line(interpolate_values(data))
+    if (parse_only === false) {
+      emit_line(interpolate_values(data))
+    }
     expect('raw')
   }
 

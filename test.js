@@ -17,6 +17,11 @@ tag Button text1 text2 [
   a href='/' [
     button.button-styles | #{text1} |
     span.button-flare []
+    if text1 == 'REGISTER' {
+      span | REGISTER |
+    } else {
+      span | OTHER |
+    }
   ]
 ]
 
@@ -47,7 +52,7 @@ html [
         span | ELSE CLAUSE |
       }
     } else { span | NOPE | }
-    [ Button ]
+    [ Button 'foo' ]
     h1 | List 2 |
     ul [
       each item in items2 {
