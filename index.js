@@ -606,8 +606,7 @@ function Compile (prog, input) {
     'if',
     'else',
     'tag',
-    'doctype',
-    'html5'
+    'doctype'
   ]
 
   function next () {
@@ -696,10 +695,19 @@ function Compile (prog, input) {
     current.line = global_line
   }
 
+  const doctypes = {
+    'html5': '<!DOCTYPE html>'
+  }
+
   function doctype () {
     if (accept('doctype')) {
-      expect('html5')
-      emit_line('<!DOCTYPE html>')
+      const id = current.data
+      expect('identifier')
+      if (doctypes[id]) {
+        emit_line(doctypes[id])
+      } else {
+        log_error('Uknown Doctype: ' + id, current.line)
+      }
     }
   }
 
