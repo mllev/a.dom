@@ -37,11 +37,29 @@ block MyForm submitMsg [
 
 const pageTitle 'PAGE TITLE'
 
+const behavior '
+  function doSomething () {
+    alert("yo!!!")
+  }
+'
+
+const styles '
+  body {
+    background: blue;
+  }
+'
+
+block Head [
+  head [
+    title  | #{pageTitle} |
+    style  | #{styles}    |
+    script | #{behavior}  |
+  ]
+]
+
 html [
   body [
-    head [
-      title | #{pageTitle} | 
-    ]
+    [ Head ]
     [ MyForm 'submit' ]
     [ MyForm 'submit' ]
     h1 class='#{h1class1[0]} #{h1class2}' | List 1 |
@@ -76,7 +94,6 @@ html [
 ]`
 
 benchmark(() => {
-  // let test = fs.readFileSync('big-test.template', 'utf-8')
   html = adom.compileString(test, {
     buttonText1: ['CLICK ME'],
     buttonText2: ['REGISTER'],
@@ -99,7 +116,7 @@ benchmark(() => {
       ]
     ]
   }, {
-    formatted: false
+    formatted: true
   })
 })
 

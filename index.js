@@ -1,7 +1,16 @@
 function compileString (prog, input, config) {
-  let cursor = 0
-  let current = { type: '', data: '', line: 0 }
-  let file = prog
+  let STATE = {
+    cursor: 0,
+    current: { type: '', data: '' },
+    file_index: 0,
+    line: 1
+  }
+
+  let tags = {}
+  let scopes = []
+  let files = [prog]
+
+  let file = files[0]
   let error = false
   let indents = -1
   let current_classlist = []
@@ -9,11 +18,8 @@ function compileString (prog, input, config) {
   let current_accessorlist = []
   let current_arglist = []
   let scalar_value = undefined
-  let tags = []
-  let scopes = []
   let current_depth = -1
   let output = ''
-  let global_line = 1
   let parse_only = false
 
   config = config || {}
@@ -24,20 +30,25 @@ function compileString (prog, input, config) {
   }
 
   function set_state (state) {
-    current.type = state.type || ''
-    current.data = state.data || ''
-    cursor = state.cursor || 0
-    current.line = state.line || 0
-    file = state.file || file
+    STATE.cursor = state.cursor || 0
+    STATE.file_index = state.file_index || 0
+    STATE.line = state.line || 1
+    if (state.current) {
+      STATE.current.type = state.current.type || ''
+      STATE.current.data = state.current.data || ''
+    } else {
+      STATE.current.type = ''
+      STATE.current.data = ''
+    }
+    file = files[STATE.file_index]
   }
 
   function get_state () {
     return {
-      type: current.type,
-      data: current.data,
-      cursor: cursor,
-      line: current.line,
-      file: file
+      cursor: STATE.cursor,
+      current: { type: STATE.current.type, data: STATE.current.data },
+      file_index: STATE.file_index,
+      line: STATE.line
     }
   }
 
@@ -64,7 +75,7 @@ function compileString (prog, input, config) {
 
   function accept (type) {
     if (error) return
-    if (current.type === type) {
+    if (STATE.current.type === type) {
       next()
       return true
     } else {
@@ -74,8 +85,8 @@ function compileString (prog, input, config) {
 
   function expect (type) {
     if (error) return
-    if (current.type !== type) {
-      log_error('Unexpected token: ' + current.type, current.line)
+    if (STATE.current.type !== type) {
+      log_error('Unexpected token: ' + STATE.current.type, STATE.line)
     } else {
       next()
     }
@@ -83,7 +94,7 @@ function compileString (prog, input, config) {
 
   function peek (type) {
     if (error) return
-    if (current.type === type) {
+    if (STATE.current.type === type) {
       return true
     } else {
       return false
@@ -92,18 +103,39 @@ function compileString (prog, input, config) {
 
   function parse_data () {
     expect('const')
-    const id = current.data
+    const id = STATE.current.data
     expect('identifier')
     if (peek('string') || accept('number')) {
-      const data = current.data
+      const data = STATE.current.data
       next()
       scopes[0][id] = data
     }
   }
 
+  function load_file (filename) {
+    let data = undefined
+    try {
+      const fs = require('fs')
+      data = fs.readFileSync(filename, 'utf-8')
+    } catch (e) {}
+    return data
+  }
+
   function elementlist () {
     if (error) return
-    if (peek('const')) {
+    if (accept('run')) {
+      let f = STATE.current.data
+      expect('string')
+      let fdata = load_file(f)
+      if (fdata) {
+        let state = get_state()
+        files.push(fdata)
+        set_state({ file_index: files.length - 1 })
+        run()
+        set_state(state)
+      }
+      elementlist()
+    } else if (peek('const')) {
       parse_data()
       elementlist()
     } else if (peek('identifier')) {
@@ -126,9 +158,9 @@ function compileString (prog, input, config) {
       elementlist()
     } else if (accept('[')) {
       if (parse_only === false) {
-        let id = current.data
+        let id = STATE.current.data
+        let line = STATE.line
         expect('identifier')
-        let line = current.line
         let state = tags[id]
         if (state) {
           let local_data = {}
@@ -167,7 +199,7 @@ function compileString (prog, input, config) {
   }
 
   function arglist () {
-    let id = current.data
+    let id = STATE.current.data
     if (accept('identifier')) {
       current_arglist.push(id)
       arglist()
@@ -176,15 +208,18 @@ function compileString (prog, input, config) {
 
   function parse_block () {
     expect('block')
-    let id = current.data
+    let id = STATE.current.data
     expect('identifier')
     current_arglist = []
     arglist()
     tags[id] = {
-      cursor: cursor,
-      data: current.data,
-      type: current.type,
-      line: current.line,
+      cursor: STATE.cursor,
+      current: {
+        type: STATE.current.type,
+        data: STATE.current.data
+      },
+      file_index: STATE.file_index,
+      line: STATE.line,
       args: current_arglist
     }
     parse_block_body()
@@ -195,7 +230,7 @@ function compileString (prog, input, config) {
       scalar_value = undefined
       variable()
     } else if (peek('string') || peek('number') || peek('bool')) {
-      scalar_value = current.data
+      scalar_value = STATE.current.data
       next()
     }
   }
@@ -210,7 +245,7 @@ function compileString (prog, input, config) {
 
   function parse_cmp () {
     if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==')) {
-      log_error('Unexpected token ' + current.type, current.line)
+      log_error('Unexpected token ' + STATE.current.type, STATE.line)
       return
     }
   }
@@ -226,9 +261,9 @@ function compileString (prog, input, config) {
         data: val
       }
       let is_true
-      let cmp = current.data
+      let cmp = STATE.current.data
+      let line = STATE.line
       parse_cmp()
-      let line = current.line
       value()
       val = compute_value()
       let v2 = {
@@ -291,11 +326,11 @@ function compileString (prog, input, config) {
   function eachstatement () {
     if (error) return
     expect('each')
-    let it = current.data
+    let it = STATE.current.data
     expect('identifier')
     expect('in')
     if (parse_only === false) {
-      let line = current.line
+      let line = STATE.line
       variable()
       let data = compute_value()
       expect('{')
@@ -325,7 +360,7 @@ function compileString (prog, input, config) {
   function element () {
     if (error) return
     indents++
-    let id = current.data
+    let id = STATE.current.data
     if (accept('identifier')) {
       if (parse_only === false) {
         emit_indents()
@@ -346,13 +381,11 @@ function compileString (prog, input, config) {
           emit_line('</' + id + '>')
         }
       } else if (accept(';')) {
-        // xhtml self closing tags
-        // make configurable
         if (parse_only === false) {
           if (config.formatted === true) {
-            emit_partial_line(' />\n')
+            emit_partial_line('>\n')
           } else {
-            emit_partial_line(' />')
+            emit_partial_line('>')
           }
         }
       } else {
@@ -402,12 +435,12 @@ function compileString (prog, input, config) {
   function properties () {
     if (error) return
     if (peek('identifier')) {
-      let id = current.data
+      let id = STATE.current.data
       if (parse_only === false) {
         emit_partial_line(' ' + id)
         next()
         if (accept('=')) {
-          emit_partial_line('="' + interpolate_values(current.data) + '"')
+          emit_partial_line('="' + interpolate_values(STATE.current.data) + '"')
           expect('string')
         }
         properties()
@@ -422,7 +455,7 @@ function compileString (prog, input, config) {
   }
 
   function variable () {
-    let a = current.data
+    let a = STATE.current.data
     expect('identifier')
     scalar_value = undefined
     current_accessorlist = []
@@ -432,18 +465,18 @@ function compileString (prog, input, config) {
 
   function accessor () {
     if (accept('.')) {
-      let a = current.data
+      let a = STATE.current.data
       expect('identifier')
       current_accessorlist.push(a)
       accessor()
     } else if (accept('[')) {
-      let a = current.data
+      let a = STATE.current.data
       if (accept('string') || accept('number')) {
         expect(']')
         current_accessorlist.push(a)
         accessor()
       } else {
-        log_error('Unexpected token: ' + current.type)
+        log_error('Unexpected token: ' + STATE.current.type)
       }
     }
   }
@@ -451,7 +484,7 @@ function compileString (prog, input, config) {
   function iterate_over_variables (fn) {
     let id = ''
     let start = 0, end = 0
-    let data = current.data
+    let data = STATE.current.data
 
     for (let i = 0; i < data.length; i++) {
       if (data[i] === '#' && data[i+1] === '{') {
@@ -490,9 +523,10 @@ function compileString (prog, input, config) {
 
   function compute_interpolated_value (value) {
     let state = get_state()
+    files.push(value)
     set_state({
-      line: current.line,
-      file: value
+      line: STATE.line,
+      file_index: files.length - 1
     })
     next()
     variable()
@@ -539,7 +573,7 @@ function compileString (prog, input, config) {
 
   function innertext () {
     if (error) return
-    let data = current.data
+    let data = STATE.current.data
     if (parse_only === false) {
       emit_line(interpolate_values(data))
     }
@@ -548,7 +582,9 @@ function compileString (prog, input, config) {
 
   function classlist () {
     if (error) return
-    current_classlist.push(current.data)
+    if (parse_only === false) {
+      current_classlist.push(STATE.current.data)
+    }
     expect('identifier')
     if (accept('.')) {
       classlist()
@@ -559,7 +595,9 @@ function compileString (prog, input, config) {
 
   function idlist () {
     if (error) return
-    current_idlist.push(current.data)
+    if (parse_only === false) {
+      current_idlist.push(STATE.current.data)
+    }
     expect('identifier')
     if (accept('.')) {
       classlist()
@@ -639,79 +677,80 @@ function compileString (prog, input, config) {
     'else',
     'block',
     'doctype',
-    'const'
+    'const',
+    'run'
   ]
 
   function next () {
     let c, data, type
 
-    while (is_space(file[cursor])) {
-      if (file[cursor] === '\n') {
-        global_line++
+    while (is_space(file[STATE.cursor])) {
+      if (file[STATE.cursor] === '\n') {
+        STATE.line++
       }
-      cursor++
+      STATE.cursor++
     }
-    c = file[cursor]
+    c = file[STATE.cursor]
 
-    if (cursor >= file.length) {
-      current.type = 'eof',
-      current.data = undefined
+    if (STATE.cursor >= file.length) {
+      STATE.current.type = 'eof',
+      STATE.current.data = undefined
       return
     }
 
     if (c === '=') {
-      if (file[cursor+1] === '=') {
+      if (file[STATE.cursor+1] === '=') {
         type = '=='
-        cursor += 2
         data = type
+        STATE.cursor += 2
       } else {
         type = c
         data = c
-        cursor++
+        STATE.cursor++
       }
     } else if (c === '>') {
-      if (file[cursor+1] === '=') {
+      if (file[STATE.cursor+1] === '=') {
         type = '>='
-        cursor += 2
+        STATE.cursor += 2
       } else {
         type = '>'
-        cursor++
+        STATE.cursor++
       }
       data = type
     } else if (c === '<') {
-      if (file[cursor+1] === '=') {
+      if (file[STATE.cursor+1] === '=') {
         type = '<='
-        cursor += 2
+        STATE.cursor += 2
       } else {
         type = '<'
-        cursor++
+        STATE.cursor++
       }
       data = type
     } else if (is_alpha(c)) {
       type = 'identifier'
-      data = identifier(cursor)
-      cursor += data.length
+      data = identifier(STATE.cursor)
+      STATE.cursor += data.length
     } else if (is_sym(c)) {
       type = c
       data = c
-      cursor++
+      STATE.cursor++
     } else if (c === '"' || c === '\'') {
       type = 'string'
-      data = parse_string(cursor)
-      cursor += data.length + 2
+      data = parse_string(STATE.cursor)
+      STATE.cursor += data.length + 2
     } else if (c === '|') {
-      cursor++
+      STATE.cursor++
       type = 'raw'
-      data = parse_inner(cursor)
-      cursor += data.length + 1
+      data = parse_inner(STATE.cursor)
+      STATE.cursor += data.length + 1
     } else if (is_num(c)) {
       type = 'number'
-      data = parse_number(cursor)
-      cursor += data.length
+      data = parse_number(STATE.cursor)
+      STATE.cursor += data.length
       data = parseFloat(data)
     } else {
-      type = file[cursor]
-      data = file[cursor++]
+      type = file[STATE.cursor]
+      data = file[STATE.cursor++]
     }
 
     if (keywords.indexOf(data) !== -1 && type === 'identifier') {
@@ -723,9 +762,8 @@ function compileString (prog, input, config) {
       data = (data === 'true')
     }
 
-    current.type = type
-    current.data = data
-    current.line = global_line
+    STATE.current.type = type
+    STATE.current.data = data
   }
 
   const doctypes = {
@@ -734,12 +772,12 @@ function compileString (prog, input, config) {
 
   function doctype () {
     if (accept('doctype')) {
-      const id = current.data
+      const id = STATE.current.data
       expect('identifier')
       if (doctypes[id]) {
         emit_line(doctypes[id])
       } else {
-        log_error('Uknown Doctype: ' + id, current.line)
+        log_error('Uknown Doctype: ' + id, STATE.line)
       }
     }
   }
