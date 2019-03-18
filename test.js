@@ -1,4 +1,4 @@
-const Compile = require('./index')
+const adom = require('./index')
 const fs = require('fs')
 
 let html
@@ -13,7 +13,7 @@ function benchmark (fn) {
 let test =
 `doctype html5
 
-tag Button text1 text2 [
+block Button text1 text2 [
   a href='/' [
     button.button-styles | #{text1} |
     span.button-flare []
@@ -25,7 +25,7 @@ tag Button text1 text2 [
   ]
 ]
 
-tag MyForm submitMsg [
+block MyForm submitMsg [
   form action='/' method='POST' [
     input name='email';
     input name='password' type='password';
@@ -35,8 +35,13 @@ tag MyForm submitMsg [
   ]
 ]
 
+const pageTitle 'PAGE TITLE'
+
 html [
   body [
+    head [
+      title | #{pageTitle} |
+    ]
     [ MyForm 'submit' ]
     [ MyForm 'submit' ]
     h1 class='#{h1class1[0]} #{h1class2}' | List 1 |
@@ -72,7 +77,7 @@ html [
 
 benchmark(() => {
   // let test = fs.readFileSync('big-test.template', 'utf-8')
-  html = Compile(test, {
+  html = adom.compileString(test, {
     buttonText1: ['CLICK ME'],
     buttonText2: ['REGISTER'],
     testNum: { val: [[500, 400]] },
@@ -93,6 +98,8 @@ benchmark(() => {
         [ 'buy more expensive car' ]
       ]
     ]
+  }, {
+    formatted: true
   })
 })
 

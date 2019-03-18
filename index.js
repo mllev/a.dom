@@ -1,4 +1,4 @@
-function Compile (prog, input) {
+function compileString (prog, input, config) {
   let cursor = 0
   let current = { type: '', data: '', line: 0 }
   let file = prog
@@ -15,6 +15,8 @@ function Compile (prog, input) {
   let output = ''
   let global_line = 1
   let parse_only = false
+
+  config = config || {}
 
   function log_error (err, line) {
     console.log('Error line ' + line + ': ' + err)
@@ -40,6 +42,7 @@ function Compile (prog, input) {
   }
 
   function emit_indents () {
+    if (config.formatted !== true) return
     let space = ''
     for (let i = 0; i < indents; i++) {
       space += '    '
@@ -54,7 +57,9 @@ function Compile (prog, input) {
   function emit_line (line) {
     emit_indents()
     emit_partial_line(line)
-    emit_partial_line('\n')
+    if (config.formatted === true) {
+      emit_partial_line('\n')
+    }
   }
 
   function accept (type) {
@@ -85,9 +90,23 @@ function Compile (prog, input) {
     }
   }
 
+  function parse_data () {
+    expect('const')
+    const id = current.data
+    expect('identifier')
+    if (peek('string') || accept('number')) {
+      const data = current.data
+      next()
+      scopes[0][id] = data
+    }
+  }
+
   function elementlist () {
     if (error) return
-    if (peek('identifier')) {
+    if (peek('const')) {
+      parse_data()
+      elementlist()
+    } else if (peek('identifier')) {
       element()
       elementlist()
     } else if (peek('raw')) {
@@ -99,10 +118,10 @@ function Compile (prog, input) {
     } else if (peek('if')) {
       ifstatement()
       elementlist()
-    } else if (peek('tag')) {
+    } else if (peek('block')) {
       let t = parse_only
       parse_only = true
-      customtag()
+      parse_block()
       parse_only = t
       elementlist()
     } else if (accept('[')) {
@@ -122,7 +141,7 @@ function Compile (prog, input) {
           set_state(state)
           scopes.push(local_data)
           current_depth++
-          customtagbody()
+          parse_block_body()
           set_state(prev_state)
           expect(']')
           current_depth--
@@ -141,7 +160,7 @@ function Compile (prog, input) {
     }
   }
 
-  function customtagbody () {
+  function parse_block_body () {
     expect('[')
     elementlist()
     expect(']')
@@ -155,8 +174,8 @@ function Compile (prog, input) {
     }
   }
 
-  function customtag () {
-    expect('tag')
+  function parse_block () {
+    expect('block')
     let id = current.data
     expect('identifier')
     current_arglist = []
@@ -168,7 +187,7 @@ function Compile (prog, input) {
       line: current.line,
       args: current_arglist
     }
-    customtagbody()
+    parse_block_body()
   }
 
   function value () {
@@ -200,18 +219,7 @@ function Compile (prog, input) {
     if (error) return
     expect('if')
     value()
-    if (parse_only === true) {
-      parse_cmp()
-      value()
-      expect('{')
-      elementlist()
-      expect('}')
-      if (accept('else')) {
-        expect('{')
-        elementlist()
-        expect('}')
-      }
-    } else {
+    if (parse_only === false) {
       let val = compute_value()
       let v1 = {
         type: typeof val,
@@ -266,6 +274,17 @@ function Compile (prog, input) {
         elementlist()
         expect('}')
       }
+    } else {
+      parse_cmp()
+      value()
+      expect('{')
+      elementlist()
+      expect('}')
+      if (accept('else')) {
+        expect('{')
+        elementlist()
+        expect('}')
+      }
     }
   }
 
@@ -275,12 +294,7 @@ function Compile (prog, input) {
     let it = current.data
     expect('identifier')
     expect('in')
-    if (parse_only === true) {
-      variable()
-      expect('{')
-      elementlist()
-      expect('}')
-    } else {
+    if (parse_only === false) {
       let line = current.line
       variable()
       let data = compute_value()
@@ -300,6 +314,11 @@ function Compile (prog, input) {
         return
       }
       expect('}')
+    } else {
+      variable()
+      expect('{')
+      elementlist()
+      expect('}')
     }
   }
 
@@ -315,7 +334,11 @@ function Compile (prog, input) {
       tagdef()
       if (accept('[')) {
         if (parse_only === false) {
-          emit_partial_line('>\n')
+          if (config.formatted === true) {
+            emit_partial_line('>\n')
+          } else {
+            emit_partial_line('>')
+          }
         }
         elementlist()
         expect(']')
@@ -323,14 +346,22 @@ function Compile (prog, input) {
           emit_line('</' + id + '>')
         }
       } else if (accept(';')) {
-        // xhtml self closing tags 
+        // xhtml self closing tags
         // make configurable
         if (parse_only === false) {
-          emit_partial_line(' />\n')
+          if (config.formatted === true) {
+            emit_partial_line(' />\n')
+          } else {
+            emit_partial_line(' />')
+          }
         }
       } else {
         if (parse_only === false) {
-          emit_partial_line('>\n')
+          if (config.formatted === true) {
+            emit_partial_line('>\n')
+          } else {
+            emit_partial_line('>')
+          }
           innertext()
           emit_line('</' + id + '>')
         } else {
@@ -372,19 +403,20 @@ function Compile (prog, input) {
     if (error) return
     if (peek('identifier')) {
       let id = current.data
-      if (parse_only === true) {
-        next()
-        accept('=')
-        expect('string')
-        properties()
-      } else {
+      if (parse_only === false) {
         emit_partial_line(' ' + id)
         next()
         if (accept('=')) {
           emit_partial_line('="' + interpolate_values(current.data) + '"')
           expect('string')
-          properties()
         }
+        properties()
+      } else {
+        next()
+        if (accept('=')) {
+          expect('string')
+        }
+        properties()
       }
     }
   }
@@ -605,8 +637,9 @@ function Compile (prog, input) {
     'in',
     'if',
     'else',
-    'tag',
-    'doctype'
+    'block',
+    'doctype',
+    'const'
   ]
 
   function next () {
@@ -732,4 +765,6 @@ function Compile (prog, input) {
   }
 }
 
-module.exports = Compile
+module.exports = {
+  compileString: compileString
+}
