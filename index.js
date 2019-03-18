@@ -116,7 +116,8 @@ function compileString (prog, input, config) {
     let data = undefined
     try {
       const fs = require('fs')
-      data = fs.readFileSync(filename, 'utf-8')
+      const path = require('path')
+      data = fs.readFileSync(path.resolve(config.dirname || __dirname, filename), 'utf-8')
     } catch (e) {}
     return data
   }
