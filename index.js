@@ -714,7 +714,7 @@ function compileString (prog, input, config) {
       data = file[cursor++]
     }
 
-    if (keywords.indexOf(data) !== -1) {
+    if (keywords.indexOf(data) !== -1 && type === 'identifier') {
       type = data
     }
 

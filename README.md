@@ -1,18 +1,9 @@
-# templates
+# a.dom
 
-A templating engine for Javascript. HTML is just awful to write. This is better.
-#### Features
-- Fast, single pass compiler
-- Lean codebase with no dependencies
-- Simple, single function API - string input, string output
-- Elegant syntax but without whitespace sensitivity
-- Can be used in any javascript environment
-- basic control structures like if and each
-
-Here is the smallest complete example:
+Advanced Data Oriented Markup
 
 ```javascript
-const Compile = require('./index')
+const adom = require('adom')
 
 let test = `
 html [
@@ -22,7 +13,7 @@ html [
 ]
 `
 
-let html = Compile(test, {
+let html = adom.compileString(test, {
   value: 'world'
 })
 

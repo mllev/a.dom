@@ -40,7 +40,7 @@ const pageTitle 'PAGE TITLE'
 html [
   body [
     head [
-      title | #{pageTitle} |
+      title | #{pageTitle} | 
     ]
     [ MyForm 'submit' ]
     [ MyForm 'submit' ]
@@ -99,7 +99,7 @@ benchmark(() => {
       ]
     ]
   }, {
-    formatted: true
+    formatted: false
   })
 })
 
