@@ -104,7 +104,7 @@ html [
 ]`
 
 benchmark(() => {
-  html = adom.compileString(test, {
+  html = adom.render(test, {
     buttonText1: ['CLICK ME'],
     buttonText2: ['REGISTER'],
     testNum: { val: [[500, 400]] },
@@ -128,7 +128,7 @@ benchmark(() => {
   }, {
     formatted: true,
     filters: {
-      adom: adom.compileString 
+      adom: adom.render
     }
   })
 })

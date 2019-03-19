@@ -6,7 +6,7 @@ try {
   path = require('path')
 } catch (e) {}
 
-function adomCompile (prog, input, config) {
+function render (prog, input, config) {
   let STATE = {
     cursor: 0,
     current: { type: '', data: '' },
@@ -877,6 +877,12 @@ function adomCompile (prog, input, config) {
   }
 }
 
+function renderFile (filepath, data, opts) {
+  const str = fs.readFileSync(filepath, 'utf-8')
+  render(str, data, opts)
+}
+
 module.exports = {
-  compile: adomCompile
+  render: render,
+  renderFile: renderFile
 }
