@@ -1,4 +1,12 @@
-function compileString (prog, input, config) {
+let fs = undefined
+let path = undefined
+
+try {
+  fs = require('fs')
+  path = require('path')
+} catch (e) {}
+
+function adomCompile (prog, input, config) {
   let STATE = {
     cursor: 0,
     current: { type: '', data: '' },
@@ -21,8 +29,17 @@ function compileString (prog, input, config) {
   let current_depth = -1
   let output = ''
   let parse_only = false
+  let filters = {
+    json: function (str) {
+      return JSON.parse(str)
+    }
+  }
 
   config = config || {}
+
+  if (config.filters) {
+    filters = Object.assign(filters, config.filters)
+  }
 
   function log_error (err, line) {
     console.log('Error line ' + line + ': ' + err)
@@ -104,21 +121,42 @@ function compileString (prog, input, config) {
   function parse_data () {
     expect('const')
     const id = STATE.current.data
+    let is_file = false
+    let filter = undefined
     expect('identifier')
-    if (peek('string') || accept('number')) {
-      const data = STATE.current.data
+    if (accept('file')) {
+      is_file = true
+    }
+    if (accept(':')) {
+      filter = STATE.current.data
+      expect('identifier')
+    }
+    if (peek('string')) {
+      let str = STATE.current.data
+      let line = STATE.line
+      if (is_file) {
+        str = load_file(str)
+      }
+      if (filter !== undefined) {
+        if (filters[filter]) { 
+          str = filters[filter](str)
+        } else {
+          log_error('Unknown filter: ' + filter, line)
+        }
+      }
+      scopes[0][id] = str
       next()
-      scopes[0][id] = data
+    } else if (peek('number')) {
+      scopes[0][id] = STATE.current.data
+      next()
     }
   }
 
   function load_file (filename) {
     let data = undefined
-    try {
-      const fs = require('fs')
-      const path = require('path')
+    if (fs && path) {
       data = fs.readFileSync(path.resolve(config.dirname || __dirname, filename), 'utf-8')
-    } catch (e) {}
+    }
     return data
   }
 
@@ -126,6 +164,7 @@ function compileString (prog, input, config) {
     if (error) return
     if (accept('run')) {
       let f = STATE.current.data
+      let line = STATE.line
       expect('string')
       let fdata = load_file(f)
       if (fdata) {
@@ -230,7 +269,7 @@ function compileString (prog, input, config) {
     if (peek('identifier')) {
       scalar_value = undefined
       variable()
-    } else if (peek('string') || peek('number') || peek('bool')) {
+    } else if (peek('string') || peek('number') || peek('bool') || peek('null')) {
       scalar_value = STATE.current.data
       next()
     }
@@ -245,7 +284,7 @@ function compileString (prog, input, config) {
   }
 
   function parse_cmp () {
-    if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==')) {
+    if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==') && !accept('!=')) {
       log_error('Unexpected token ' + STATE.current.type, STATE.line)
       return
     }
@@ -258,7 +297,7 @@ function compileString (prog, input, config) {
     if (parse_only === false) {
       let val = compute_value()
       let v1 = {
-        type: typeof val,
+        type: val == null ? 'null' : (typeof val),
         data: val
       }
       let is_true
@@ -268,14 +307,14 @@ function compileString (prog, input, config) {
       value()
       val = compute_value()
       let v2 = {
-        type: typeof val,
+        type: val == null ? 'null' : (typeof val),
         data: val
       }
-      if (v1.type !== v2.type) {
+      if (v1.type !== v2.type && v1.type !== 'null' && v2.type !== 'null') {
         log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
         return
       }
-      if (cmp !== '==' && v1.type !== 'number') {
+      if (cmp !== '==' && cmp !== '!=' && v1.type === 'string' && v2.type === 'string') {
         log_error('Operator can only be used on numbers', line)
         return
       }
@@ -295,20 +334,31 @@ function compileString (prog, input, config) {
         case '==':
           is_true = (v1.data == v2.data)
           break
+        case '!=':
+          is_true = (v1.data != v2.data)
+          break
       }
+
       if (is_true === false) {
-        parse_only = false
+        parse_only = true
       }
+
       expect('{')
       elementlist()
       expect('}')
+
+      parse_only = false
+
       if (accept('else')) {
-        if (is_true === false) {
-          parse_only = false
+        if (is_true === true) {
+          parse_only = true
         }
+
         expect('{')
         elementlist()
         expect('}')
+
+        parse_only = false
       }
     } else {
       parse_cmp()
@@ -663,13 +713,20 @@ function compileString (prog, input, config) {
     return inner
   }
 
-  function is_sym (c) {
-    return c === '[' || c === ']' || c === '.' || c === '#' || c === '(' || c === ')' || c === ';'
-  }
-
   function is_space (c) {
     return c === ' ' || c === '\t' || c === '\r' || c === '\n'
   }
+
+  const symbols = [
+    '[',
+    ']',
+    '.',
+    '#',
+    '(',
+    ')',
+    ';',
+    ':'
+  ]
 
   const keywords = [
     'each',
@@ -679,7 +736,8 @@ function compileString (prog, input, config) {
     'block',
     'doctype',
     'const',
-    'run'
+    'run',
+    'file'
   ]
 
   function next () {
@@ -699,7 +757,17 @@ function compileString (prog, input, config) {
       return
     }
 
-    if (c === '=') {
+    if (c === '!') {
+      if (file[STATE.cursor+1] === '=') {
+        type = '!='
+        data = type
+        STATE.cursor += 2
+      } else {
+        type = c
+        data = c
+        STATE.cursor++
+      }
+    } else if (c === '=') {
       if (file[STATE.cursor+1] === '=') {
         type = '=='
         data = type
@@ -731,7 +799,7 @@ function compileString (prog, input, config) {
       type = 'identifier'
       data = identifier(STATE.cursor)
       STATE.cursor += data.length
-    } else if (is_sym(c)) {
+    } else if (symbols.indexOf(c) !== -1) {
       type = c
       data = c
       STATE.cursor++
@@ -756,6 +824,11 @@ function compileString (prog, input, config) {
 
     if (keywords.indexOf(data) !== -1 && type === 'identifier') {
       type = data
+    }
+
+    if (data === 'null') {
+      data = null
+      type = 'null'
     }
 
     if (data === 'true' || data === 'false') {
@@ -805,5 +878,5 @@ function compileString (prog, input, config) {
 }
 
 module.exports = {
-  compileString: compileString
+  compile: adomCompile
 }

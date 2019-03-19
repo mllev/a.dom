@@ -17,10 +17,10 @@ block Button text1 text2 [
   a href='/' [
     button.button-styles | #{text1} |
     span.button-flare []
-    if text1 == 'REGISTER' {
-      span | REGISTER |
+    if text1 != null {
+      span | NULL |
     } else {
-      span | OTHER |
+      span | NOT NULL |
     }
   ]
 ]
@@ -35,7 +35,16 @@ block MyForm submitMsg [
   ]
 ]
 
-const pageTitle 'PAGE TITLE'
+const pageTitle :json '
+  {
+    "data": [
+      "PAGE TITLE 1",
+      "PAGE TITLE 2"
+    ]
+  }
+'
+
+const adomTest :adom ' h1 | HELLO FROM ADOM | '
 
 const behavior '
   function doSomething () {
@@ -51,7 +60,7 @@ const styles '
 
 block Head [
   head [
-    title  | #{pageTitle} |
+    title  | #{pageTitle.data[1]} |
     style  | #{styles}    |
     script | #{behavior}  |
   ]
@@ -59,11 +68,12 @@ block Head [
 
 html [
   body [
+    div | #{adomTest} |
     [ Head ]
     [ MyForm 'submit' ]
     [ MyForm 'submit' ]
     h1 class='#{h1class1[0]} #{h1class2}' | List 1 |
-    if testNum.val[0][1] >= testNum.val[0][0] {
+    if testNum.val[0][1] <= testNum.val[0][0] {
       div | #{testNum.val[0][1]} less than #{testNum.val[0][0]} |
       if 1 <= 2 {
         ul.class-shorthand [
@@ -116,7 +126,10 @@ benchmark(() => {
       ]
     ]
   }, {
-    formatted: true
+    formatted: true,
+    filters: {
+      adom: adom.compileString 
+    }
   })
 })
 
