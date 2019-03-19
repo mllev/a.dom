@@ -879,7 +879,7 @@ function render (prog, input, config) {
 
 function renderFile (filepath, data, opts) {
   const str = fs.readFileSync(filepath, 'utf-8')
-  render(str, data, opts)
+  return render(str, data, opts)
 }
 
 module.exports = {
