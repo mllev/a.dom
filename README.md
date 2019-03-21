@@ -129,7 +129,7 @@ const adomString = `
     body [
       if images != null {
         each image in images {
-          img src='#{image}'
+          img src='#{image}';
         }
       }
     ]
