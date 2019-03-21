@@ -159,52 +159,7 @@ const htmlString = adom.render(adomString, {
     }
   }
 })
-````
-
-ADOM supports code splitting via the `run` keyword. It will execute a separate ADOM file exactly where `run` it:
 ```
-html [
-  head [
-    title | Page Title |
-  ]
-  body [
-    div | Page Body |
-    run 'blog-footer.adom'
-  ]
-]
-```
-
-I'd suggest mixing `blocks` and the `run` keyword so components can be shared easily between files:
-```
-block Header [
-  div [
-    h1 | Page Header |
-  ]
-]
-
-block Footer [
-  div [
-    h1 | Page Footer |
-  ]
-]
-```
-
-Assume the above is `components.adom`, and below is `index.adom`:
-```
-run 'components.adom'
-
-html [
-  head [
-    title | Page Title |
-  ]
-  body [
-    [ Header ]
-    div | Page Body |
-    [ Footer ]
-  ]
-]
-```
-
 
 ADOM supports conditionals and loops:
 ```
@@ -297,6 +252,49 @@ layout PageBody title [
 use PageBody 'Page Title' [
   div [
     p | page content |
+  ]
+]
+```
+ADOM supports code splitting via the `run` keyword. It will execute a separate ADOM file exactly where `run` it:
+```
+html [
+  head [
+    title | Page Title |
+  ]
+  body [
+    div | Page Body |
+    run 'blog-footer.adom'
+  ]
+]
+```
+
+I'd suggest mixing `blocks` (and `layouts`) with the `run` keyword so components can be shared easily between files:
+```
+block Header [
+  div [
+    h1 | Page Header |
+  ]
+]
+
+block Footer [
+  div [
+    h1 | Page Footer |
+  ]
+]
+```
+
+Assume the above is `components.adom`, and below is `index.adom`:
+```
+run 'components.adom'
+
+html [
+  head [
+    title | Page Title |
+  ]
+  body [
+    [ Header ]
+    div | Page Body |
+    [ Footer ]
   ]
 ]
 ```
