@@ -127,12 +127,13 @@ const adomString = `
   html [
     head []
     body [
+      h2 | CATS |
       if images != null {
         each image in images {
           img src='#{image}';
         }
       } else {
-        p | NO IMAGES |
+        p | no images |
       }
     ]
   ]
@@ -148,3 +149,76 @@ const html = adom.render(adomString, {
 console.log(html)
 ```
 
+ADOM supports code reuse via something called `blocks`. They are analogous to functions:
+```
+block MyButton [
+  a href='/register' [
+    button.button-styles | Register |
+  ]
+]
+
+p [
+  [ MyButton ]
+]
+
+```
+
+Blocks can take arguments:
+```
+block MyButton text link [
+  a href='#{link}' [
+    button.button-styles | #{text} |
+  ]
+]
+
+p [
+  [ MyButton 'Register' '/register' ]
+  [ MyButton 'Login' '/login' ]
+]
+```
+
+ADOM also supports code reuse via `layouts`:
+```
+layout PageBody [
+  html [
+    head [ ]
+    body [
+      yield
+    ]
+  ]
+]
+
+use PageBody [
+  div [
+    p | page content |
+  ]
+]
+```
+The `use` keyword is used to select a layout, and the `yield` keyword is used to position the child elements in the layout. The above example would compile to:
+```html
+<html>
+  <head></head>
+  <div>
+    <p>page content</p>
+  </div>
+</htm>
+```
+Layouts can also take arguments:
+```
+layout PageBody title [
+  html [
+    head [
+      title | #{title}
+    ]
+    body [
+      yield
+    ]
+  ]
+]
+
+use PageBody 'Page Title' [
+  div [
+    p | page content |
+  ]
+]
+```
