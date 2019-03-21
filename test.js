@@ -13,9 +13,9 @@ function benchmark (fn) {
 let test =
 `doctype html5
 
-layout page [
+layout page text [
   div [
-    | fish |
+    | #{text} |
     yield
   ]
 ]
@@ -32,7 +32,7 @@ block Button text1 text2 [
   ]
 ]
 
-use page [
+use page 'something' [
   div [
     [ Button 'buttontext' ]
     span | LAYOUT TEST |
