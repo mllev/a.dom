@@ -6,7 +6,7 @@ try {
   path = require('path')
 } catch (e) {}
 
-function render (prog, input, config) {
+function render (prog, config) {
   let STATE = {
     cursor: 0,
     current: { type: '', data: '' },
@@ -124,9 +124,14 @@ function render (prog, input, config) {
   function parse_data () {
     expect('const')
     const id = STATE.current.data
+    const line = STATE.line
     let is_file = false
     let filter = undefined
     expect('identifier')
+    if (scopes[0][id] !== undefined) {
+      log_error('constant has already been declared: ' + id, line)
+      return
+    }
     if (accept('file')) {
       is_file = true
     }
@@ -141,7 +146,7 @@ function render (prog, input, config) {
         str = load_file(str)
       }
       if (filter !== undefined) {
-        if (filters[filter]) { 
+        if (filters[filter]) {
           str = filters[filter](str)
         } else {
           log_error('Unknown filter: ' + filter, line)
@@ -367,7 +372,11 @@ function render (prog, input, config) {
   }
 
   function valuelist () {
-    if (peek('identifier') || peek('string') || peek('number') || peek('bool')) {
+    if (peek('string')) {
+      value()
+      current_arglist.push(interpolate_values(compute_value()))
+      valuelist()
+    } else if (peek('identifier') || peek('number') || peek('bool')) {
       value()
       current_arglist.push(compute_value())
       valuelist()
@@ -623,10 +632,9 @@ function render (prog, input, config) {
     }
   }
 
-  function iterate_over_variables (fn) {
+  function iterate_over_variables (data, fn) {
     let id = ''
     let start = 0, end = 0
-    let data = STATE.current.data
 
     for (let i = 0; i < data.length; i++) {
       if (data[i] === '#' && data[i+1] === '{') {
@@ -698,7 +706,7 @@ function render (prog, input, config) {
   function interpolate_values (str) {
     let values = []
 
-    iterate_over_variables(function (id, start, end) {
+    iterate_over_variables(str, function (id, start, end) {
       values.push({
         variable: id,
         start_index: start,
@@ -956,8 +964,8 @@ function render (prog, input, config) {
     elementlist()
   }
 
-  if (input) {
-    scopes.push(input)
+  if (config.data) {
+    scopes.push(config.data)
     current_depth++
   }
 
