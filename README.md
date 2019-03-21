@@ -81,72 +81,103 @@ html [
 ]
 ```
 
-Data can be passed in from the host environment:
-```javascript
-const adom = require('adom')
+Data can be imported from a file:
+```
+const pageTitle file 'data.txt'
 
-const adomString = `
-  body [
-    h1 | #{message} |
+html [
+  head [
+    title | #{pageTitle} |
+    meta name='description' content='page description';
   ]
-`
-
-const html = adom.render(adomString, {
-  data: { message: 'Hello from ADOM!' }
-})
-
-console.log(html)
+]
 ```
 
-Data can also be rich:
+The root directory for opening files is passed in as configuration:
+```javascript
+const htmlString = adom.render(adomString, { dirname: '/path/to/files' })
+````
+
+Data can be run through filters. Filters are simple functions (provided by you) that take the data as input, and return whatever you want as output. There is 1 included filter in ADOM called `json`. You can probably imagine what it does:
+```
+const pageData:json ' { "title" : "Page Title" } '
+
+html [
+  head [
+    title | #{pageData.title} |
+    meta name='description' content='page description';
+  ]
+]
+```
+
+As I said before, data can be included from any file. Data from a file is imported purely as text. Applying filters to data that comes from files looks like this:
+```
+const pageData file:json 'data.json'
+
+html [
+  head [
+    title | #{pageData.title} |
+    meta name='description' content='page description';
+  ]
+]
+```
+
+This allows for quite simple integration with other sorts of text processors:
+```
+const blogTitle 'My Blog'
+const blogPost file:markdown 'post.md'
+const blogStyles file:stylus 'blog.styl'
+
+html [
+  head [
+    title | #{blogTitle} |
+    meta name='description' content='page description';
+    style | #{blogStyles} |
+  ]
+  body [
+    div | #{blogPost} |
+  ]
+]
+```
+
+Passing in your own filters is quite easy. Here's how you would integrate with marked and stylus:
 ```javascript
 const adom = require('adom')
+const marked = require('marked')
+const stylus = require('stylus')
 
-const adomString = `
-  body [
-    h1 | #{messages[0].text} |
-  ]
-`
-
-const html = adom.render(adomString, {
-  data: { messages: [
-    {
-      text: 'Hello from ADOM!'
+const htmlString = adom.render(adomString, {
+  dirname: '/path/to/files',
+  filters: {
+    markdown: function (str) {
+      // from the marked api
+      return marked(str)
+    },
+    stylus: function (str) {
+      // from the stylus api
+      return stylus(str).set().render()
     }
-  ]}
+  }
 })
-
-console.log(html)
-```
+````
 
 ADOM supports conditionals and loops:
-```javascript
-const adom = require('adom')
+```
+const images file:json 'cat-images.json'
 
-const adomString = `
-  html [
-    head []
-    body [
-      h2 | CATS |
-      if images != null {
-        each image in images {
-          img src='#{image}';
-        }
-      } else {
-        p | no images |
+html [
+  head []
+  body [
+    h2 | CATS |
+    if images != null {
+      each image in images {
+        img src='#{image}';
       }
-    ]
+    } else {
+      p | no images |
+    }
   ]
-`
-
-const html = adom.render(adomString, {
-  data: { images: [
-    'cat1.png',
-    'cat2.png'
-  ]}
-})
-
-console.log(html)
+]
 ```
 
 ADOM supports code reuse via something called `blocks`. They are analogous to functions:
@@ -223,4 +254,47 @@ use PageBody 'Page Title' [
     p | page content |
   ]
 ]
+```
+
+ADOM should be seen as completely separate from its host environment, and should be defined entirely by its specification. This stipulation allows for two important things:
+
+- ADOM can be implemented in any language
+- Code written in ADOM can run without modification on any implementation
+
+That being said, data can be passed in from the host environment:
+```javascript
+const adom = require('adom')
+
+const adomString = `
+  body [
+    h1 | #{message} |
+  ]
+`
+
+const html = adom.render(adomString, {
+  data: { message: 'Hello from ADOM!' }
+})
+
+console.log(html)
+```
+
+Data can rich, and deeply nested:
+```javascript
+const adom = require('adom')
+
+const adomString = `
+  body [
+    h1 | #{messages[0].text} |
+  ]
+`
+
+const html = adom.render(adomString, {
+  data: { messages: [
+    {
+      text: 'Hello from ADOM!'
+    }
+  ]}
+})
+
+console.log(html)
 ```
