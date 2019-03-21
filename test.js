@@ -10,13 +10,50 @@ function benchmark (fn) {
   console.info('Execution time (hr): %ds %dms', hrend[0], hrend[1] / 1000000)
 }
 
+let layouttest = `
+doctype html5
+
+layout Page title [
+  html [
+    head [ title | #{title} | ]
+    body [
+      yield
+    ]
+  ]
+]
+
+block Button text href [
+  a href='#{href}' [
+    button.btn-large | #{text} |
+  ]
+]
+
+use Page 'My Page' [
+  div [
+    div | PAGE HEADER |
+    div | PAGE BODY |
+    [ Button 'click' '/' ]
+    [ Button 'register' '/register' ]
+  ]
+]
+`
+
 let test =
 `doctype html5
 
-layout page text [
+layout Page title [
+  html [
+    head [ title | #{title} | ]
+    body [
+      yield
+    ]
+  ]
+]
+
+use Page 'Hackathon' [
   div [
-    | #{text} |
-    yield
+    div | PAGE HEADER |
+    div | PAGE BODY |
   ]
 ]
 
@@ -29,13 +66,6 @@ block Button text1 text2 [
     } else {
       span | NOT NULL |
     }
-  ]
-]
-
-use page 'something' [
-  div [
-    [ Button 'buttontext' ]
-    span | LAYOUT TEST |
   ]
 ]
 
@@ -118,7 +148,7 @@ html [
 ]`
 
 benchmark(() => {
-  html = adom.render(test, {
+  html = adom.render(layouttest, {
     buttonText1: ['CLICK ME'],
     buttonText2: ['REGISTER'],
     testNum: { val: [[500, 400]] },

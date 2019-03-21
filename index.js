@@ -234,7 +234,9 @@ function render (prog, input, config) {
         if (parse_only === false) {
           let current_state = get_state()
           set_state(yield_state)
+          in_layout_body = false
           elementlist()
+          in_layout_body = true
           set_state(current_state)
           elementlist()
         } else {
