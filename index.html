@@ -1,9 +1,8 @@
 <!DOCTYPE html>
-<html><head><link href="https://fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet"><style>body {
+<html><head><link href="https://fonts.googleapis.com/css?family=Source+Code+Pro" rel="stylesheet"><style>.title {
+  font-size: 36px;
+  font-weight: 100;
   font-family: 'Source Code Pro', monospace;
-}
-
-h2 {
   text-align: center;
 }
 
@@ -14,6 +13,7 @@ h2 {
 }
 
 textarea {
+  font-family: 'Source Code Pro', monospace;
   width: 400px;
   height: 500px;
   border: none;
@@ -1028,8 +1028,8 @@ if (typeof module !== 'undefined') {
   window.adom = adom
 }</script><script>const initialContent = 
 `html [
-\thead [ ]
-\tbody [ ]
+  head [ ]
+  body [ ]
 ]
 `
 
@@ -1059,11 +1059,11 @@ document.addEventListener('DOMContentLoaded', function () {
     if (e.keyCode === 9) {
       e.preventDefault()
       const s = this.selectionStart
-      this.value = this.value.substring(0,this.selectionStart) + '\t' + this.value.substring(this.selectionEnd)
-      this.selectionEnd = s + 1 
+      this.value = this.value.substring(0,this.selectionStart) + '  ' + this.value.substring(this.selectionEnd)
+      this.selectionEnd = s + 2
     }
   })
 
   adomContent.addEventListener('keyup', replaceContent)
   replaceContent()
-})</script></head><body><div><h2>a.dom playground</h2><div class="main"><textarea class="adom"></textarea><textarea class="html"></textarea></div></div></body></html>
+})</script></head><body><div><p class="title">a.dom playground</p><div class="main"><textarea class="adom"></textarea><textarea class="html"></textarea></div></div></body></html>

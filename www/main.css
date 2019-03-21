@@ -1,8 +1,7 @@
-body {
+.title {
+  font-size: 36px;
+  font-weight: 100;
   font-family: 'Source Code Pro', monospace;
-}
-
-h2 {
   text-align: center;
 }
 
@@ -13,6 +12,7 @@ h2 {
 }
 
 textarea {
+  font-family: 'Source Code Pro', monospace;
   width: 400px;
   height: 500px;
   border: none;

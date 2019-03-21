@@ -20,7 +20,7 @@ layout Page [
 
 use Page [
   div [
-    h2 | a.dom playground |
+    p.title | a.dom playground |
     div.main [
       textarea.adom []
       textarea.html []
