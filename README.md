@@ -7,12 +7,8 @@ ADOM is a language that compiles to HTML, has a terse syntax and a strong focus 
 This is what tags looks like:
 ```
 html [
-  head [
-
-  ]
-  body [
-
-  ]
+  head [ ]
+  body [ ]
 ]
 ```
 
@@ -117,6 +113,33 @@ const html = adom.render(adomString, {
     {
       text: 'Hello from ADOM!'
     }
+  ]}
+})
+
+console.log(html)
+```
+
+ADOM supports conditionals and loops:
+```javascript
+const adom = require('adom')
+
+const adomString = `
+  html [
+    head []
+    body [
+      if images != null {
+        each image in images {
+          img src='#{image}'
+        }
+      }
+    ]
+  ]
+`
+
+const html = adom.render(adomString, {
+  data: { images: [
+    'cat1.png',
+    'cat2.png'
   ]}
 })
 
