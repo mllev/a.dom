@@ -131,6 +131,8 @@ const adomString = `
         each image in images {
           img src='#{image}';
         }
+      } else {
+        p | NO IMAGES |
       }
     ]
   ]
