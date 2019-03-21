@@ -198,9 +198,11 @@ The `use` keyword is used to select a layout, and the `yield` keyword is used to
 ```html
 <html>
   <head></head>
-  <div>
-    <p>page content</p>
-  </div>
+  <body>
+    <div>
+      <p>page content</p>
+    </div>
+  </body>
 </htm>
 ```
 Layouts can also take arguments:
