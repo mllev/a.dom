@@ -84,3 +84,42 @@ html [
   ]
 ]
 ```
+
+Data can be passed in from the host environment:
+```javascript
+const adom = require('adom')
+
+const adomString = `
+  body [
+    h1 | #{message} |
+  ]
+`
+
+const html = adom.render(adomString, {
+  data: { message: 'Hello from ADOM!' }
+})
+
+console.log(html)
+```
+
+Data can also be rich:
+```javascript
+const adom = require('adom')
+
+const adomString = `
+  body [
+    h1 | #{messages[0].text} |
+  ]
+`
+
+const html = adom.render(adomString, {
+  data: { messages: [
+    {
+      text: 'Hello from ADOM!'
+    }
+  ]}
+})
+
+console.log(html)
+```
+
