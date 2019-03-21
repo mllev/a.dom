@@ -13,15 +13,29 @@ function benchmark (fn) {
 let test =
 `doctype html5
 
+layout page [
+  div [
+    | fish |
+    yield
+  ]
+]
+
 block Button text1 text2 [
   a href='/' [
     button.button-styles | #{text1} |
     span.button-flare []
-    if text1 != null {
+    if text2 == null {
       span | NULL |
     } else {
       span | NOT NULL |
     }
+  ]
+]
+
+use page [
+  div [
+    [ Button 'buttontext' ]
+    span | LAYOUT TEST |
   ]
 ]
 
@@ -85,7 +99,7 @@ html [
         span | ELSE CLAUSE |
       }
     } else { span | NOPE | }
-    [ Button 'foo' ]
+    [ Button 'foo' 'bar' ]
     h1 | List 2 |
     ul [
       each item in items2 {

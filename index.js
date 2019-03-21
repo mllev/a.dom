@@ -14,13 +14,15 @@ function render (prog, input, config) {
     line: 1
   }
 
-  let tags = {}
+  let layouts = {}
+  let blocks = {}
   let scopes = []
   let files = [prog]
-
+  let yield_state
   let file = files[0]
   let error = false
   let indents = -1
+  let current_layout = undefined
   let current_classlist = []
   let current_idlist = []
   let current_accessorlist = []
@@ -29,6 +31,7 @@ function render (prog, input, config) {
   let current_depth = -1
   let output = ''
   let parse_only = false
+  let in_layout_body = false
   let filters = {
     json: function (str) {
       return JSON.parse(str)
@@ -190,6 +193,67 @@ function render (prog, input, config) {
     } else if (peek('if')) {
       ifstatement()
       elementlist()
+    } else if (peek('use')) {
+      expect('use')
+      let id = STATE.current.data
+      let line = STATE.line
+      expect('identifier')
+      let layout = layouts[id]
+      if (layout) {
+        let local_data = {}
+        current_arglist = []
+        valuelist()
+        current_arglist.forEach(function (arg, idx) {
+          local_data[layout.args[idx]] = arg
+        })
+        current_arglist = []
+        expect('[')
+        yield_state = get_state()
+        let prev_state = yield_state
+        set_state(layout)
+        scopes.push(local_data)
+        in_layout_body = true
+        current_depth++
+        parse_block_body()
+        current_depth--
+        in_layout_body = false
+        scopes.pop()
+        set_state(prev_state)
+        parse_only = true
+        elementlist()
+        parse_only = false
+        expect(']')
+        elementlist()
+      } else {
+        log_error('Unknown layout: ' + id, line)
+        return
+      }
+    } else if (peek('yield')) {
+      if (in_layout_body) {
+        expect('yield')
+        if (parse_only === false) {
+          let current_state = get_state()
+          set_state(yield_state)
+          elementlist()
+          set_state(current_state)
+          elementlist()
+        } else {
+          elementlist()
+        }
+      } else {
+        log_error('yield can only be used inside of a layout', STATE.line)
+        return
+      }
+    } else if (peek('layout')) {
+      if (in_layout_body) {
+        log_error('Cannot define a layout in another layout', STATE.line)
+        return
+      }
+      let t = parse_only
+      parse_only = true
+      parse_layout()
+      parse_only = t
+      elementlist()
     } else if (peek('block')) {
       let t = parse_only
       parse_only = true
@@ -201,7 +265,7 @@ function render (prog, input, config) {
         let id = STATE.current.data
         let line = STATE.line
         expect('identifier')
-        let state = tags[id]
+        let state = blocks[id]
         if (state) {
           let local_data = {}
           current_arglist = []
@@ -209,6 +273,7 @@ function render (prog, input, config) {
           current_arglist.forEach(function (arg, idx) {
             local_data[state.args[idx]] = arg
           })
+          current_arglist = []
           let prev_state = get_state()
           set_state(state)
           scopes.push(local_data)
@@ -246,13 +311,15 @@ function render (prog, input, config) {
     }
   }
 
-  function parse_block () {
-    expect('block')
+  function parse_layout () {
+    in_layout_body = true
+    expect('layout')
     let id = STATE.current.data
     expect('identifier')
     current_arglist = []
     arglist()
-    tags[id] = {
+    current_layout = id
+    layouts[id] = {
       cursor: STATE.cursor,
       current: {
         type: STATE.current.type,
@@ -262,6 +329,28 @@ function render (prog, input, config) {
       line: STATE.line,
       args: current_arglist
     }
+    current_arglist = []
+    parse_block_body()
+    in_layout_body = false
+  }
+
+  function parse_block () {
+    expect('block')
+    let id = STATE.current.data
+    expect('identifier')
+    current_arglist = []
+    arglist()
+    blocks[id] = {
+      cursor: STATE.cursor,
+      current: {
+        type: STATE.current.type,
+        data: STATE.current.data
+      },
+      file_index: STATE.file_index,
+      line: STATE.line,
+      args: current_arglist
+    }
+    current_arglist = []
     parse_block_body()
   }
 
@@ -737,7 +826,10 @@ function render (prog, input, config) {
     'doctype',
     'const',
     'run',
-    'file'
+    'file',
+    'layout',
+    'use',
+    'yield'
   ]
 
   function next () {
