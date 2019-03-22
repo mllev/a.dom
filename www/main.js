@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', function () {
       content = e
     }
 
-    if (content) {
+    if (content !== undefined) {
       htmlContent.value = content
     }
   }

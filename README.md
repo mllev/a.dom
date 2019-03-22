@@ -2,7 +2,7 @@
 
 Advanced Data Oriented Markup
 
-ADOM is a language that compiles to HTML, has a terse syntax and a strong focus on data. Here's a live [playground](https://mllev.github.io/a.dom/). It was built with ADOM, and source can be found in this repo. The `build.js` file is how the site is compiled.
+ADOM is a language that compiles to HTML, has a terse syntax and a strong focus on data. Here's a live [playground](https://mllev.github.io/a.dom/). It was built with ADOM, and the source can be found in this repo. The `build.js` file is how the site is compiled.
 
 This is what tags looks like:
 ```
@@ -60,7 +60,7 @@ html [
 ]
 ```
 
-This makes for a very terse form syntax:
+This makes for a very terse form:
 ```
 form action='/login' method='POST' [
   input name='username' type='text;
@@ -255,7 +255,7 @@ use PageBody 'Page Title' [
   ]
 ]
 ```
-ADOM supports code splitting via the `run` keyword. It will execute a separate ADOM file exactly where `run` it:
+ADOM supports code splitting via the `run` keyword. It will execute a separate ADOM file exactly where you `run` it:
 ```
 html [
   head [
@@ -321,7 +321,7 @@ const html = adom.render(adomString, {
 console.log(html)
 ```
 
-Data can rich, and deeply nested:
+Data can be rich and deeply nested:
 ```javascript
 const adom = require('adom')
 

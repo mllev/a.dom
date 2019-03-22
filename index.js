@@ -28,6 +28,7 @@ function render (prog, config) {
   let error = false
   let indents = -1
   let current_layout = undefined
+  let current_block = undefined
   let current_classlist = []
   let current_idlist = []
   let current_accessorlist = []
@@ -200,6 +201,10 @@ function render (prog, config) {
       let id = STATE.current.data
       let line = STATE.line
       expect('identifier')
+      if (id === current_layout) {
+        log_error('cannot call a layout from within itself: ' + id, line)
+        return
+      }
       let layout = layouts[id]
       if (layout) {
         let local_data = {}
@@ -259,15 +264,14 @@ function render (prog, config) {
       parse_only = t
       elementlist()
     } else if (peek('block')) {
-      let t = parse_only
       parse_only = true
       parse_block()
-      parse_only = t
+      parse_only = false
       elementlist()
     } else if (accept('[')) {
+      let id = STATE.current.data
+      let line = STATE.line
       if (parse_only === false) {
-        let id = STATE.current.data
-        let line = STATE.line
         expect('identifier')
         let state = blocks[id]
         if (state) {
@@ -294,6 +298,10 @@ function render (prog, config) {
         }
       } else {
         expect('identifier')
+        if (id === current_block) {
+          log_error('cannot call a block from within itself: ' + id, line)
+          return
+        }
         valuelist()
         expect(']')
         elementlist()
@@ -336,11 +344,13 @@ function render (prog, config) {
     current_arglist = []
     parse_block_body()
     in_layout_body = false
+    current_layout = undefined
   }
 
   function parse_block () {
     expect('block')
     let id = STATE.current.data
+    current_block = id
     expect('identifier')
     current_arglist = []
     arglist()
@@ -356,6 +366,7 @@ function render (prog, config) {
     }
     current_arglist = []
     parse_block_body()
+    current_block = undefined
   }
 
   function value () {
@@ -527,11 +538,15 @@ function render (prog, config) {
         if (parse_only === false) {
           emit_text('>')
         }
+        let has_children = false
+        if (peek('identifier') || peek('if') || peek('each')) {
+          has_children = true
+        }
         elementlist()
         let prev = STATE.prev.type
         expect(']')
         if (parse_only === false) {
-          if (config.formatted && (prev === ']' || prev === ';' || prev === '}')) {
+          if (config.formatted && has_children) {
             emit_text('\n')
             emit_indents()
           }
