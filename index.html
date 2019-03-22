@@ -1076,6 +1076,11 @@ document.addEventListener('DOMContentLoaded', function () {
       const s = this.selectionStart
       this.value = this.value.substring(0,this.selectionStart) + '  ' + this.value.substring(this.selectionEnd)
       this.selectionEnd = s + 2
+    } else if (e.key === '[') {
+      e.preventDefault()
+      const s = this.selectionStart
+      this.value = this.value.substring(0,this.selectionStart) + '[]' + this.value.substring(this.selectionEnd)
+      this.selectionEnd = s + 1
     }
   })
 
