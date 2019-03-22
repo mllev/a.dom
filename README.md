@@ -4,6 +4,10 @@ Advanced Data Oriented Markup
 
 ADOM is a language that compiles to HTML, has a terse syntax and a strong focus on data. Here's a live [playground](https://mllev.github.io/a.dom/). It was built with ADOM, and the source can be found in this repo. The `build.js` file is how the site is compiled.
 
+```
+npm install adom-js
+```
+
 This is what tags looks like:
 ```
 html [
@@ -142,7 +146,7 @@ html [
 
 Passing in your own filters is quite easy. Here's how you would integrate with marked and stylus:
 ```javascript
-const adom = require('adom')
+const adom = require('adom-js')
 const marked = require('marked')
 const stylus = require('stylus')
 
@@ -306,7 +310,7 @@ ADOM should be seen as completely separate from its host environment, and should
 
 That being said, data can be passed in from the host environment:
 ```javascript
-const adom = require('adom')
+const adom = require('adom-js')
 
 const adomString = `
   body [
@@ -323,7 +327,7 @@ console.log(html)
 
 Data can be rich and deeply nested:
 ```javascript
-const adom = require('adom')
+const adom = require('adom-js')
 
 const adomString = `
   body [

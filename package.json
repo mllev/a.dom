@@ -1,0 +1,19 @@
+{
+  "name": "adom-js",
+  "version": "0.1.0",
+  "description": "Advanced Data Oriented Markup",
+  "main": "index.js",
+  "scripts": {
+    "test": "node example"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mllev/a.dom.git"
+  },
+  "author": "Matthew Levenstein",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mllev/a.dom/issues"
+  },
+  "homepage": "https://github.com/mllev/a.dom#readme"
+}
