@@ -8,13 +8,14 @@ try {
   path = require('path')
 } catch (e) {}
 
-function render (prog, config) {
+function render (prog, config, mainFile) {
   let STATE = {
     cursor: 0,
     current: { type: '', data: '' },
     prev: { type: '', data: '' },
     file_index: 0,
-    line: 1
+    line: 1,
+    file_name: mainFile || 'main'
   }
 
   let error_message = undefined
@@ -51,7 +52,7 @@ function render (prog, config) {
   }
 
   function log_error (err, line) {
-    error_message = 'Error line ' + line + ': ' + err
+    error_message = 'Error (' + STATE.file_name + ') line ' + line + ': ' + err
     error = true
   }
 
@@ -59,6 +60,7 @@ function render (prog, config) {
     STATE.cursor = state.cursor || 0
     STATE.file_index = state.file_index || 0
     STATE.line = state.line || 1
+    STATE.file_name = state.file_name || mainFile || 'main'
     if (state.current) {
       STATE.current.type = state.current.type || ''
       STATE.current.data = state.current.data || ''
@@ -105,8 +107,10 @@ function render (prog, config) {
     if (error) return
     if (STATE.current.type !== type) {
       log_error('Unexpected token: ' + STATE.current.type, STATE.line)
+      return false
     } else {
       next()
+      return true
     }
   }
 
@@ -120,12 +124,12 @@ function render (prog, config) {
   }
 
   function parse_data () {
-    expect('const')
+    if (!expect('const')) return
     const id = STATE.current.data
     const line = STATE.line
     let is_file = false
     let filter = undefined
-    expect('identifier')
+    if (!expect('identifier')) return
     if (scopes[0][id] !== undefined) {
       log_error('constant has already been declared: ' + id, line)
       return
@@ -135,10 +139,10 @@ function render (prog, config) {
     }
     if (accept(':')) {
       filter = STATE.current.data
-      expect('identifier')
+      if (!expect('identifier')) return
     }
     if (peek('string')) {
-      let str = STATE.current.data
+      let str = interpolate_values(STATE.current.data)
       let line = STATE.line
       if (is_file) {
         str = load_file(str)
@@ -147,7 +151,7 @@ function render (prog, config) {
         if (filters[filter]) {
           str = filters[filter](str)
         } else {
-          log_error('Unknown filter: ' + filter, line)
+          log_error('unknown filter: ' + filter, line)
         }
       }
       scopes[0][id] = str
@@ -155,6 +159,8 @@ function render (prog, config) {
     } else if (peek('number')) {
       scopes[0][id] = STATE.current.data
       next()
+    } else {
+      log_error('unexpected token: ' + STATE.current.data, STATE.line)
     }
   }
 
@@ -166,17 +172,39 @@ function render (prog, config) {
     return data
   }
 
+  const doctypes = {
+    'html5': '<!DOCTYPE html>'
+  }
+
+  function doctype () {
+    if (accept('doctype')) {
+      const id = STATE.current.data
+      if (!expect('identifier')) return
+      if (doctypes[id]) {
+        if (parse_only === false) {
+          emit_text(doctypes[id] + '\n')
+        }
+      } else {
+        log_error('Uknown Doctype: ' + id, STATE.line)
+      }
+    }
+  }
+
+
   function elementlist () {
     if (error) return
-    if (accept('run')) {
+    if (peek('doctype')) {
+      doctype()
+      elementlist()
+    } if (accept('run')) {
       let f = STATE.current.data
       let line = STATE.line
-      expect('string')
+      if (!expect('string')) return
       let fdata = load_file(f)
       if (fdata) {
         let state = get_state()
         files.push(fdata)
-        set_state({ file_index: files.length - 1 })
+        set_state({ file_index: files.length - 1, file_name: f })
         run()
         set_state(state)
       }
@@ -197,47 +225,57 @@ function render (prog, config) {
       ifstatement()
       elementlist()
     } else if (peek('use')) {
-      expect('use')
+      if (!expect('use')) return
+      if (!expect('[')) return
       let id = STATE.current.data
       let line = STATE.line
-      expect('identifier')
+      if (!expect('identifier')) return
       if (id === current_layout) {
         log_error('cannot call a layout from within itself: ' + id, line)
         return
       }
-      let layout = layouts[id]
-      if (layout) {
-        let local_data = {}
-        current_arglist = []
-        valuelist()
-        current_arglist.forEach(function (arg, idx) {
-          local_data[layout.args[idx]] = arg
-        })
-        current_arglist = []
-        expect('[')
-        yield_state = get_state()
-        let prev_state = yield_state
-        set_state(layout)
-        scopes.push(local_data)
-        in_layout_body = true
-        current_depth++
-        parse_block_body()
-        current_depth--
-        in_layout_body = false
-        scopes.pop()
-        set_state(prev_state)
-        parse_only = true
-        elementlist()
-        parse_only = false
-        expect(']')
-        elementlist()
+      if (parse_only === false) {
+        let layout = layouts[id]
+        if (layout) {
+          let local_data = {}
+          current_arglist = []
+          valuelist()
+          if (!expect(']')) return
+          current_arglist.forEach(function (arg, idx) {
+            local_data[layout.args[idx]] = arg
+          })
+          current_arglist = []
+          if (!expect('[')) return
+          yield_state = get_state()
+          let prev_state = yield_state
+          set_state(layout)
+          scopes.push(local_data)
+          in_layout_body = true
+          current_depth++
+          parse_block_body()
+          current_depth--
+          in_layout_body = false
+          scopes.pop()
+          set_state(prev_state)
+          parse_only = true
+          elementlist()
+          parse_only = false
+          if (!expect(']')) return
+          elementlist()
+        } else {
+          log_error('Unknown layout: ' + id, line)
+          return
+        }
       } else {
-        log_error('Unknown layout: ' + id, line)
-        return
+        valuelist()
+        if (!expect('[')) return
+        elementlist()
+        if (!expect(']')) return
+        elementlist()
       }
     } else if (peek('yield')) {
       if (in_layout_body) {
-        expect('yield')
+        if (!expect('yield')) return
         if (parse_only === false) {
           let current_state = get_state()
           set_state(yield_state)
@@ -272,7 +310,7 @@ function render (prog, config) {
       let id = STATE.current.data
       let line = STATE.line
       if (parse_only === false) {
-        expect('identifier')
+        if (!expect('identifier')) return
         let state = blocks[id]
         if (state) {
           let local_data = {}
@@ -288,7 +326,7 @@ function render (prog, config) {
           current_depth++
           parse_block_body()
           set_state(prev_state)
-          expect(']')
+          if (!expect(']')) return
           current_depth--
           scopes.pop()
           elementlist()
@@ -297,22 +335,22 @@ function render (prog, config) {
           return
         }
       } else {
-        expect('identifier')
+        if (!expect('identifier')) return
         if (id === current_block) {
           log_error('cannot call a block from within itself: ' + id, line)
           return
         }
         valuelist()
-        expect(']')
+        if (!expect(']')) return
         elementlist()
       }
     }
   }
 
   function parse_block_body () {
-    expect('[')
+    if (!expect('[')) return
     elementlist()
-    expect(']')
+    if (!expect(']')) return
   }
 
   function arglist () {
@@ -325,9 +363,9 @@ function render (prog, config) {
 
   function parse_layout () {
     in_layout_body = true
-    expect('layout')
+    if (!expect('layout')) return
     let id = STATE.current.data
-    expect('identifier')
+    if (!expect('identifier')) return
     current_arglist = []
     arglist()
     current_layout = id
@@ -348,10 +386,10 @@ function render (prog, config) {
   }
 
   function parse_block () {
-    expect('block')
+    if (!expect('block')) return
     let id = STATE.current.data
     current_block = id
-    expect('identifier')
+    if (!expect('identifier')) return
     current_arglist = []
     arglist()
     blocks[id] = {
@@ -400,7 +438,7 @@ function render (prog, config) {
 
   function ifstatement () {
     if (error) return
-    expect('if')
+    if (!expect('if')) return
     value()
     if (parse_only === false) {
       let val = compute_value()
@@ -451,9 +489,9 @@ function render (prog, config) {
         parse_only = true
       }
 
-      expect('{')
+      if (!expect('{')) return
       elementlist()
-      expect('}')
+      if (!expect('}')) return
 
       parse_only = false
 
@@ -462,37 +500,37 @@ function render (prog, config) {
           parse_only = true
         }
 
-        expect('{')
+        if (!expect('{')) return
         elementlist()
-        expect('}')
+        if (!expect('}')) return
 
         parse_only = false
       }
     } else {
       parse_cmp()
       value()
-      expect('{')
+      if (!expect('{')) return
       elementlist()
-      expect('}')
+      if (!expect('}')) return
       if (accept('else')) {
-        expect('{')
+        if (!expect('{')) return
         elementlist()
-        expect('}')
+        if (!expect('}')) return
       }
     }
   }
 
   function eachstatement () {
     if (error) return
-    expect('each')
+    if (!expect('each')) return
     let it = STATE.current.data
-    expect('identifier')
-    expect('in')
+    if (!expect('identifier')) return
+    if (!expect('in')) return
     if (parse_only === false) {
       let line = STATE.line
       variable()
       let data = compute_value()
-      expect('{')
+      if (!expect('{')) return
       let state = get_state()
       if (data !== undefined && data.forEach !== undefined) {
         data.forEach(function (d) {
@@ -507,12 +545,12 @@ function render (prog, config) {
         log_error('Cannot use each with ' + (typeof data) + ' type', line)
         return
       }
-      expect('}')
+      if (!expect('}')) return
     } else {
       variable()
-      expect('{')
+      if (!expect('{')) return
       elementlist()
-      expect('}')
+      if (!expect('}')) return
     }
   }
 
@@ -539,12 +577,12 @@ function render (prog, config) {
           emit_text('>')
         }
         let has_children = false
-        if (peek('identifier') || peek('if') || peek('each')) {
+        if (peek('identifier') || peek('if') || peek('each') || peek('yield')) {
           has_children = true
         }
         elementlist()
         let prev = STATE.prev.type
-        expect(']')
+        if (!expect(']')) return
         if (parse_only === false) {
           if (config.formatted && has_children) {
             emit_text('\n')
@@ -605,13 +643,13 @@ function render (prog, config) {
         next()
         if (accept('=')) {
           emit_text('="' + interpolate_values(STATE.current.data) + '"')
-          expect('string')
+          if (!expect('string')) return
         }
         properties()
       } else {
         next()
         if (accept('=')) {
-          expect('string')
+          if (!expect('string')) return
         }
         properties()
       }
@@ -620,7 +658,7 @@ function render (prog, config) {
 
   function variable () {
     let a = STATE.current.data
-    expect('identifier')
+    if (!expect('identifier')) return
     scalar_value = undefined
     current_accessorlist = []
     current_accessorlist.push(a)
@@ -630,17 +668,18 @@ function render (prog, config) {
   function accessor () {
     if (accept('.')) {
       let a = STATE.current.data
-      expect('identifier')
+      if (!expect('identifier')) return
       current_accessorlist.push(a)
       accessor()
     } else if (accept('[')) {
+      let line = STATE.line
       let a = STATE.current.data
       if (accept('string') || accept('number')) {
-        expect(']')
+        if (!expect(']')) return
         current_accessorlist.push(a)
         accessor()
       } else {
-        log_error('Unexpected token: ' + STATE.current.type)
+        log_error('Unexpected token: ' + STATE.current.type, line)
       }
     }
   }
@@ -684,15 +723,19 @@ function render (prog, config) {
     return val
   }
 
-  function compute_interpolated_value (value) {
+  function compute_interpolated_value (val) {
     let state = get_state()
-    files.push(value)
+    if (!val.trim()) {
+      log_error('string interpolant cannot be empty', STATE.line)
+      return
+    }
+    files.push(val)
     set_state({
       line: STATE.line,
       file_index: files.length - 1
     })
     next()
-    variable()
+    value()
     let v = compute_value()
     set_state(state)
     return v
@@ -743,7 +786,7 @@ function render (prog, config) {
         emit_text(txt.trim())
       }
     }
-    expect('raw')
+    if (!expect('raw')) return
   }
 
   function classlist () {
@@ -751,7 +794,7 @@ function render (prog, config) {
     if (parse_only === false) {
       current_classlist.push(STATE.current.data)
     }
-    expect('identifier')
+    if (!expect('identifier')) return
     if (accept('.')) {
       classlist()
     } else if (accept('#')) {
@@ -764,7 +807,7 @@ function render (prog, config) {
     if (parse_only === false) {
       current_idlist.push(STATE.current.data)
     }
-    expect('identifier')
+    if (!expect('identifier')) return
     if (accept('.')) {
       classlist()
     } else if (accept('#')) {
@@ -791,15 +834,23 @@ function render (prog, config) {
   function parse_string (i) {
     let str = ''
     let del = file[i++]
+    let additional_length = 0
     while (file[i] !== del && i < file.length) {
+      if (file[i] === '\n') {
+        STATE.line++
+      }
       if (file[i] === '\\') {
+        additional_length++
         str += file[++i]
       } else {
         str += file[i]
       }
       i++
     }
-    return str
+    return {
+      string: str,
+      length: str.length + additional_length
+    }
   }
 
   // cheating
@@ -822,10 +873,23 @@ function render (prog, config) {
 
   function parse_inner (i) {
     let inner = ''
+    let additional_length = 0
     while (file[i] !== '|' && i < file.length) {
-      inner += file[i++]
+      if (file[i] === '\n') {
+        STATE.line++
+      }
+      if (file[i] === '\\') {
+        additional_length++
+        inner += file[++i]
+      } else {
+        inner += file[i]
+      }
+      i++
     }
-    return inner
+    return {
+      data: inner,
+      length: inner.length + additional_length
+    }
   }
 
   function is_space (c) {
@@ -858,22 +922,36 @@ function render (prog, config) {
     'yield'
   ]
 
-  function next () {
-    let c, data, type
-
+  function skip_space () {
     while (is_space(file[STATE.cursor])) {
       if (file[STATE.cursor] === '\n') {
         STATE.line++
       }
       STATE.cursor++
     }
-    c = file[STATE.cursor]
+  }
+
+  function next () {
+    let c, data, type
+
+    skip_space()
 
     if (STATE.cursor >= file.length) {
       STATE.current.type = 'eof',
       STATE.current.data = undefined
       return
     }
+
+    if (file[STATE.cursor] === '/' && file[STATE.cursor+1] === '/') {
+      if (file[STATE.cursor+1] === '/') {
+        while (file[STATE.cursor] !== '\n' && STATE.cursor < file.length) {
+          STATE.cursor++
+        }
+      }
+      return next()
+    }
+
+    c = file[STATE.cursor]
 
     if (c === '!') {
       if (file[STATE.cursor+1] === '=') {
@@ -923,13 +1001,15 @@ function render (prog, config) {
       STATE.cursor++
     } else if (c === '"' || c === '\'') {
       type = 'string'
-      data = parse_string(STATE.cursor)
-      STATE.cursor += data.length + 2
+      let str = parse_string(STATE.cursor)
+      data = str.string
+      STATE.cursor += str.length + 2
     } else if (c === '|') {
       STATE.cursor++
       type = 'raw'
-      data = parse_inner(STATE.cursor)
-      STATE.cursor += data.length + 1
+      let inner = parse_inner(STATE.cursor)
+      data = inner.data
+      STATE.cursor += inner.length + 1
     } else if (is_num(c)) {
       type = 'number'
       data = parse_number(STATE.cursor)
@@ -961,26 +1041,10 @@ function render (prog, config) {
     STATE.current.data = data
   }
 
-  const doctypes = {
-    'html5': '<!DOCTYPE html>'
-  }
-
-  function doctype () {
-    if (accept('doctype')) {
-      const id = STATE.current.data
-      expect('identifier')
-      if (doctypes[id]) {
-        emit_text(doctypes[id] + '\n')
-      } else {
-        log_error('Uknown Doctype: ' + id, STATE.line)
-      }
-    }
-  }
-
   function run () {
     next()
-    doctype()
     elementlist()
+    expect('eof')
   }
 
   scopes.push(config.data || {})
@@ -997,7 +1061,7 @@ function render (prog, config) {
 
 function renderFile (filepath, data, opts) {
   const str = fs.readFileSync(filepath, 'utf-8')
-  return render(str, data, opts)
+  return render(str, data, opts, filepath)
 }
 
 return {

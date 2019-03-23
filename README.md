@@ -223,7 +223,7 @@ layout PageBody [
   ]
 ]
 
-use PageBody [
+use [ PageBody ] [
   div [
     p | page content |
   ]
@@ -253,7 +253,7 @@ layout PageBody title [
   ]
 ]
 
-use PageBody 'Page Title' [
+use [ PageBody 'Page Title' ] [
   div [
     p | page content |
   ]
