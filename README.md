@@ -2,7 +2,7 @@
 
 Advanced Data Oriented Markup
 
-ADOM is a language that compiles to HTML, has a terse syntax and a strong focus on data. Here's a live [playground](https://mllev.github.io/a.dom/). It was built with ADOM, and the source can be found in this repo. The `build.js` file is how the site is compiled.
+ADOM is a language that compiles to HTML, has a terse syntax and a strong focus on data. Here's a live [playground](https://mllev.github.io/a.dom-www/). It was built with ADOM, and the source can be found [here](https://github.com/mllev/a.dom-www). The `build.js` file is how the site is compiled.
 
 ```
 npm install adom-js
