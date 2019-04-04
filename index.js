@@ -1029,7 +1029,7 @@ function render (prog, config, mainFile) {
       type = 'null'
     }
 
-    if (data === 'true' || data === 'false') {
+    if ((data === 'true' || data === 'false') && type !== 'string') {
       type = 'bool'
       data = (data === 'true')
     }
@@ -1059,9 +1059,9 @@ function render (prog, config, mainFile) {
   }
 }
 
-function renderFile (filepath, data, opts) {
+function renderFile (filepath, opts) {
   const str = fs.readFileSync(filepath, 'utf-8')
-  return render(str, data, opts, filepath)
+  return render(str, opts, filepath)
 }
 
 return {

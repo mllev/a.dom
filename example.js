@@ -34,7 +34,7 @@ const buttonData:json '
 use [ Page '#{pageTitle}' ] [
   div [
     div | PAGE HEADER |
-    div | PAGE BODY |
+    div contentEditable='true' | PAGE BODY |
     each button in buttonData {
       [ Button button.text button.href ]
     }
