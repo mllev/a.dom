@@ -18,7 +18,6 @@ function render (prog, config, mainFile) {
     file_name: mainFile || 'main'
   }
 
-  let error_message = undefined
   let first_tag = false
   let layouts = {}
   let blocks = {}
@@ -26,7 +25,6 @@ function render (prog, config, mainFile) {
   let files = [prog]
   let yield_state
   let file = files[0]
-  let error = false
   let indents = -1
   let current_layout = undefined
   let current_block = undefined
@@ -52,8 +50,8 @@ function render (prog, config, mainFile) {
   }
 
   function log_error (err, line) {
-    error_message = 'Error (' + STATE.file_name + ') line ' + line + ': ' + err
-    error = true
+    let error_message = 'Error (' + STATE.file_name + ') line ' + line + ': ' + err
+    throw new Error(error_message)
   }
 
   function set_state (state) {
@@ -94,7 +92,6 @@ function render (prog, config, mainFile) {
   }
 
   function accept (type) {
-    if (error) return
     if (STATE.current.type === type) {
       next()
       return true
@@ -104,18 +101,14 @@ function render (prog, config, mainFile) {
   }
 
   function expect (type) {
-    if (error) return
     if (STATE.current.type !== type) {
       log_error('Unexpected token: ' + STATE.current.type, STATE.line)
-      return false
     } else {
       next()
-      return true
     }
   }
 
   function peek (type) {
-    if (error) return
     if (STATE.current.type === type) {
       return true
     } else {
@@ -124,22 +117,21 @@ function render (prog, config, mainFile) {
   }
 
   function parse_data () {
-    if (!expect('const')) return
+    expect('const')
     const id = STATE.current.data
     const line = STATE.line
     let is_file = false
     let filter = undefined
-    if (!expect('identifier')) return
+    expect('identifier')
     if (scopes[0][id] !== undefined) {
       log_error('constant has already been declared: ' + id, line)
-      return
     }
     if (accept('file')) {
       is_file = true
     }
     if (accept(':')) {
       filter = STATE.current.data
-      if (!expect('identifier')) return
+      expect('identifier')
     }
     if (peek('string')) {
       let str = interpolate_values(STATE.current.data)
@@ -179,7 +171,7 @@ function render (prog, config, mainFile) {
   function doctype () {
     if (accept('doctype')) {
       const id = STATE.current.data
-      if (!expect('identifier')) return
+      expect('identifier')
       if (doctypes[id]) {
         if (parse_only === false) {
           emit_text(doctypes[id] + '\n')
@@ -192,14 +184,13 @@ function render (prog, config, mainFile) {
 
 
   function elementlist () {
-    if (error) return
     if (peek('doctype')) {
       doctype()
       elementlist()
     } if (accept('run')) {
       let f = STATE.current.data
       let line = STATE.line
-      if (!expect('string')) return
+      expect('string')
       let fdata = load_file(f)
       if (fdata) {
         let state = get_state()
@@ -225,14 +216,13 @@ function render (prog, config, mainFile) {
       ifstatement()
       elementlist()
     } else if (peek('use')) {
-      if (!expect('use')) return
-      if (!expect('[')) return
+      expect('use')
+      expect('[')
       let id = STATE.current.data
       let line = STATE.line
-      if (!expect('identifier')) return
+      expect('identifier')
       if (id === current_layout) {
         log_error('cannot call a layout from within itself: ' + id, line)
-        return
       }
       if (parse_only === false) {
         let layout = layouts[id]
@@ -240,12 +230,12 @@ function render (prog, config, mainFile) {
           let local_data = {}
           current_arglist = []
           valuelist()
-          if (!expect(']')) return
+          expect(']')
           current_arglist.forEach(function (arg, idx) {
             local_data[layout.args[idx]] = arg
           })
           current_arglist = []
-          if (!expect('[')) return
+          expect('[')
           yield_state = get_state()
           let prev_state = yield_state
           set_state(layout)
@@ -260,22 +250,21 @@ function render (prog, config, mainFile) {
           parse_only = true
           elementlist()
           parse_only = false
-          if (!expect(']')) return
+          expect(']')
           elementlist()
         } else {
           log_error('Unknown layout: ' + id, line)
-          return
         }
       } else {
         valuelist()
-        if (!expect('[')) return
+        expect('[')
         elementlist()
-        if (!expect(']')) return
+        expect(']')
         elementlist()
       }
     } else if (peek('yield')) {
       if (in_layout_body) {
-        if (!expect('yield')) return
+        expect('yield')
         if (parse_only === false) {
           let current_state = get_state()
           set_state(yield_state)
@@ -289,12 +278,10 @@ function render (prog, config, mainFile) {
         }
       } else {
         log_error('yield can only be used inside of a layout', STATE.line)
-        return
       }
     } else if (peek('layout')) {
       if (in_layout_body) {
         log_error('Cannot define a layout in another layout', STATE.line)
-        return
       }
       let t = parse_only
       parse_only = true
@@ -310,7 +297,7 @@ function render (prog, config, mainFile) {
       let id = STATE.current.data
       let line = STATE.line
       if (parse_only === false) {
-        if (!expect('identifier')) return
+        expect('identifier')
         let state = blocks[id]
         if (state) {
           let local_data = {}
@@ -326,31 +313,29 @@ function render (prog, config, mainFile) {
           current_depth++
           parse_block_body()
           set_state(prev_state)
-          if (!expect(']')) return
+          expect(']')
           current_depth--
           scopes.pop()
           elementlist()
         } else {
           log_error('Unknown tag: ' + id, line)
-          return
         }
       } else {
-        if (!expect('identifier')) return
+        expect('identifier')
         if (id === current_block) {
           log_error('cannot call a block from within itself: ' + id, line)
-          return
         }
         valuelist()
-        if (!expect(']')) return
+        expect(']')
         elementlist()
       }
     }
   }
 
   function parse_block_body () {
-    if (!expect('[')) return
+    expect('[')
     elementlist()
-    if (!expect(']')) return
+    expect(']')
   }
 
   function arglist () {
@@ -363,9 +348,9 @@ function render (prog, config, mainFile) {
 
   function parse_layout () {
     in_layout_body = true
-    if (!expect('layout')) return
+    expect('layout')
     let id = STATE.current.data
-    if (!expect('identifier')) return
+    expect('identifier')
     current_arglist = []
     arglist()
     current_layout = id
@@ -386,10 +371,10 @@ function render (prog, config, mainFile) {
   }
 
   function parse_block () {
-    if (!expect('block')) return
+    expect('block')
     let id = STATE.current.data
     current_block = id
-    if (!expect('identifier')) return
+    expect('identifier')
     current_arglist = []
     arglist()
     blocks[id] = {
@@ -432,13 +417,11 @@ function render (prog, config, mainFile) {
   function parse_cmp () {
     if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==') && !accept('!=')) {
       log_error('Unexpected token ' + STATE.current.type, STATE.line)
-      return
     }
   }
 
   function ifstatement () {
-    if (error) return
-    if (!expect('if')) return
+    expect('if')
     value()
     if (parse_only === false) {
       let val = compute_value()
@@ -458,11 +441,9 @@ function render (prog, config, mainFile) {
       }
       if (v1.type !== v2.type && v1.type !== 'null' && v2.type !== 'null') {
         log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
-        return
       }
       if (cmp !== '==' && cmp !== '!=' && v1.type === 'string' && v2.type === 'string') {
         log_error('Operator can only be used on numbers', line)
-        return
       }
       switch (cmp) {
         case '<=':
@@ -489,9 +470,9 @@ function render (prog, config, mainFile) {
         parse_only = true
       }
 
-      if (!expect('{')) return
+      expect('{')
       elementlist()
-      if (!expect('}')) return
+      expect('}')
 
       parse_only = false
 
@@ -500,37 +481,36 @@ function render (prog, config, mainFile) {
           parse_only = true
         }
 
-        if (!expect('{')) return
+        expect('{')
         elementlist()
-        if (!expect('}')) return
+        expect('}')
 
         parse_only = false
       }
     } else {
       parse_cmp()
       value()
-      if (!expect('{')) return
+      expect('{')
       elementlist()
-      if (!expect('}')) return
+      expect('}')
       if (accept('else')) {
-        if (!expect('{')) return
+        expect('{')
         elementlist()
-        if (!expect('}')) return
+        expect('}')
       }
     }
   }
 
   function eachstatement () {
-    if (error) return
-    if (!expect('each')) return
+    expect('each')
     let it = STATE.current.data
-    if (!expect('identifier')) return
-    if (!expect('in')) return
+    expect('identifier')
+    expect('in')
     if (parse_only === false) {
       let line = STATE.line
       variable()
       let data = compute_value()
-      if (!expect('{')) return
+      expect('{')
       let state = get_state()
       if (data !== undefined && data.forEach !== undefined) {
         data.forEach(function (d) {
@@ -543,19 +523,17 @@ function render (prog, config, mainFile) {
         })
       } else {
         log_error('Cannot use each with ' + (typeof data) + ' type', line)
-        return
       }
-      if (!expect('}')) return
+      expect('}')
     } else {
       variable()
-      if (!expect('{')) return
+      expect('{')
       elementlist()
-      if (!expect('}')) return
+      expect('}')
     }
   }
 
   function element () {
-    if (error) return
     indents++
     let id = STATE.current.data
     if (accept('identifier')) {
@@ -582,7 +560,7 @@ function render (prog, config, mainFile) {
         }
         elementlist()
         let prev = STATE.prev.type
-        if (!expect(']')) return
+        expect(']')
         if (parse_only === false) {
           if (config.formatted && has_children) {
             emit_text('\n')
@@ -610,13 +588,11 @@ function render (prog, config, mainFile) {
   }
 
   function tagdef () {
-    if (error) return
     tag()
     properties()
   }
 
   function tag () {
-    if (error) return
     if (accept('.')) {
       classlist()
     } else if (accept('#')) {
@@ -635,7 +611,6 @@ function render (prog, config, mainFile) {
   }
 
   function properties () {
-    if (error) return
     if (peek('identifier')) {
       let id = STATE.current.data
       if (parse_only === false) {
@@ -643,13 +618,13 @@ function render (prog, config, mainFile) {
         next()
         if (accept('=')) {
           emit_text('="' + interpolate_values(STATE.current.data) + '"')
-          if (!expect('string')) return
+          expect('string')
         }
         properties()
       } else {
         next()
         if (accept('=')) {
-          if (!expect('string')) return
+          expect('string')
         }
         properties()
       }
@@ -658,7 +633,7 @@ function render (prog, config, mainFile) {
 
   function variable () {
     let a = STATE.current.data
-    if (!expect('identifier')) return
+    expect('identifier')
     scalar_value = undefined
     current_accessorlist = []
     current_accessorlist.push(a)
@@ -668,14 +643,14 @@ function render (prog, config, mainFile) {
   function accessor () {
     if (accept('.')) {
       let a = STATE.current.data
-      if (!expect('identifier')) return
+      expect('identifier')
       current_accessorlist.push(a)
       accessor()
     } else if (accept('[')) {
       let line = STATE.line
       let a = STATE.current.data
       if (accept('string') || accept('number')) {
-        if (!expect(']')) return
+        expect(']')
         current_accessorlist.push(a)
         accessor()
       } else {
@@ -727,7 +702,6 @@ function render (prog, config, mainFile) {
     let state = get_state()
     if (!val.trim()) {
       log_error('string interpolant cannot be empty', STATE.line)
-      return
     }
     files.push(val)
     set_state({
@@ -778,7 +752,6 @@ function render (prog, config, mainFile) {
   }
 
   function innertext () {
-    if (error) return
     let data = STATE.current.data
     if (parse_only === false && data) {
       let txt = interpolate_values(data)
@@ -786,15 +759,14 @@ function render (prog, config, mainFile) {
         emit_text(txt.trim())
       }
     }
-    if (!expect('raw')) return
+    expect('raw')
   }
 
   function classlist () {
-    if (error) return
     if (parse_only === false) {
       current_classlist.push(STATE.current.data)
     }
-    if (!expect('identifier')) return
+    expect('identifier')
     if (accept('.')) {
       classlist()
     } else if (accept('#')) {
@@ -803,11 +775,10 @@ function render (prog, config, mainFile) {
   }
 
   function idlist () {
-    if (error) return
     if (parse_only === false) {
       current_idlist.push(STATE.current.data)
     }
-    if (!expect('identifier')) return
+    expect('identifier')
     if (accept('.')) {
       classlist()
     } else if (accept('#')) {
@@ -1050,13 +1021,13 @@ function render (prog, config, mainFile) {
   scopes.push(config.data || {})
   current_depth++
 
-  run()
-
-  if (error) {
-    throw new Error(error_message)
-  } else {
-    return output
+  try { 
+    run()
+  } catch (e) {
+    throw new Error(e)
   }
+
+  return output
 }
 
 function renderFile (filepath, opts) {
