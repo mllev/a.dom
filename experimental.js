@@ -6,8 +6,8 @@ html [
       span | evaluated to true! | 
     ]
 
-    p | {test.field} |
-    div.mydiv []
+    p | hello {test.field} world {test.field} |
+    div each(cat in cats) | cat: {cat} {test.field} |
  
     span attr='hello' class={test.field} [
       | Hello, world! |
@@ -50,10 +50,10 @@ var adom = (function () {
   let data = undefined
   let nodes = []
   let root = nodes
-  let _app_state = {
+  let _app_state = [{
     test: { field: 'testClass' },
     cats: ['brown cat', 'white cat', 'black cat']
-  }
+  }]
 
   const keywords = [
     'block', 'code', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data',
@@ -211,7 +211,6 @@ var adom = (function () {
     }
   }
 
-  let expr = undefined
   let current_condition = undefined
 
   function parse_ifexpr () {
@@ -227,11 +226,16 @@ var adom = (function () {
     }
     current_value = undefined
   }
+  
+  let current_each = undefined
 
   function parse_eachexpr () {
+    let it = data
     expect('ident')
     expect('in')
     parse_value()
+    let obj = current_value
+    current_each = { iterator: it, object: obj }
   }
 
   let attr_list = {}
@@ -266,15 +270,17 @@ var adom = (function () {
 
   function parse_textnode () {
     let i = cursor
-    let text = '' 
-    let interpolants = []
-    c = prog[++i]
+    let chunks = []
+    let text = ''
+    c = prog[i]
     while (c !== '|' && i < prog.length - 1) {
       if (c === '{') {
 	cursor = i + 1
 	next()
 	parse_value()
-	interpolants.push(current_value)
+	chunks.push(text)
+	chunks.push(current_value)
+	text = ''
 	i = cursor
 	if (tok !== '}') {
 	  throw new Error('unexpected:', tok)
@@ -284,9 +290,10 @@ var adom = (function () {
       text += c
       c = prog[++i]
     }
+    chunks.push(text)
     cursor = i + 1
     next()
-    return text
+    return chunks
   }
 
   function parse_tag () {
@@ -297,9 +304,11 @@ var adom = (function () {
     class_list = []
     parse_attributes()
     node.attributes = attr_list
-    node.condition = current_condition 
+    node.condition = current_condition
+    node.each = current_each
     attr_list = {}
     current_condition = undefined
+    current_each = undefined
     if (accept(';')) {
       node.selfClosing = true
     } else if (accept('[')) {
@@ -309,8 +318,11 @@ var adom = (function () {
       root = par
       expect(']')
     } else if (tok === '|') {
-      let text = parse_textnode()
-      node.children.push({ type: 'textnode', data: text.trim() })
+      let textnode = parse_textnode()
+      node.children.push({
+	type: 'textnode',
+	chunks: textnode
+      })
     }
     root.push(node)
   }
@@ -320,8 +332,11 @@ var adom = (function () {
       parse_tag()
       parse_tag_list()
     } else if (tok === '|') {
-      let text = parse_textnode()
-      root.push({ type: 'textnode', data: text.trim() })
+      let textnode = parse_textnode()
+      root.push({
+	type: 'textnode',
+	chunks: textnode
+      })
       parse_tag_list()
     }
   }
@@ -353,7 +368,12 @@ var adom = (function () {
 
   function get_value(v) {
     if (!Array.isArray(v)) return v
-    v1 = _app_state
+    let idx = _app_state.length - 1
+    let check = v[0]
+    while (_app_state[idx][check] == null && idx > 0) {
+      idx--
+    }
+    v1 = _app_state[idx]
     v.forEach(function (i) {
       v1 = v1[i]
     })
@@ -395,47 +415,65 @@ var adom = (function () {
     return false
   }
 
+  function assemble_textnode (chunks) {
+    return chunks.map(get_value).join('').trim()
+  }
+
+  function print_node (node) {
+    let line = get_indents() + '<' + node.name
+    if (node.classes.length > 0) {
+      if (node.attributes.class) {
+	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
+      } else {
+	node.attributes.class = node.classes.join(' ')
+      }
+    }
+    if (node.attributes) {
+      Object.keys(node.attributes).forEach(function (attr) {
+	let v = get_value(node.attributes[attr])
+	line += (' ' + attr + '=' + '"' + v + '"')
+      })
+    }
+    if (!node.selfClosing) {
+      if (node.children.length === 1 && node.children[0].type === 'textnode') {
+	line += ('>' + assemble_textnode(node.children[0].chunks) + '</' + node.name + '>')
+	console.log(line)
+      } else {
+	line += '>'
+	console.log(line)
+	indents++
+	execute(node.children)
+	indents--
+	console.log(get_indents() + '</' + node.name + '>')
+      }
+    } else {
+      // make configurable based on doctype
+      line += ' />'
+      console.log(line)
+    }
+  }
+
   function execute (tree) {
     tree.forEach(function (node) {
       if (node.type === 'tag') {
-	if (node.condition) {
-	  if (!evaluate_condition(node.condition)) {
-	    return
-	  }
+	if (node.condition && !evaluate_condition(node.condition)) {
+	  return
 	}
-	let line = get_indents() + '<' + node.name
-	if (node.classes.length > 0) {
-	  if (node.attributes.class) {
-	    node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
-	  } else {
-	    node.attributes.class = node.classes.join(' ')
+	if (node.each) {
+	  let it = node.each.iterator
+	  let obj = get_value(node.each.object)
+	  if (!Array.isArray(obj)) {
+	    throw new Error('object is not iteratable')
 	  }
-	}
-	if (node.attributes) {
-	  Object.keys(node.attributes).forEach(function (attr) {
-	    let v = get_value(node.attributes[attr])
-	    line += (' ' + attr + '=' + '"' + v + '"')
+	  obj.forEach(function (o) {
+	    _app_state.push({ [it]: o })
+	    print_node(node)
+	    _app_state.pop()
 	  })
 	}
-	if (!node.selfClosing) {
-	  if (node.children.length === 1 && node.children[0].type === 'textnode') {
-	    line += ('>' + node.children[0].data + '</' + node.name + '>')
-	    console.log(line)
-	  } else {
-	    line += '>'
-	    console.log(line)
-	    indents++
-	    execute(node.children)
-	    indents--
-	    console.log(get_indents() + '</' + node.name + '>')
-	  }
-	} else {
-	  // make configurable based on doctype
-	  line += ' />'
-	  console.log(line)
-	}
+	print_node(node)
       } else if (node.type === 'textnode') {
-	console.log(get_indents() + node.data)
+	console.log(get_indents() + assemble_textnode(node.chunks))
       }
     })
   }
