@@ -2,11 +2,25 @@ let test0 = `
 
 tag ListItem [
   li | {props.item} |
+  yield
 ]
 
-html [
+tag Page [
+  html [
+    head [
+      meta title={props.title};
+    ]
+    body [
+      yield
+    ]
+  ]
+]
+
+Page title='My Page' [
   div.btn-class attr1='123' attr2='234' [
-    ListItem each(item in cats) []
+    ListItem each(item in cats) [
+      span | yield test |
+    ]
   ]
 ]
 `
@@ -52,7 +66,7 @@ var adom = (function () {
   }]
 
   const keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data',
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield',
     'eq', 'ne', 'lt', 'gt', 'ge', 'le'
   ]
 
@@ -334,6 +348,9 @@ var adom = (function () {
 	chunks: textnode
       })
       parse_tag_list()
+    } else if (accept('yield')) {
+      root.push({ type: 'yield' })
+      parse_tag_list()
     }
   }
 
@@ -432,7 +449,7 @@ var adom = (function () {
     return chunks.map(get_value).join('').trim()
   }
 
-  function print_node (node) {
+  function print_node (node, yield_func) {
     let line = get_indents() + '<' + node.name
     if (node.classes.length > 0) {
       if (node.attributes.class) {
@@ -455,7 +472,7 @@ var adom = (function () {
 	line += '>'
 	console.log(line)
 	indents++
-	walk_node(node.children)
+	walk_node(node.children, yield_func)
 	indents--
 	console.log(get_indents() + '</' + node.name + '>')
       }
@@ -466,9 +483,13 @@ var adom = (function () {
     }
   }
 
-  function walk_node (tree) {
+  function walk_node (tree, yield_func) {
     tree.forEach(function (node) {
-      if (node.type === 'tag') {
+      if (node.type === 'yield') {
+	if (yield_func) {
+	  yield_func()
+	}	 
+      } else if (node.type === 'tag') {
 	if (node.condition && !evaluate_condition(node.condition)) {
 	  return
 	}
@@ -483,11 +504,13 @@ var adom = (function () {
 	      let props = node.attributes
 	      props[it] = o 
 	      _app_state.push({ props: props })
-	      walk_node(custom_tags[node.name].children)
+	      walk_node(custom_tags[node.name].children, function () {
+		walk_node(node.children, yield_func)
+	      })
 	      _app_state.pop()
 	    } else {
 	      _app_state.push({ [it]: o })
-	      print_node(node)
+	      print_node(node, yield_func)
 	      _app_state.pop()
 	    }
 	  })
@@ -495,10 +518,12 @@ var adom = (function () {
 	}
 	if (custom_tags[node.name]) {
 	  _app_state.push({ props: node.attributes })
-	  walk_node(custom_tags[node.name].children)
+	  walk_node(custom_tags[node.name].children, function () {
+	    walk_node(node.children, yield_func)
+	  })
 	  _app_state.pop()
 	} else {
-	  print_node(node)
+	  print_node(node, yield_func)
 	}
       } else if (node.type === 'textnode') {
 	console.log(get_indents() + assemble_textnode(node.chunks))
