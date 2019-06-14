@@ -1,8 +1,11 @@
 let test0 = `
 
+set str 'hello'
+
+module main [utils] -->
+
 tag ListItem [
   li | {props.item} |
-  yield
 ]
 
 tag Page [
@@ -18,10 +21,9 @@ tag Page [
 
 Page title='My Page' [
   div.btn-class attr1='123' attr2='234' [
-    ListItem each(item in cats) [
-      span | yield test |
-    ]
+    ListItem each(item in cats) ;
   ]
+  span | {str} |
 ]
 `
 
@@ -66,7 +68,7 @@ var adom = (function () {
   }]
 
   const keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield',
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'set',
     'eq', 'ne', 'lt', 'gt', 'ge', 'le'
   ]
 
@@ -139,6 +141,9 @@ var adom = (function () {
       }
       cursor = i + 1
       tok = 'string'
+    } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
+      tok = '-->'
+      cursor += 4
     } else {
       cursor++
     }
@@ -199,7 +204,10 @@ var adom = (function () {
 	accessor_list.push(val)	
       } else if (accept('string')) {
 	accessor_list.push(val)
+      } else {
+	throw new Error('Cannot index array using value')
       }
+      expect(']')
       parse_variable()   
     }
   }
@@ -368,6 +376,22 @@ var adom = (function () {
     custom_tags[name] = node
   }
 
+  function parse_dep_list () {
+    if (accept('ident')) {
+      parse_dep_list()
+    }
+  }
+
+  function parse_module () {
+    expect('module')
+    expect('ident')
+    if (accept('[')) {
+      parse_dep_list()
+      expect(']')
+    }
+    expect('-->')
+  }
+
   function parse_file () {
     if (tok === 'eof') {
       return
@@ -376,6 +400,15 @@ var adom = (function () {
       parse_file()
     } else if (tok === 'tag') {
       parse_custom_tag()
+      parse_file()
+    } else if (accept('set')) {
+      let id = data
+      expect('ident')
+      parse_value()
+      _app_state[0][id] = current_value
+      parse_file()
+    } else if (tok === 'module') {
+      parse_module()
       parse_file()
     } else {
       throw new Error('unexpected: ' + tok)
@@ -386,6 +419,7 @@ var adom = (function () {
     parse_file()
   }
 
+  let output = ''
   let indents = 0
 
   function get_indents () {
@@ -467,19 +501,18 @@ var adom = (function () {
     if (!node.selfClosing) {
       if (node.children.length === 1 && node.children[0].type === 'textnode') {
 	line += ('>' + assemble_textnode(node.children[0].chunks) + '</' + node.name + '>')
-	console.log(line)
+	output += (line + '\n')
       } else {
-	line += '>'
-	console.log(line)
+	output += (line + '>' + '\n')
 	indents++
 	walk_node(node.children, yield_func)
 	indents--
-	console.log(get_indents() + '</' + node.name + '>')
+	output += (get_indents() + '</' + node.name + '>' + '\n')
       }
     } else {
       // make configurable based on doctype
       line += ' />'
-      console.log(line)
+      output += (line + '\n')
     }
   }
 
@@ -526,7 +559,7 @@ var adom = (function () {
 	  print_node(node, yield_func)
 	}
       } else if (node.type === 'textnode') {
-	console.log(get_indents() + assemble_textnode(node.chunks))
+	output += (get_indents() + assemble_textnode(node.chunks) + '\n')
       }
     })
   }
@@ -543,6 +576,7 @@ var adom = (function () {
       return
     }
     walk_node(nodes)
+    console.log(output)
   }
 
 })()
