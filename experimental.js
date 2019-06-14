@@ -1,4 +1,4 @@
-let test0 = `
+let test = `
 
 set str 'hello'
 
@@ -10,6 +10,7 @@ module main [utils] -->
 
 tag ListItem [
   li | {props.item} |
+  yield
 ]
 
 tag Page [
@@ -23,40 +24,24 @@ tag Page [
   ]
 ]
 
-Page title='My Page' [
-  div.btn-class attr1='123' attr2='234' [
-    ListItem each(item in cats) ;
-    button onclick='sayHi()' | Say Hi |
+tag Master [
+  Page title='My Page' [
+    div.btn-class attr1='123' attr2='234' [
+      ListItem each(item in cats) [
+	span | double check: {item} |
+	yield
+      ]
+      button onclick='sayHi()' | Say Hi |
+    ]
+    span | {str} |
   ]
-  span | {str} |
+]
+  
+Master [
+  script | something |
 ]
 `
 
-let test = `
-code Main -->
-
-<--
-
-doctype html5
-
-html [
-  head [
-    meta attr='true';
-  ]
-  body [
-    nav [
-      a.href='' []
-      a.href='' []
-      span | {navTitle} |
-    ]
-    div root [
-      span | {title} |
-    ]
-    [Main]
-  ]
-]
-
-`
 var adom = (function () {
   let prog = undefined
   let tok = undefined
@@ -564,7 +549,11 @@ var adom = (function () {
 	      props[it] = o 
 	      _app_state.push({ props: props })
 	      walk_node(custom_tags[node.name].children, function () {
+		_app_state.pop()
+		_app_state.push({ [it]: o })
 		walk_node(node.children, yield_func)
+		_app_state.pop()
+		_app_state.push({ props: props })
 	      })
 	      _app_state.pop()
 	    } else {
@@ -607,4 +596,4 @@ var adom = (function () {
 
 })()
 
-adom(test0)
+adom(test)
