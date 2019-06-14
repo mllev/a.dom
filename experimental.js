@@ -2,7 +2,11 @@ let test0 = `
 
 set str 'hello'
 
-module main [utils] -->
+module main [utils] --> 
+  function sayHi () {
+    alert('hi')
+  }
+<--
 
 tag ListItem [
   li | {props.item} |
@@ -22,6 +26,7 @@ tag Page [
 Page title='My Page' [
   div.btn-class attr1='123' attr2='234' [
     ListItem each(item in cats) ;
+    button onclick='sayHi()' | Say Hi |
   ]
   span | {str} |
 ]
@@ -61,6 +66,7 @@ var adom = (function () {
   let data = undefined
   let nodes = []
   let custom_tags = {} 
+  let modules = {}
   let root = nodes
   let _app_state = [{
     test: { field: 'testClass' },
@@ -384,12 +390,32 @@ var adom = (function () {
 
   function parse_module () {
     expect('module')
+    let name = data
     expect('ident')
     if (accept('[')) {
       parse_dep_list()
       expect(']')
     }
-    expect('-->')
+    let tp = tokPos
+    if (tok !== '-->') {
+      throw new Error('expected -->')
+    }
+    let i = cursor
+    let js = ''
+    while (i < prog.length) {
+      if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
+	i += 4
+	break
+      }
+      js += prog[i++]
+    }
+    if (i >= prog.length) {
+      tokPos = tp
+      throw new Error('expected closing <--')
+    }
+    modules[name] = { code: js }
+    cursor = i
+    next()
   }
 
   function parse_file () {
