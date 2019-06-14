@@ -1,17 +1,12 @@
 let test0 = `
+
+tag ListItem [
+  li | {props.item} |
+]
+
 html [
   div.btn-class attr1='123' attr2='234' [
-    div if(test.field eq 'testClass') [
-      span | evaluated to true |
-      span | evaluated to true! | 
-    ]
-
-    p | hello {test.field} world {test.field} |
-    div each(cat in cats) | cat: {cat} {test.field} |
- 
-    span attr='hello' class={test.field} [
-      | Hello, world! |
-    ]
+    ListItem each(item in cats) []
   ]
 ]
 `
@@ -49,6 +44,7 @@ var adom = (function () {
   let cursor = 0
   let data = undefined
   let nodes = []
+  let custom_tags = {} 
   let root = nodes
   let _app_state = [{
     test: { field: 'testClass' },
@@ -56,7 +52,7 @@ var adom = (function () {
   }]
 
   const keywords = [
-    'block', 'code', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data',
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data',
     'eq', 'ne', 'lt', 'gt', 'ge', 'le'
   ]
 
@@ -341,11 +337,28 @@ var adom = (function () {
     }
   }
 
+  function parse_custom_tag () {
+    expect('tag')
+    let name = data
+    let node = { type: 'tag', children: [] }
+    expect('ident')
+    expect('[')
+    let par = root
+    root = node.children 
+    parse_tag_list()
+    root = par
+    expect(']')
+    custom_tags[name] = node
+  }
+
   function parse_file () {
     if (tok === 'eof') {
       return
     } else if (tok === 'ident') {
       parse_tag_list()
+      parse_file()
+    } else if (tok === 'tag') {
+      parse_custom_tag()
       parse_file()
     } else {
       throw new Error('unexpected: ' + tok)
@@ -442,7 +455,7 @@ var adom = (function () {
 	line += '>'
 	console.log(line)
 	indents++
-	execute(node.children)
+	walk_node(node.children)
 	indents--
 	console.log(get_indents() + '</' + node.name + '>')
       }
@@ -453,7 +466,7 @@ var adom = (function () {
     }
   }
 
-  function execute (tree) {
+  function walk_node (tree) {
     tree.forEach(function (node) {
       if (node.type === 'tag') {
 	if (node.condition && !evaluate_condition(node.condition)) {
@@ -466,12 +479,27 @@ var adom = (function () {
 	    throw new Error('object is not iteratable')
 	  }
 	  obj.forEach(function (o) {
-	    _app_state.push({ [it]: o })
-	    print_node(node)
-	    _app_state.pop()
+	    if (custom_tags[node.name]) {
+	      let props = node.attributes
+	      props[it] = o 
+	      _app_state.push({ props: props })
+	      walk_node(custom_tags[node.name].children)
+	      _app_state.pop()
+	    } else {
+	      _app_state.push({ [it]: o })
+	      print_node(node)
+	      _app_state.pop()
+	    }
 	  })
+	  return
 	}
-	print_node(node)
+	if (custom_tags[node.name]) {
+	  _app_state.push({ props: node.attributes })
+	  walk_node(custom_tags[node.name].children)
+	  _app_state.pop()
+	} else {
+	  print_node(node)
+	}
       } else if (node.type === 'textnode') {
 	console.log(get_indents() + assemble_textnode(node.chunks))
       }
@@ -489,7 +517,7 @@ var adom = (function () {
       print_error(tokPos)    
       return
     }
-    execute(nodes)
+    walk_node(nodes)
   }
 
 })()
