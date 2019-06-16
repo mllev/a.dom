@@ -1,3 +1,8 @@
+// keep track of which dom nodes to store references to
+// nodes with an if statement simply need to toggle the hidden attribute
+// nodes with an each statement will store one or more copies of the node marking the initial as hidden or not hidden
+// let dom_node_refs = [{ id, if, each ])
+
 let test = `
 
 set str 'hello'
@@ -14,6 +19,8 @@ tag ListItem [
 ]
 
 tag Page [
+  doctype html5
+
   html [
     head [
       meta title={props.title};
@@ -24,47 +31,51 @@ tag Page [
   ]
 ]
 
-tag Master [
-  Page title='My Page' [
-    div.btn-class attr1='123' attr2='234' [
-      ListItem each(item in cats) [
-	span | double check: {item} |
-	yield
-      ]
-      button onclick='sayHi()' | Say Hi |
+Page title='My Page' [
+  div.btn-class on:load(main) attr1='123' attr2='234' [
+    ListItem each(item in cats) [
+      span | double check: {item} |
     ]
-    span | {str} |
+    button onclick='sayHi()' | Say Hi |
   ]
-]
-  
-Master [
-  script | something |
+  span | {str} |
 ]
 `
 
+const fs = require('fs')
+
 var adom = (function () {
   let prog = undefined
-  let tok = undefined
-  let tokPos = 0
-  let lineno = 1
-  let cursor = 0
-  let data = undefined
+  
   let nodes = []
   let custom_tags = {} 
   let modules = {}
-  let root = nodes
   let _app_state = [{
     test: { field: 'testClass' },
     cats: ['brown cat', 'white cat', 'black cat']
   }]
 
+  let tok = undefined
+  let tokPos = 0
+  let lineno = 1
+  let cursor = 0
+  let data = undefined
+  let accessor_list = []
+  let class_list = []
+  let current_value
+  let attr_list = {}
+  let current_condition = undefined
+  let current_each = undefined
+  let current_event_listeners = [] 
+  let root = nodes
+
   const keywords = [
     'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'set',
-    'eq', 'ne', 'lt', 'gt', 'ge', 'le'
+    'eq', 'ne', 'lt', 'gt', 'ge', 'le', 'on'
   ]
 
   const symbols = [
-    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', '|'
+    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', '|', ':'
   ]
 
   function next () {
@@ -171,8 +182,6 @@ var adom = (function () {
     return false
   }
 
-  let class_list = []
-
   function parse_classes () {
     if (accept('.')) {
       class_list.push(data)
@@ -180,8 +189,6 @@ var adom = (function () {
       parse_classes()
     }
   }
-
-  let accessor_list = []
 
   function parse_variable () {
     if (accept('.')) {
@@ -203,8 +210,6 @@ var adom = (function () {
     }
   }
 
-  let current_value
-
   function parse_value () {
     if (tok === 'string' || tok === 'int') {
       current_value = data
@@ -220,7 +225,6 @@ var adom = (function () {
     }
   }
 
-  let current_condition = undefined
 
   function parse_ifexpr () {
     parse_value()
@@ -236,8 +240,6 @@ var adom = (function () {
     current_value = undefined
   }
   
-  let current_each = undefined
-
   function parse_eachexpr () {
     let it = data
     expect('ident')
@@ -246,8 +248,6 @@ var adom = (function () {
     let obj = current_value
     current_each = { iterator: it, object: obj }
   }
-
-  let attr_list = {}
 
   function parse_attributes () {
     let key = data
@@ -273,6 +273,16 @@ var adom = (function () {
       expect('(')
       parse_eachexpr()
       expect(')')
+      parse_attributes()
+    } else if (accept('on')) {
+      expect(':')
+      let evt = data
+      expect('ident')
+      expect('(')
+      let hnd = data
+      expect('ident')
+      expect(')')
+      current_event_listeners.push({ type: evt, handler: hnd })
       parse_attributes()
     }
   }
@@ -315,9 +325,11 @@ var adom = (function () {
     node.attributes = attr_list
     node.condition = current_condition
     node.each = current_each
+    node.events = current_event_listeners
     attr_list = {}
     current_condition = undefined
     current_each = undefined
+    current_event_listeners = [] 
     if (accept(';')) {
       node.selfClosing = true
     } else if (accept('[')) {
@@ -337,7 +349,11 @@ var adom = (function () {
   }
 
   function parse_tag_list () {
-    if (tok === 'ident') {
+    if (accept('doctype')) {
+      root.push({ type: 'doctype', doctype: data })
+      expect('ident')
+      parse_tag_list()
+    } if (tok === 'ident') {
       parse_tag()
       parse_tag_list()
     } else if (tok === '|') {
@@ -398,7 +414,7 @@ var adom = (function () {
       tokPos = tp
       throw new Error('expected closing <--')
     }
-    modules[name] = { code: js }
+    modules[name] = { code: js + '\n' }
     cursor = i
     next()
   }
@@ -406,7 +422,7 @@ var adom = (function () {
   function parse_file () {
     if (tok === 'eof') {
       return
-    } else if (tok === 'ident') {
+    } else if (tok === 'ident' || tok === 'doctype') {
       parse_tag_list()
       parse_file()
     } else if (tok === 'tag') {
@@ -529,7 +545,11 @@ var adom = (function () {
 
   function walk_node (tree, yield_func) {
     tree.forEach(function (node) {
-      if (node.type === 'yield') {
+      if (node.type === 'doctype') {
+	output += get_indents() + ({
+	  html5: '<!DOCTYPE html>'
+	}[node.doctype]) + '\n'
+      } else if (node.type === 'yield') {
 	if (yield_func) {
 	  yield_func()
 	}	 
@@ -573,6 +593,18 @@ var adom = (function () {
 	} else {
 	  print_node(node, yield_func)
 	}
+	if (node.events && node.events.length > 0) {
+	  node.events.forEach(function (evt) {
+	    console.log(evt)
+	    if (evt.type === 'load') {
+	      const indents = get_indents()
+	      const code = modules[evt.handler].code.split('\n').map(function (line) {
+		return indents + line
+	      }).join('\n')
+	      output += (indents + '<script>' + code + '</script>' + '\n')
+	    }
+	  })
+	}
       } else if (node.type === 'textnode') {
 	output += (get_indents() + assemble_textnode(node.chunks) + '\n')
       }
@@ -591,7 +623,7 @@ var adom = (function () {
       return
     }
     walk_node(nodes)
-    console.log(output)
+    fs.writeFileSync('test.html', output)
   }
 
 })()
