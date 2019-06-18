@@ -1,23 +1,21 @@
 <!DOCTYPE html>
 <html>
-    <head>
-        <meta title="My Page" />
-    </head>
     <body>
-        <div attr1="123" attr2="234" class="btn-class">
-            <li>brown cat</li>
-            <span>double check: brown cat</span>
-            <li>white cat</li>
-            <span>double check: white cat</span>
-            <li>black cat</li>
-            <span>double check: black cat</span>
-            <button onclick="sayHi()">Say Hi</button>
-        </div>
-        <script>        
-          function sayHi () {
-            alert('hi')
-          }
-        </script>
-        <span>hello</span>
+        testing... 10
+        <div>count: 10</div>
+        <button class="testClass" onclick="increment()">Increment</button>
     </body>
+    <script>
+    	let nodes = [{"type":"textnode","chunks":[" testing... ",["count"]," "],"store_ref":true},{"type":"textnode","chunks":[" count: ",["count"]," "],"store_ref":true},{"type":"tag","name":"button","children":[{"type":"textnode","chunks":[" Increment "],"store_ref":false}],"classes":[],"attributes":{"class":["test","field"],"onclick":"increment()"},"events":[],"store_ref":true}]
+    	let adom = {
+    		state: {"count":10,"test":{"field":"testClass"},"cats":["brown cat","white cat","black cat"]},
+    		update: function (obj) {
+    			Object.assign(adom.state, obj)
+    			console.log(adom.state)
+    		}
+    	}
+      function increment () {
+        adom.update({ count: adom.state.count + 1 })
+      }
+    </script>
 </html>

@@ -2,43 +2,23 @@
 // nodes with an if statement simply need to toggle the hidden attribute
 // nodes with an each statement will store one or more copies of the node marking the initial as hidden or not hidden
 // let dom_node_refs = [{ id, if, each ])
+// let adom = { state: {}, update: function () { /* loop through nodes, check existing value against
 
 let test = `
-
-set str 'hello'
-
-module main [utils] --> 
-  function sayHi () {
-    alert('hi')
+module main -->
+  function increment () {
+    adom.update({ count: adom.state.count + 1 })
   }
 <--
 
-tag ListItem [
-  li | {props.item} |
-  yield
-]
+doctype html5
 
-tag Page [
-  doctype html5
-
-  html [
-    head [
-      meta title={props.title};
-    ]
-    body [
-      yield
-    ]
+html [
+  body on:load(main) [
+    | testing... {count} |
+    div | count: {count} |
+    button class={test.field} onclick='increment()' | Increment |
   ]
-]
-
-Page title='My Page' [
-  div.btn-class on:load(main) attr1='123' attr2='234' [
-    ListItem each(item in cats) [
-      span | double check: {item} |
-    ]
-    button onclick='sayHi()' | Say Hi |
-  ]
-  span | {str} |
 ]
 `
 
@@ -51,6 +31,7 @@ var adom = (function () {
   let custom_tags = {} 
   let modules = {}
   let _app_state = [{
+    count: 10,
     test: { field: 'testClass' },
     cats: ['brown cat', 'white cat', 'black cat']
   }]
@@ -66,7 +47,8 @@ var adom = (function () {
   let attr_list = {}
   let current_condition = undefined
   let current_each = undefined
-  let current_event_listeners = [] 
+  let current_event_listeners = []
+  let store_ref = false
   let root = nodes
 
   const keywords = [
@@ -218,6 +200,7 @@ var adom = (function () {
       accessor_list.push(data)
       current_value = accessor_list
       next()
+      store_ref = true
       parse_variable()
       accessor_list = []
     } else {
@@ -326,6 +309,8 @@ var adom = (function () {
     node.condition = current_condition
     node.each = current_each
     node.events = current_event_listeners
+    node.store_ref = store_ref
+    store_ref = false
     attr_list = {}
     current_condition = undefined
     current_each = undefined
@@ -342,8 +327,10 @@ var adom = (function () {
       let textnode = parse_textnode()
       node.children.push({
 	type: 'textnode',
-	chunks: textnode
+	chunks: textnode,
+	store_ref: store_ref
       })
+      store_ref = false
     }
     root.push(node)
   }
@@ -360,8 +347,10 @@ var adom = (function () {
       let textnode = parse_textnode()
       root.push({
 	type: 'textnode',
-	chunks: textnode
+	chunks: textnode,
+	store_ref: store_ref
       })
+      store_ref = false
       parse_tag_list()
     } else if (accept('yield')) {
       root.push({ type: 'yield' })
@@ -595,13 +584,31 @@ var adom = (function () {
 	}
 	if (node.events && node.events.length > 0) {
 	  node.events.forEach(function (evt) {
-	    console.log(evt)
 	    if (evt.type === 'load') {
+	      let visible_nodes = []
+	      function get_visible_nodes (nodes) {
+		nodes.forEach(function (n) {
+		  if (n.store_ref)
+		    visible_nodes.push(n)
+		  if (n.children && n.children.length > 0)
+		    get_visible_nodes(n.children)
+		})
+	      }
+	      get_visible_nodes(nodes)
 	      const indents = get_indents()
+	      const preamble = '\n' +
+		indents + '\tlet nodes = ' + JSON.stringify(visible_nodes) + '\n' +
+		indents + '\tlet adom = {\n' +
+		indents + '\t\tstate: ' + JSON.stringify(_app_state[0]) + ',\n' +
+		indents + '\t\tupdate: function (obj) {\n' +
+		indents + '\t\t\tObject.assign(adom.state, obj)\n' +
+		indents + '\t\t\tconsole.log(adom.state)\n' +
+		indents + '\t\t}\n' +
+		indents + '\t}\n'
 	      const code = modules[evt.handler].code.split('\n').map(function (line) {
 		return indents + line
 	      }).join('\n')
-	      output += (indents + '<script>' + code + '</script>' + '\n')
+	      output += (indents + '<script>' + preamble + code + '</script>' + '\n')
 	    }
 	  })
 	}
