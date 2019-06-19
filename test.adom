@@ -1,0 +1,18 @@
+module main -->
+
+function setName () {
+  let name = document.querySelector('#name').value
+  adom.update({ name: name })
+}
+
+<--
+
+doctype html5
+
+html [
+  body on:load(main) [
+    input id='name';
+    div | Hello, {name}! |
+    button onclick='setName()' | SET NAME |
+  ]
+]

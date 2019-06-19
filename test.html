@@ -1,21 +1,51 @@
 <!DOCTYPE html>
 <html>
     <body>
-        testing... 10
-        <div>count: 10</div>
-        <button class="testClass" onclick="increment()">Increment</button>
+        <input autocomplete="off" id="name" />
+        <div>
+            <span data-adom-id="0">Hello, Matt!</span>
+        </div>
+        <button onclick="setName()">
+            SET NAME
+        </button>
     </body>
     <script>
-    	let nodes = [{"type":"textnode","chunks":[" testing... ",["count"]," "],"store_ref":true},{"type":"textnode","chunks":[" count: ",["count"]," "],"store_ref":true},{"type":"tag","name":"button","children":[{"type":"textnode","chunks":[" Increment "],"store_ref":false}],"classes":[],"attributes":{"class":["test","field"],"onclick":"increment()"},"events":[],"store_ref":true}]
-    	let adom = {
-    		state: {"count":10,"test":{"field":"testClass"},"cats":["brown cat","white cat","black cat"]},
-    		update: function (obj) {
-    			Object.assign(adom.state, obj)
-    			console.log(adom.state)
+    let nodes = [{"type":"textnode","chunks":[" Hello, ",["name"],"! "],"store_ref":true,"ref":0}]
+    let adom = {
+    	state: {"name":"Matt"},
+    	update: function (obj) {
+    		Object.assign(adom.state, obj)
+    		
+    		function get_value(v) {
+    		  if (!Array.isArray(v)) return v
+    		  v1 = adom.state
+    		  v.forEach(function (i) {
+    		    v1 = v1[i]
+    		  })
+    		  return v1
     		}
+    		nodes.forEach(function (n) {
+    		  if (n.type === "textnode" && n.store_ref) {
+    		    let el = document.querySelector('span[data-adom-id="' + n.ref + '"]')
+    		    el.innerHTML = n.chunks.map(get_value).join('').trim()
+    		  } else if (n.attributes) {
+    		    Object.keys(n.attributes).forEach(function (k) {
+    		      if (Array.isArray(n.attributes[k])) {
+    			let el = document.querySelector(n.name + '[data-adom-id="' + n.ref + '"]')
+    			el[k] = get_value(n.attributes[k]) 
+    		      }
+    		    })
+    		  }
+    		})
+    		
+    		console.log(adom.state)
     	}
-      function increment () {
-        adom.update({ count: adom.state.count + 1 })
-      }
+    }
+    
+    function setName () {
+      let name = document.querySelector('#name').value
+      adom.update({ name: name })
+    }
+    
     </script>
 </html>

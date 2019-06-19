@@ -6,18 +6,21 @@
 
 let test = `
 module main -->
-  function increment () {
-    adom.update({ count: adom.state.count + 1 })
-  }
+
+function setName () {
+  let name = document.querySelector('#name').value
+  adom.update({ name: name })
+}
+
 <--
 
 doctype html5
 
 html [
   body on:load(main) [
-    | testing... {count} |
-    div | count: {count} |
-    button class={test.field} onclick='increment()' | Increment |
+    input autocomplete='off' id='name';
+    div | Hello, {name}! |
+    button onclick='setName()' | SET NAME |
   ]
 ]
 `
@@ -31,9 +34,7 @@ var adom = (function () {
   let custom_tags = {} 
   let modules = {}
   let _app_state = [{
-    count: 10,
-    test: { field: 'testClass' },
-    cats: ['brown cat', 'white cat', 'black cat']
+    name: 'Matt'
   }]
 
   let tok = undefined
@@ -50,6 +51,7 @@ var adom = (function () {
   let current_event_listeners = []
   let store_ref = false
   let root = nodes
+  let node_ref = 0
 
   const keywords = [
     'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'set',
@@ -495,12 +497,20 @@ var adom = (function () {
     return false
   }
 
-  function assemble_textnode (chunks) {
-    return chunks.map(get_value).join('').trim()
+  function assemble_textnode (chunks, ref) {
+    if (ref > -1) {
+      return '<span data-adom-id="' + ref + '">' + chunks.map(get_value).join('').trim() + '</span>'
+    } else {
+      return chunks.map(get_value).join('').trim()
+    }
   }
 
-  function print_node (node, yield_func) {
-    let line = get_indents() + '<' + node.name
+  function assemble_attributes (obj) {
+    return Object.keys(obj).map(function (k) { return k + '="' + get_value(obj[k]) + '"' }).join(' ')
+  }
+  
+  function print_tag (node, yield_func) {
+    output += (get_indents() + '<' + node.name)
     if (node.classes.length > 0) {
       if (node.attributes.class) {
 	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
@@ -508,32 +518,82 @@ var adom = (function () {
 	node.attributes.class = node.classes.join(' ')
       }
     }
-    if (node.attributes) {
-      Object.keys(node.attributes).forEach(function (attr) {
-	let v = get_value(node.attributes[attr])
-	line += (' ' + attr + '=' + '"' + v + '"')
-      })
+    if (Object.keys(node.attributes).length > 0) {
+      output += ' ' + assemble_attributes(node.attributes)
     }
     if (!node.selfClosing) {
-      if (node.children.length === 1 && node.children[0].type === 'textnode') {
-	line += ('>' + assemble_textnode(node.children[0].chunks) + '</' + node.name + '>')
-	output += (line + '\n')
-      } else {
-	output += (line + '>' + '\n')
-	indents++
-	walk_node(node.children, yield_func)
-	indents--
-	output += (get_indents() + '</' + node.name + '>' + '\n')
-      }
+      output += ('>' + '\n')
+      indents++
+      walk_node_tree(node.children, yield_func)
+      indents--
+      output += (get_indents() + '</' + node.name + '>' + '\n')
     } else {
       // make configurable based on doctype
-      line += ' />'
-      output += (line + '\n')
+      output += ' />\n'
     }
   }
 
-  function walk_node (tree, yield_func) {
+let runtime = `
+function get_value(v) {
+  if (!Array.isArray(v)) return v
+  v1 = adom.state
+  v.forEach(function (i) {
+    v1 = v1[i]
+  })
+  return v1
+}
+nodes.forEach(function (n) {
+  if (n.type === "textnode" && n.store_ref) {
+    let el = document.querySelector('span[data-adom-id="' + n.ref + '"]')
+    el.innerHTML = n.chunks.map(get_value).join('').trim()
+  } else if (n.attributes) {
+    Object.keys(n.attributes).forEach(function (k) {
+      if (Array.isArray(n.attributes[k])) {
+	let el = document.querySelector(n.name + '[data-adom-id="' + n.ref + '"]')
+	el[k] = get_value(n.attributes[k]) 
+      }
+    })
+  }
+})
+`
+
+  function create_module (module) {
+    let visible_nodes = []
+    function get_visible_nodes (nodes) {
+      nodes.forEach(function (n) {
+	if (n.store_ref)
+	  visible_nodes.push(n)
+	if (n.children && n.children.length > 0)
+	  get_visible_nodes(n.children)
+      })
+    }
+    get_visible_nodes(nodes)
+    const indents = get_indents()
+    const preamble = '\n' +
+      indents + 'let nodes = ' + JSON.stringify(visible_nodes) + '\n' +
+      indents + 'let adom = {\n' +
+      indents + '\tstate: ' + JSON.stringify(_app_state[0]) + ',\n' +
+      indents + '\tupdate: function (obj) {\n' +
+      indents + '\t\tObject.assign(adom.state, obj)\n' +
+      runtime.split('\n').map(function (line) { return indents + '\t\t' + line }).join('\n') + '\n' +
+      indents + '\t\tconsole.log(adom.state)\n' +
+      indents + '\t}\n' +
+      indents + '}\n'
+    const code = module.code.split('\n').map(function (line) {
+      return indents + line
+    }).join('\n')
+
+    return indents + '<script>' + preamble + code + '</script>\n'
+  }
+
+  function walk_node_tree (tree, yield_func) {
     tree.forEach(function (node) {
+      if (node.store_ref) {
+	node.ref = node_ref++
+	if (node.attributes) {
+	  node.attributes['data-adom-id'] = node.ref
+	}
+      }
       if (node.type === 'doctype') {
 	output += get_indents() + ({
 	  html5: '<!DOCTYPE html>'
@@ -557,17 +617,17 @@ var adom = (function () {
 	      let props = node.attributes
 	      props[it] = o 
 	      _app_state.push({ props: props })
-	      walk_node(custom_tags[node.name].children, function () {
+	      walk_node_tree(custom_tags[node.name].children, function () {
 		_app_state.pop()
 		_app_state.push({ [it]: o })
-		walk_node(node.children, yield_func)
+		walk_node_tree(node.children, yield_func)
 		_app_state.pop()
 		_app_state.push({ props: props })
 	      })
 	      _app_state.pop()
 	    } else {
 	      _app_state.push({ [it]: o })
-	      print_node(node, yield_func)
+	      print_node_tree(node, yield_func)
 	      _app_state.pop()
 	    }
 	  })
@@ -575,45 +635,22 @@ var adom = (function () {
 	}
 	if (custom_tags[node.name]) {
 	  _app_state.push({ props: node.attributes })
-	  walk_node(custom_tags[node.name].children, function () {
-	    walk_node(node.children, yield_func)
+	  walk_node_tree(custom_tags[node.name].children, function () {
+	    walk_node_tree(node.children, yield_func)
 	  })
 	  _app_state.pop()
 	} else {
-	  print_node(node, yield_func)
+	  print_tag(node, yield_func)
 	}
 	if (node.events && node.events.length > 0) {
 	  node.events.forEach(function (evt) {
 	    if (evt.type === 'load') {
-	      let visible_nodes = []
-	      function get_visible_nodes (nodes) {
-		nodes.forEach(function (n) {
-		  if (n.store_ref)
-		    visible_nodes.push(n)
-		  if (n.children && n.children.length > 0)
-		    get_visible_nodes(n.children)
-		})
-	      }
-	      get_visible_nodes(nodes)
-	      const indents = get_indents()
-	      const preamble = '\n' +
-		indents + '\tlet nodes = ' + JSON.stringify(visible_nodes) + '\n' +
-		indents + '\tlet adom = {\n' +
-		indents + '\t\tstate: ' + JSON.stringify(_app_state[0]) + ',\n' +
-		indents + '\t\tupdate: function (obj) {\n' +
-		indents + '\t\t\tObject.assign(adom.state, obj)\n' +
-		indents + '\t\t\tconsole.log(adom.state)\n' +
-		indents + '\t\t}\n' +
-		indents + '\t}\n'
-	      const code = modules[evt.handler].code.split('\n').map(function (line) {
-		return indents + line
-	      }).join('\n')
-	      output += (indents + '<script>' + preamble + code + '</script>' + '\n')
+	      output += create_module(modules[evt.handler])
 	    }
 	  })
 	}
       } else if (node.type === 'textnode') {
-	output += (get_indents() + assemble_textnode(node.chunks) + '\n')
+	output += (get_indents() + assemble_textnode(node.chunks, node.store_ref ? node.ref : -1) + '\n')
       }
     })
   }
@@ -629,8 +666,9 @@ var adom = (function () {
       print_error(tokPos)    
       return
     }
-    walk_node(nodes)
+    walk_node_tree(nodes)
     fs.writeFileSync('test.html', output)
+    console.log(output)
   }
 
 })()
