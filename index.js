@@ -1,1049 +1,652 @@
-const adom = (function () {
+const fs = require('fs')
 
-let fs = undefined
-let path = undefined
+var adom = (function () {
+  let prog = undefined
+  
+  let nodes = []
+  let custom_tags = {} 
+  let modules = {}
+  let _app_state = [{
+    count: 0
+  }]
 
-try {
-  fs = require('fs')
-  path = require('path')
-} catch (e) {}
-
-function render (prog, config, mainFile) {
-  let STATE = {
-    cursor: 0,
-    current: { type: '', data: '' },
-    prev: { type: '', data: '' },
-    file_index: 0,
-    line: 1,
-    file_name: mainFile || 'main'
-  }
-
-  let first_tag = false
-  let layouts = {}
-  let blocks = {}
-  let scopes = []
-  let files = [prog]
-  let yield_state
-  let file = files[0]
-  let indents = -1
-  let current_layout = undefined
-  let current_block = undefined
-  let current_classlist = []
-  let current_idlist = []
-  let current_accessorlist = []
-  let current_arglist = []
-  let scalar_value = undefined
-  let current_depth = -1
-  let output = ''
-  let parse_only = false
-  let in_layout_body = false
-  let filters = {
-    json: function (str) {
-      return JSON.parse(str)
-    }
-  }
-
-  config = config || {}
-
-  if (config.filters) {
-    filters = Object.assign(filters, config.filters)
-  }
-
-  function log_error (err, line) {
-    let error_message = 'Error (' + STATE.file_name + ') line ' + line + ': ' + err
-    throw new Error(error_message)
-  }
-
-  function set_state (state) {
-    STATE.cursor = state.cursor || 0
-    STATE.file_index = state.file_index || 0
-    STATE.line = state.line || 1
-    STATE.file_name = state.file_name || mainFile || 'main'
-    if (state.current) {
-      STATE.current.type = state.current.type || ''
-      STATE.current.data = state.current.data || ''
-    } else {
-      STATE.current.type = ''
-      STATE.current.data = ''
-    }
-    file = files[STATE.file_index]
-  }
-
-  function get_state () {
-    return {
-      cursor: STATE.cursor,
-      current: { type: STATE.current.type, data: STATE.current.data },
-      file_index: STATE.file_index,
-      line: STATE.line
-    }
-  }
-
-  function emit_indents () {
-    if (config.formatted !== true) return
-    let space = ''
-    for (let i = 0; i < indents; i++) {
-      space += '    '
-    }
-    output += space
-  }
-
-  function emit_text (str) {
-    output += str
-  }
-
-  function accept (type) {
-    if (STATE.current.type === type) {
-      next()
-      return true
-    } else {
-      return false
-    }
-  }
-
-  function expect (type) {
-    if (STATE.current.type !== type) {
-      log_error('Unexpected token: ' + STATE.current.type, STATE.line)
-    } else {
-      next()
-    }
-  }
-
-  function peek (type) {
-    if (STATE.current.type === type) {
-      return true
-    } else {
-      return false
-    }
-  }
-
-  function parse_data () {
-    expect('const')
-    const id = STATE.current.data
-    const line = STATE.line
-    let is_file = false
-    let filter = undefined
-    expect('identifier')
-    if (scopes[0][id] !== undefined) {
-      log_error('constant has already been declared: ' + id, line)
-    }
-    if (accept('file')) {
-      is_file = true
-    }
-    if (accept(':')) {
-      filter = STATE.current.data
-      expect('identifier')
-    }
-    if (peek('string')) {
-      let str = interpolate_values(STATE.current.data)
-      let line = STATE.line
-      if (is_file) {
-        str = load_file(str)
-      }
-      if (filter !== undefined) {
-        if (filters[filter]) {
-          str = filters[filter](str)
-        } else {
-          log_error('unknown filter: ' + filter, line)
-        }
-      }
-      scopes[0][id] = str
-      next()
-    } else if (peek('number')) {
-      scopes[0][id] = STATE.current.data
-      next()
-    } else {
-      log_error('unexpected token: ' + STATE.current.data, STATE.line)
-    }
-  }
-
-  function load_file (filename) {
-    let data = undefined
-    if (fs && path) {
-      data = fs.readFileSync(path.resolve(config.dirname || __dirname, filename), 'utf-8')
-    }
-    return data
-  }
-
-  const doctypes = {
-    'html5': '<!DOCTYPE html>'
-  }
-
-  function doctype () {
-    if (accept('doctype')) {
-      const id = STATE.current.data
-      expect('identifier')
-      if (doctypes[id]) {
-        if (parse_only === false) {
-          emit_text(doctypes[id] + '\n')
-        }
-      } else {
-        log_error('Uknown Doctype: ' + id, STATE.line)
-      }
-    }
-  }
-
-
-  function elementlist () {
-    if (peek('doctype')) {
-      doctype()
-      elementlist()
-    } if (accept('run')) {
-      let f = STATE.current.data
-      let line = STATE.line
-      expect('string')
-      let fdata = load_file(f)
-      if (fdata) {
-        let state = get_state()
-        files.push(fdata)
-        set_state({ file_index: files.length - 1, file_name: f })
-        run()
-        set_state(state)
-      }
-      elementlist()
-    } else if (peek('const')) {
-      parse_data()
-      elementlist()
-    } else if (peek('identifier')) {
-      element()
-      elementlist()
-    } else if (peek('raw')) {
-      innertext()
-      elementlist()
-    } else if (peek('each')) {
-      eachstatement()
-      elementlist()
-    } else if (peek('if')) {
-      ifstatement()
-      elementlist()
-    } else if (peek('use')) {
-      expect('use')
-      expect('[')
-      let id = STATE.current.data
-      let line = STATE.line
-      expect('identifier')
-      if (id === current_layout) {
-        log_error('cannot call a layout from within itself: ' + id, line)
-      }
-      if (parse_only === false) {
-        let layout = layouts[id]
-        if (layout) {
-          let local_data = {}
-          current_arglist = []
-          valuelist()
-          expect(']')
-          current_arglist.forEach(function (arg, idx) {
-            local_data[layout.args[idx]] = arg
-          })
-          current_arglist = []
-          expect('[')
-          yield_state = get_state()
-          let prev_state = yield_state
-          set_state(layout)
-          scopes.push(local_data)
-          in_layout_body = true
-          current_depth++
-          parse_block_body()
-          current_depth--
-          in_layout_body = false
-          scopes.pop()
-          set_state(prev_state)
-          parse_only = true
-          elementlist()
-          parse_only = false
-          expect(']')
-          elementlist()
-        } else {
-          log_error('Unknown layout: ' + id, line)
-        }
-      } else {
-        valuelist()
-        expect('[')
-        elementlist()
-        expect(']')
-        elementlist()
-      }
-    } else if (peek('yield')) {
-      if (in_layout_body) {
-        expect('yield')
-        if (parse_only === false) {
-          let current_state = get_state()
-          set_state(yield_state)
-          in_layout_body = false
-          elementlist()
-          in_layout_body = true
-          set_state(current_state)
-          elementlist()
-        } else {
-          elementlist()
-        }
-      } else {
-        log_error('yield can only be used inside of a layout', STATE.line)
-      }
-    } else if (peek('layout')) {
-      if (in_layout_body) {
-        log_error('Cannot define a layout in another layout', STATE.line)
-      }
-      let t = parse_only
-      parse_only = true
-      parse_layout()
-      parse_only = t
-      elementlist()
-    } else if (peek('block')) {
-      parse_only = true
-      parse_block()
-      parse_only = false
-      elementlist()
-    } else if (accept('[')) {
-      let id = STATE.current.data
-      let line = STATE.line
-      if (parse_only === false) {
-        expect('identifier')
-        let state = blocks[id]
-        if (state) {
-          let local_data = {}
-          current_arglist = []
-          valuelist()
-          current_arglist.forEach(function (arg, idx) {
-            local_data[state.args[idx]] = arg
-          })
-          current_arglist = []
-          let prev_state = get_state()
-          set_state(state)
-          scopes.push(local_data)
-          current_depth++
-          parse_block_body()
-          set_state(prev_state)
-          expect(']')
-          current_depth--
-          scopes.pop()
-          elementlist()
-        } else {
-          log_error('Unknown tag: ' + id, line)
-        }
-      } else {
-        expect('identifier')
-        if (id === current_block) {
-          log_error('cannot call a block from within itself: ' + id, line)
-        }
-        valuelist()
-        expect(']')
-        elementlist()
-      }
-    }
-  }
-
-  function parse_block_body () {
-    expect('[')
-    elementlist()
-    expect(']')
-  }
-
-  function arglist () {
-    let id = STATE.current.data
-    if (accept('identifier')) {
-      current_arglist.push(id)
-      arglist()
-    }
-  }
-
-  function parse_layout () {
-    in_layout_body = true
-    expect('layout')
-    let id = STATE.current.data
-    expect('identifier')
-    current_arglist = []
-    arglist()
-    current_layout = id
-    layouts[id] = {
-      cursor: STATE.cursor,
-      current: {
-        type: STATE.current.type,
-        data: STATE.current.data
-      },
-      file_index: STATE.file_index,
-      line: STATE.line,
-      args: current_arglist
-    }
-    current_arglist = []
-    parse_block_body()
-    in_layout_body = false
-    current_layout = undefined
-  }
-
-  function parse_block () {
-    expect('block')
-    let id = STATE.current.data
-    current_block = id
-    expect('identifier')
-    current_arglist = []
-    arglist()
-    blocks[id] = {
-      cursor: STATE.cursor,
-      current: {
-        type: STATE.current.type,
-        data: STATE.current.data
-      },
-      file_index: STATE.file_index,
-      line: STATE.line,
-      args: current_arglist
-    }
-    current_arglist = []
-    parse_block_body()
-    current_block = undefined
-  }
-
-  function value () {
-    if (peek('identifier')) {
-      scalar_value = undefined
-      variable()
-    } else if (peek('string') || peek('number') || peek('bool') || peek('null')) {
-      scalar_value = STATE.current.data
-      next()
-    }
-  }
-
-  function valuelist () {
-    if (peek('string')) {
-      value()
-      current_arglist.push(interpolate_values(compute_value()))
-      valuelist()
-    } else if (peek('identifier') || peek('number') || peek('bool')) {
-      value()
-      current_arglist.push(compute_value())
-      valuelist()
-    }
-  }
-
-  function parse_cmp () {
-    if (!accept('<=') && !accept('<') && !accept('>=') && !accept('>') && !accept('==') && !accept('!=')) {
-      log_error('Unexpected token ' + STATE.current.type, STATE.line)
-    }
-  }
-
-  function ifstatement () {
-    expect('if')
-    value()
-    if (parse_only === false) {
-      let val = compute_value()
-      let v1 = {
-        type: val == null ? 'null' : (typeof val),
-        data: val
-      }
-      let is_true
-      let cmp = STATE.current.data
-      let line = STATE.line
-      parse_cmp()
-      value()
-      val = compute_value()
-      let v2 = {
-        type: val == null ? 'null' : (typeof val),
-        data: val
-      }
-      if (v1.type !== v2.type && v1.type !== 'null' && v2.type !== 'null') {
-        log_error('Cannot compare ' + v1.type + ' and ' + v2.type, line)
-      }
-      if (cmp !== '==' && cmp !== '!=' && v1.type === 'string' && v2.type === 'string') {
-        log_error('Operator can only be used on numbers', line)
-      }
-      switch (cmp) {
-        case '<=':
-          is_true = (v1.data <= v2.data)
-          break
-        case '<':
-          is_true = (v1.data < v2.data)
-          break
-        case '>=':
-          is_true = (v1.data >= v2.data)
-          break
-        case '>':
-          is_true = (v1.data > v2.data)
-          break
-        case '==':
-          is_true = (v1.data == v2.data)
-          break
-        case '!=':
-          is_true = (v1.data != v2.data)
-          break
-      }
-
-      if (is_true === false) {
-        parse_only = true
-      }
-
-      expect('{')
-      elementlist()
-      expect('}')
-
-      parse_only = false
-
-      if (accept('else')) {
-        if (is_true === true) {
-          parse_only = true
-        }
-
-        expect('{')
-        elementlist()
-        expect('}')
-
-        parse_only = false
-      }
-    } else {
-      parse_cmp()
-      value()
-      expect('{')
-      elementlist()
-      expect('}')
-      if (accept('else')) {
-        expect('{')
-        elementlist()
-        expect('}')
-      }
-    }
-  }
-
-  function eachstatement () {
-    expect('each')
-    let it = STATE.current.data
-    expect('identifier')
-    expect('in')
-    if (parse_only === false) {
-      let line = STATE.line
-      variable()
-      let data = compute_value()
-      expect('{')
-      let state = get_state()
-      if (data !== undefined && data.forEach !== undefined) {
-        data.forEach(function (d) {
-          scopes.push({ [it]: d })
-          current_depth++
-          set_state(state)
-          elementlist()
-          current_depth--
-          scopes.pop()
-        })
-      } else {
-        log_error('Cannot use each with ' + (typeof data) + ' type', line)
-      }
-      expect('}')
-    } else {
-      variable()
-      expect('{')
-      elementlist()
-      expect('}')
-    }
-  }
-
-  function element () {
-    indents++
-    let id = STATE.current.data
-    if (accept('identifier')) {
-      if (parse_only === false) {
-        if (config.formatted === true) {
-          if (first_tag === true) {
-            emit_text('\n')
-          } else {
-            first_tag = true
-          }
-          emit_indents()
-        }
-        
-        emit_text('<' + id)
-      }
-      tagdef()
-      if (accept('[')) {
-        if (parse_only === false) {
-          emit_text('>')
-        }
-        let has_children = false
-        if (peek('identifier') || peek('if') || peek('each') || peek('yield')) {
-          has_children = true
-        }
-        elementlist()
-        let prev = STATE.prev.type
-        expect(']')
-        if (parse_only === false) {
-          if (config.formatted && has_children) {
-            emit_text('\n')
-            emit_indents()
-          }
-          emit_text('</' + id + '>')
-        }
-      } else if (accept(';')) {
-        if (parse_only === false) {
-          emit_text('>')
-        }
-      } else {
-        if (parse_only === false) {
-          emit_text('>')
-          innertext()
-          emit_text('</' + id + '>')
-        } else {
-          innertext()
-        }
-      }
-    } else {
-      innertext()
-    }
-    indents--
-  }
-
-  function tagdef () {
-    tag()
-    properties()
-  }
-
-  function tag () {
-    if (accept('.')) {
-      classlist()
-    } else if (accept('#')) {
-      idlist()
-    }
-    if (parse_only === false) {
-      if (current_idlist.length > 0) {
-        emit_text(' id="' + current_idlist.join(' ') + '"')
-        current_idlist = []
-      }
-      if (current_classlist.length > 0) {
-        emit_text(' class="' + current_classlist.join(' ') + '"')
-        current_classlist = []
-      }
-    }
-  }
-
-  function properties () {
-    if (peek('identifier')) {
-      let id = STATE.current.data
-      if (parse_only === false) {
-        emit_text(' ' + id)
-        next()
-        if (accept('=')) {
-          emit_text('="' + interpolate_values(STATE.current.data) + '"')
-          expect('string')
-        }
-        properties()
-      } else {
-        next()
-        if (accept('=')) {
-          expect('string')
-        }
-        properties()
-      }
-    }
-  }
-
-  function variable () {
-    let a = STATE.current.data
-    expect('identifier')
-    scalar_value = undefined
-    current_accessorlist = []
-    current_accessorlist.push(a)
-    accessor()
-  }
-
-  function accessor () {
-    if (accept('.')) {
-      let a = STATE.current.data
-      expect('identifier')
-      current_accessorlist.push(a)
-      accessor()
-    } else if (accept('[')) {
-      let line = STATE.line
-      let a = STATE.current.data
-      if (accept('string') || accept('number')) {
-        expect(']')
-        current_accessorlist.push(a)
-        accessor()
-      } else {
-        log_error('Unexpected token: ' + STATE.current.type, line)
-      }
-    }
-  }
-
-  function iterate_over_variables (data, fn) {
-    let id = ''
-    let start = 0, end = 0
-
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] === '#' && data[i+1] === '{') {
-        i += 2
-        start = i
-        while (data[i] !== '}' && i < data.length) {
-          id += data[i++]
-        }
-        end = i - 1
-        fn(id, start, end)
-        id = ''
-      }
-    }
-  }
-
-  function compute_value () {
-    let val
-    if (scalar_value !== undefined) {
-      return scalar_value
-    }
-    for (let i = current_depth; i >= 0; i--) {
-      let ctx = scopes[i]
-      if (ctx[current_accessorlist[0]]) {
-        val = ctx[current_accessorlist[0]]
-        break
-      }
-    }
-    if (!val) {
-      return undefined
-    }
-    for (let i = 1; i < current_accessorlist.length; i++) {
-      val = val[current_accessorlist[i]]
-    }
-    return val
-  }
-
-  function compute_interpolated_value (val) {
-    let state = get_state()
-    if (!val.trim()) {
-      log_error('string interpolant cannot be empty', STATE.line)
-    }
-    files.push(val)
-    set_state({
-      line: STATE.line,
-      file_index: files.length - 1
-    })
-    next()
-    value()
-    let v = compute_value()
-    set_state(state)
-    return v
-  }
-
-  function replace_values (data, values) {
-    let outp = ''
-    let start_index = 0
-
-    for (let i = 0; i < values.length; i++) {
-      let end_index = values[i].start_index - 2
-      let v = compute_interpolated_value(values[i].variable)
-      outp += (data.slice(start_index, end_index) + v)
-      start_index = values[i].end_index + 2
-    }
-    let last = values[values.length - 1]
-
-    if (last.end_index < (data.length - 2)) {
-      outp += data.slice(last.end_index + 2)
-    }
-    return outp
-  }
-
-  function interpolate_values (str) {
-    let values = []
-
-    iterate_over_variables(str, function (id, start, end) {
-      values.push({
-        variable: id,
-        start_index: start,
-        end_index: end
-      })
-    })
-
-    if (values.length > 0) {
-      str = replace_values(str, values)
-    }
-
-    return str
-  }
-
-  function innertext () {
-    let data = STATE.current.data
-    if (parse_only === false && data) {
-      let txt = interpolate_values(data)
-      if (txt) {
-        emit_text(txt.trim())
-      }
-    }
-    expect('raw')
-  }
-
-  function classlist () {
-    if (parse_only === false) {
-      current_classlist.push(STATE.current.data)
-    }
-    expect('identifier')
-    if (accept('.')) {
-      classlist()
-    } else if (accept('#')) {
-      idlist()
-    }
-  }
-
-  function idlist () {
-    if (parse_only === false) {
-      current_idlist.push(STATE.current.data)
-    }
-    expect('identifier')
-    if (accept('.')) {
-      classlist()
-    } else if (accept('#')) {
-      idlist()
-    }
-  }
-
-  function is_alpha (c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-  }
-
-  function is_num (c) {
-    return c >= '0' && c <= '9'
-  }
-
-  function identifier (i) {
-    let id = ''
-    while (is_alpha(file[i]) || is_num(file[i]) || file[i] === '_' || file[i] === '-') {
-      id += file[i++]
-    }
-    return id
-  }
-
-  function parse_string (i) {
-    let str = ''
-    let del = file[i++]
-    let additional_length = 0
-    while (file[i] !== del && i < file.length) {
-      if (file[i] === '\n') {
-        STATE.line++
-      }
-      if (file[i] === '\\') {
-        additional_length++
-        str += file[++i]
-      } else {
-        str += file[i]
-      }
-      i++
-    }
-    return {
-      string: str,
-      length: str.length + additional_length
-    }
-  }
-
-  // cheating
-  function parse_number (i) {
-    let num = ''
-    let dot_found = false
-    while (i < file.length) {
-      if (is_num(file[i])) {
-        num += file[i]
-      } else if (file[i] === '.' && dot_found === false) {
-        num += file[i]
-        dot_found = false
-      } else {
-        break
-      }
-      i++
-    }
-    return num
-  }
-
-  function parse_inner (i) {
-    let inner = ''
-    let additional_length = 0
-    while (file[i] !== '|' && i < file.length) {
-      if (file[i] === '\n') {
-        STATE.line++
-      }
-      if (file[i] === '\\') {
-        additional_length++
-        inner += file[++i]
-      } else {
-        inner += file[i]
-      }
-      i++
-    }
-    return {
-      data: inner,
-      length: inner.length + additional_length
-    }
-  }
-
-  function is_space (c) {
-    return c === ' ' || c === '\t' || c === '\r' || c === '\n'
-  }
-
-  const symbols = [
-    '[',
-    ']',
-    '.',
-    '#',
-    '(',
-    ')',
-    ';',
-    ':'
-  ]
+  let tok = undefined
+  let tokPos = 0
+  let lineno = 1
+  let cursor = 0
+  let data = undefined
+  let accessor_list = []
+  let class_list = []
+  let current_value
+  let attr_list = {}
+  let current_condition = undefined
+  let current_each = undefined
+  let current_event_listeners = []
+  let store_ref = false
+  let root = nodes
+  let node_ref = 0
 
   const keywords = [
-    'each',
-    'in',
-    'if',
-    'else',
-    'block',
-    'doctype',
-    'const',
-    'run',
-    'file',
-    'layout',
-    'use',
-    'yield'
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'set',
+    'eq', 'ne', 'lt', 'gt', 'ge', 'le', 'on'
   ]
 
-  function skip_space () {
-    while (is_space(file[STATE.cursor])) {
-      if (file[STATE.cursor] === '\n') {
-        STATE.line++
+  const symbols = [
+    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', '|', ':'
+  ]
+
+  function next () {
+    let c = prog[cursor]
+    
+    tokPos = cursor
+
+    if (cursor >= prog.length) {
+      tok = 'eof'
+    } else if (c === ' ' || c === '\n' || c === '\t') {
+      let i = cursor
+      while (c === ' ' || c === '\n' || c === '\t') {
+	if (c === '\n') lineno++
+	c = prog[++i]
       }
-      STATE.cursor++
+      cursor = i
+      return next()
+    } else if (c === '/' && prog[cursor+1] === '/') {
+      let i = cursor
+      while (c !== '\n' && i < prog.length)
+	c = prog[++i]
+      if (c === '\n') lineno++
+      cursor = i
+      return next()
+    } else if (c >= '0' && c <= '9') {
+      let num = ''
+      let i = cursor
+      let dot = false
+      while ((c >= '0' && c <= '9') || c === '.') {
+	if (c === '.') {
+	  if (dot) break
+	  else dot = true
+	}
+	num += c
+	c = prog[++i]
+      }
+      cursor = i
+      tok = 'int'
+      data = parseInt(num)
+    } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+      let i = cursor
+      data = ''
+      while ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '-') {
+	data += c
+	c = prog[++i]
+      }
+      cursor = i
+      let idx = keywords.indexOf(data)
+      if (idx !== -1) {
+	tok = keywords[idx]
+      } else {
+	tok = 'ident'
+      }
+    } else if (symbols.indexOf(c) !== -1) {
+      tok = c
+      cursor++
+    } else if (c === '"' || c === '\'') {
+      const del = c
+      let i = cursor
+      data = ''
+      c = prog[++i]
+      while (c !== del) {
+	data += c
+	c = prog[++i]
+      }
+      cursor = i + 1
+      tok = 'string'
+    } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
+      tok = '-->'
+      cursor += 4
+    } else {
+      cursor++
     }
   }
 
-  function next () {
-    let c, data, type
+  function print_error (c) {
+    let i = c
+    let buf = '', pad = ''
+    while (prog[i-1] !== '\n' && i > 0) i--
+    while (prog[i] !== '\n' && i < prog.length) {
+      if (i < c) {
+	if (prog[i] === '\t') pad += '\t'
+	else pad += ' '
+      }
+      buf += prog[i++]
+    }
+    buf += ('\n' + pad + '^\n')
+    process.stdout.write(buf)
+  }
 
-    skip_space()
+  function expect(t) {
+    if (tok === t) {
+      next()
+    } else {
+      throw new Error('expected: ' + t + ' found: ' + tok)
+    }
+  }
 
-    if (STATE.cursor >= file.length) {
-      STATE.current.type = 'eof',
-      STATE.current.data = undefined
+  function accept(t) {
+    if (tok === t) {
+      next()
+      return true
+    }
+    return false
+  }
+
+  function parse_classes () {
+    if (accept('.')) {
+      class_list.push(data)
+      expect('ident')
+      parse_classes()
+    }
+  }
+
+  function parse_variable () {
+    if (accept('.')) {
+      let val = data
+      expect('ident')
+      accessor_list.push(val)
+      parse_variable()
+    } else if (accept('[')) {
+      let val = data
+      if (accept('int')) {
+	accessor_list.push(val)	
+      } else if (accept('string')) {
+	accessor_list.push(val)
+      } else {
+	throw new Error('Cannot index array using value')
+      }
+      expect(']')
+      parse_variable()   
+    }
+  }
+
+  function parse_value () {
+    if (tok === 'string' || tok === 'int') {
+      current_value = data
+      next()
+    } else if (tok === 'ident') {
+      accessor_list.push(data)
+      current_value = accessor_list
+      next()
+      store_ref = true
+      parse_variable()
+      accessor_list = []
+    } else {
+      throw new Error('unexpected: ' + tok)
+    }
+  }
+
+
+  function parse_ifexpr () {
+    parse_value()
+    let lhs = current_value
+    let op = data
+    if (accept('eq') || accept('ne') || accept('le') || accept('ge') || accept('gt') || accept('lt')) {
+      parse_value()
+      let rhs = current_value
+      current_condition = { cmp: op, ops: [lhs, rhs] }
+    } else {
+      current_condition = { cmp: op, ops: [lhs, true] }
+    }
+    current_value = undefined
+  }
+  
+  function parse_eachexpr () {
+    let it = data
+    expect('ident')
+    expect('in')
+    parse_value()
+    let obj = current_value
+    current_each = { iterator: it, object: obj }
+  }
+
+  function parse_attributes () {
+    let key = data
+    if (accept('ident')) {
+      current_value = true
+      if (accept('=')) {
+	if (accept('{')) {
+	  parse_value()
+	  expect('}')
+	} else {
+	  current_value = data
+	  expect('string')
+	}
+      }
+      attr_list[key] = current_value
+      parse_attributes()
+    } else if (accept('if')) {
+      expect('(')
+      parse_ifexpr()
+      expect(')')
+      parse_attributes()
+    } else if (accept('each')) {
+      expect('(')
+      parse_eachexpr()
+      expect(')')
+      parse_attributes()
+    } else if (accept('on')) {
+      expect(':')
+      let evt = data
+      expect('ident')
+      expect('(')
+      let hnd = data
+      expect('ident')
+      expect(')')
+      current_event_listeners.push({ type: evt, handler: hnd })
+      parse_attributes()
+    }
+  }
+
+  function parse_textnode () {
+    let i = cursor
+    let chunks = []
+    let text = ''
+    c = prog[i]
+    while (c !== '|' && i < prog.length - 1) {
+      if (c === '{') {
+	cursor = i + 1
+	next()
+	parse_value()
+	chunks.push(text)
+	chunks.push(current_value)
+	text = ''
+	i = cursor
+	if (tok !== '}') {
+	  throw new Error('unexpected:', tok)
+	}
+	c = prog[i]
+      }
+      text += c
+      c = prog[++i]
+    }
+    chunks.push(text)
+    cursor = i + 1
+    next()
+    return chunks
+  }
+
+  function parse_tag () {
+    let node = { type: 'tag', name: data, children: [] }
+    expect('ident')
+    parse_classes()
+    node.classes = class_list
+    class_list = []
+    parse_attributes()
+    node.attributes = attr_list
+    node.condition = current_condition
+    node.each = current_each
+    node.events = current_event_listeners
+    node.store_ref = store_ref
+    store_ref = false
+    attr_list = {}
+    current_condition = undefined
+    current_each = undefined
+    current_event_listeners = [] 
+    if (accept(';')) {
+      node.selfClosing = true
+    } else if (accept('[')) {
+      let par = root
+      root = node.children
+      parse_tag_list()
+      root = par
+      expect(']')
+    } else if (tok === '|') {
+      let textnode = parse_textnode()
+      node.children.push({
+	type: 'textnode',
+	chunks: textnode,
+	store_ref: store_ref
+      })
+      store_ref = false
+    }
+    root.push(node)
+  }
+
+  function parse_tag_list () {
+    if (accept('doctype')) {
+      root.push({ type: 'doctype', doctype: data })
+      expect('ident')
+      parse_tag_list()
+    } if (tok === 'ident') {
+      parse_tag()
+      parse_tag_list()
+    } else if (tok === '|') {
+      let textnode = parse_textnode()
+      root.push({
+	type: 'textnode',
+	chunks: textnode,
+	store_ref: store_ref
+      })
+      store_ref = false
+      parse_tag_list()
+    } else if (accept('yield')) {
+      root.push({ type: 'yield' })
+      parse_tag_list()
+    }
+  }
+
+  function parse_custom_tag () {
+    expect('tag')
+    let name = data
+    let node = { type: 'tag', children: [] }
+    expect('ident')
+    expect('[')
+    let par = root
+    root = node.children 
+    parse_tag_list()
+    root = par
+    expect(']')
+    custom_tags[name] = node
+  }
+
+  function parse_dep_list () {
+    if (accept('ident')) {
+      parse_dep_list()
+    }
+  }
+
+  function parse_module () {
+    expect('module')
+    let name = data
+    expect('ident')
+    if (accept('[')) {
+      parse_dep_list()
+      expect(']')
+    }
+    let tp = tokPos
+    if (tok !== '-->') {
+      throw new Error('expected -->')
+    }
+    let i = cursor
+    let js = ''
+    while (i < prog.length) {
+      if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
+	i += 4
+	break
+      }
+      js += prog[i++]
+    }
+    if (i >= prog.length) {
+      tokPos = tp
+      throw new Error('expected closing <--')
+    }
+    modules[name] = { code: js + '\n' }
+    cursor = i
+    next()
+  }
+
+  function parse_file () {
+    if (tok === 'eof') {
+      return
+    } else if (tok === 'ident' || tok === 'doctype') {
+      parse_tag_list()
+      parse_file()
+    } else if (tok === 'tag') {
+      parse_custom_tag()
+      parse_file()
+    } else if (accept('set')) {
+      let id = data
+      expect('ident')
+      parse_value()
+      _app_state[0][id] = current_value
+      parse_file()
+    } else if (tok === 'module') {
+      parse_module()
+      parse_file()
+    } else {
+      throw new Error('unexpected: ' + tok)
+    }
+  }
+
+  function compile () {
+    parse_file()
+  }
+
+  let output = ''
+  let indents = 0
+
+  function get_indents () {
+    let pad = ''
+    for (let i = 0; i < indents; i++) {
+      pad += '    '
+    }
+    return pad
+  }
+
+  function get_value(v) {
+    if (!Array.isArray(v)) return v
+    let idx = _app_state.length - 1
+    let check = v[0]
+    while (_app_state[idx][check] == null && idx > 0) {
+      idx--
+    }
+    v1 = _app_state[idx]
+    v.forEach(function (i) {
+      v1 = v1[i]
+    })
+    return v1
+  }
+
+  function evaluate_condition (condition) {
+    let lhs = condition.ops[0]
+    let rhs = condition.ops[1]
+
+    switch (condition.cmp) {
+      case 'eq':
+	if (get_value(lhs) == get_value(rhs))
+	  return true
+	return false
+      case 'ne':
+	if (get_value(lhs) != get_value(rhs))
+	  return true
+	return false
+      case 'le':
+	if (get_value(lhs) <= get_value(rhs))
+	  return true
+	return false
+      case 'ge':
+	if (get_value(lhs) >= get_value(rhs))
+	  return true
+	return false
+      case 'lt':
+	if (get_value(lhs) < get_value(rhs))
+	  return true
+	return false
+      case 'gt':
+	if (get_value(lhs) > get_value(rhs))
+	  return true
+	return false
+      default:
+	break
+    }
+    return false
+  }
+
+  function assemble_textnode (chunks, ref) {
+    if (ref > -1) {
+      return '<span data-adom-id="' + ref + '">' + chunks.map(get_value).join('').trim() + '</span>'
+    } else {
+      return chunks.map(get_value).join('').trim()
+    }
+  }
+
+  function assemble_attributes (obj) {
+    return Object.keys(obj).map(function (k) { return k + '="' + get_value(obj[k]) + '"' }).join(' ')
+  }
+  
+  function print_tag (node, yield_func) {
+    output += (get_indents() + '<' + node.name)
+    if (node.classes.length > 0) {
+      if (node.attributes.class) {
+	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
+      } else {
+	node.attributes.class = node.classes.join(' ')
+      }
+    }
+    if (Object.keys(node.attributes).length > 0) {
+      output += ' ' + assemble_attributes(node.attributes)
+    }
+    if (!node.selfClosing) {
+      output += ('>' + '\n')
+      indents++
+      walk_node_tree(node.children, yield_func)
+      indents--
+      output += (get_indents() + '</' + node.name + '>' + '\n')
+    } else {
+      // make configurable based on doctype
+      output += ' />\n'
+    }
+  }
+
+let runtime = `
+function get_value(v) {
+  if (!Array.isArray(v)) return v
+  v1 = adom.state
+  v.forEach(function (i) {
+    v1 = v1[i]
+  })
+  return v1
+}
+nodes.forEach(function (n) {
+  if (n.store_ref !== true)
+    return
+  let el = document.querySelector(n.name + '[data-adom-id="' + n.ref + '"]')
+  if (n.type === "textnode") {
+    let el = document.querySelector('span[data-adom-id="' + n.ref + '"]')
+    el.textContent = n.chunks.map(get_value).join('').trim()
+  } else if (n.attributes) {
+    Object.keys(n.attributes).forEach(function (k) {
+      if (Array.isArray(n.attributes[k])) {
+	el.setAttribute(k, get_value(n.attributes[k]))
+      }
+    })
+  }
+})
+`
+
+  function create_module (module) {
+    let visible_nodes = []
+    function get_visible_nodes (nodes) {
+      nodes.forEach(function (n) {
+	if (n.store_ref)
+	  visible_nodes.push(n)
+	if (n.children && n.children.length > 0)
+	  get_visible_nodes(n.children)
+      })
+    }
+    get_visible_nodes(nodes)
+    const indents = get_indents()
+    const preamble = '\n' +
+      indents + 'let nodes = ' + JSON.stringify(visible_nodes) + '\n' +
+      indents + 'let adom = {\n' +
+      indents + '\tstate: ' + JSON.stringify(_app_state[0]) + ',\n' +
+      indents + '\tupdate: function (obj) {\n' +
+      indents + '\t\tObject.assign(adom.state, obj)\n' +
+      runtime.split('\n').map(function (line) { return indents + '\t\t' + line }).join('\n') + '\n' +
+      indents + '\t}\n' +
+      indents + '}\n'
+    const code = module.code.split('\n').map(function (line) {
+      return indents + line
+    }).join('\n')
+
+    return indents + '<script>' + preamble + code + '</script>\n'
+  }
+
+  function walk_node_tree (tree, yield_func) {
+    tree.forEach(function (node) {
+      if (node.store_ref) {
+	node.ref = node_ref++
+	if (node.attributes) {
+	  node.attributes['data-adom-id'] = node.ref
+	}
+      }
+      if (node.type === 'doctype') {
+	output += get_indents() + ({
+	  html5: '<!DOCTYPE html>'
+	}[node.doctype]) + '\n'
+      } else if (node.type === 'yield') {
+	if (yield_func) {
+	  yield_func()
+	}	 
+      } else if (node.type === 'tag') {
+	if (node.condition && !evaluate_condition(node.condition)) {
+	  return
+	}
+	if (node.each) {
+	  let it = node.each.iterator
+	  let obj = get_value(node.each.object)
+	  if (!Array.isArray(obj)) {
+	    throw new Error('object is not iteratable')
+	  }
+	  obj.forEach(function (o) {
+	    if (custom_tags[node.name]) {
+	      let props = node.attributes
+	      props[it] = o 
+	      _app_state.push({ props: props })
+	      walk_node_tree(custom_tags[node.name].children, function () {
+		_app_state.pop()
+		_app_state.push({ [it]: o })
+		walk_node_tree(node.children, yield_func)
+		_app_state.pop()
+		_app_state.push({ props: props })
+	      })
+	      _app_state.pop()
+	    } else {
+	      _app_state.push({ [it]: o })
+	      print_node_tree(node, yield_func)
+	      _app_state.pop()
+	    }
+	  })
+	  return
+	}
+	if (custom_tags[node.name]) {
+	  _app_state.push({ props: node.attributes })
+	  walk_node_tree(custom_tags[node.name].children, function () {
+	    walk_node_tree(node.children, yield_func)
+	  })
+	  _app_state.pop()
+	} else {
+	  print_tag(node, yield_func)
+	}
+	if (node.events && node.events.length > 0) {
+	  node.events.forEach(function (evt) {
+	    if (evt.type === 'load') {
+	      output += create_module(modules[evt.handler])
+	    }
+	  })
+	}
+      } else if (node.type === 'textnode') {
+	output += (get_indents() + assemble_textnode(node.chunks, node.store_ref ? node.ref : -1) + '\n')
+      }
+    })
+  }
+
+
+  return function (input) {
+    prog = input
+    next()
+
+    try {
+      compile()
+    } catch (e) {
+      console.log(e.toString())
+      print_error(tokPos)    
       return
     }
 
-    if (file[STATE.cursor] === '/' && file[STATE.cursor+1] === '/') {
-      if (file[STATE.cursor+1] === '/') {
-        while (file[STATE.cursor] !== '\n' && STATE.cursor < file.length) {
-          STATE.cursor++
-        }
-      }
-      return next()
-    }
-
-    c = file[STATE.cursor]
-
-    if (c === '!') {
-      if (file[STATE.cursor+1] === '=') {
-        type = '!='
-        data = type
-        STATE.cursor += 2
-      } else {
-        type = c
-        data = c
-        STATE.cursor++
-      }
-    } else if (c === '=') {
-      if (file[STATE.cursor+1] === '=') {
-        type = '=='
-        data = type
-        STATE.cursor += 2
-      } else {
-        type = c
-        data = c
-        STATE.cursor++
-      }
-    } else if (c === '>') {
-      if (file[STATE.cursor+1] === '=') {
-        type = '>='
-        STATE.cursor += 2
-      } else {
-        type = '>'
-        STATE.cursor++
-      }
-      data = type
-    } else if (c === '<') {
-      if (file[STATE.cursor+1] === '=') {
-        type = '<='
-        STATE.cursor += 2
-      } else {
-        type = '<'
-        STATE.cursor++
-      }
-      data = type
-    } else if (is_alpha(c)) {
-      type = 'identifier'
-      data = identifier(STATE.cursor)
-      STATE.cursor += data.length
-    } else if (symbols.indexOf(c) !== -1) {
-      type = c
-      data = c
-      STATE.cursor++
-    } else if (c === '"' || c === '\'') {
-      type = 'string'
-      let str = parse_string(STATE.cursor)
-      data = str.string
-      STATE.cursor += str.length + 2
-    } else if (c === '|') {
-      STATE.cursor++
-      type = 'raw'
-      let inner = parse_inner(STATE.cursor)
-      data = inner.data
-      STATE.cursor += inner.length + 1
-    } else if (is_num(c)) {
-      type = 'number'
-      data = parse_number(STATE.cursor)
-      STATE.cursor += data.length
-      data = parseFloat(data)
-    } else {
-      type = file[STATE.cursor]
-      data = file[STATE.cursor++]
-    }
-
-    if (keywords.indexOf(data) !== -1 && type === 'identifier') {
-      type = data
-    }
-
-    if (data === 'null') {
-      data = null
-      type = 'null'
-    }
-
-    if ((data === 'true' || data === 'false') && type !== 'string') {
-      type = 'bool'
-      data = (data === 'true')
-    }
-
-    STATE.prev.type = STATE.current.type
-    STATE.prev.data = STATE.current.data
-
-    STATE.current.type = type
-    STATE.current.data = data
+    walk_node_tree(nodes)
+    
+    return output
   }
-
-  function run () {
-    next()
-    elementlist()
-    expect('eof')
-  }
-
-  scopes.push(config.data || {})
-  current_depth++
-
-  try { 
-    run()
-  } catch (e) {
-    throw new Error(e)
-  }
-
-  return output
-}
-
-function renderFile (filepath, opts) {
-  const str = fs.readFileSync(filepath, 'utf-8')
-  return render(str, opts, filepath)
-}
-
-return {
-  render: render,
-  renderFile: renderFile
-}
 
 })()
 
-if (typeof module !== 'undefined') {
-  module.exports = adom
-} else {
-  window.adom = adom
-}
+module.exports = adom

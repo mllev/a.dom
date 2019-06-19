@@ -1,8 +1,7 @@
 module main -->
 
-function setName () {
-  let name = document.querySelector('#name').value
-  adom.update({ name: name })
+function increment () {
+  adom.update({ count: adom.state.count + 1 })
 }
 
 <--
@@ -11,8 +10,13 @@ doctype html5
 
 html [
   body on:load(main) [
-    input id='name';
-    div | Hello, {name}! |
-    button onclick='setName()' | SET NAME |
+    div | count: {count} |
+    button onclick='increment()' | increment |
+    span [
+      | {count} |
+      div class={count} [
+	p | {count} |
+      ]
+    ] 
   ]
 ]

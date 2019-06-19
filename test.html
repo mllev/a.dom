@@ -1,18 +1,25 @@
 <!DOCTYPE html>
 <html>
     <body>
-        <input autocomplete="off" id="name" />
         <div>
-            <span data-adom-id="0">Hello, Matt!</span>
+            <span data-adom-id="0">count: 0</span>
         </div>
-        <button onclick="setName()">
-            SET NAME
+        <button onclick="increment()">
+            increment
         </button>
+        <span>
+            <span data-adom-id="1">0</span>
+            <div class="0" data-adom-id="2">
+                <p>
+                    <span data-adom-id="3">0</span>
+                </p>
+            </div>
+        </span>
     </body>
     <script>
-    let nodes = [{"type":"textnode","chunks":[" Hello, ",["name"],"! "],"store_ref":true,"ref":0}]
+    let nodes = [{"type":"textnode","chunks":[" count: ",["count"]," "],"store_ref":true,"ref":0},{"type":"textnode","chunks":[" ",["count"]," "],"store_ref":true,"ref":1},{"type":"tag","name":"div","children":[{"type":"tag","name":"p","children":[{"type":"textnode","chunks":[" ",["count"]," "],"store_ref":true,"ref":3}],"classes":[],"attributes":{},"events":[],"store_ref":false}],"classes":[],"attributes":{"class":["count"],"data-adom-id":2},"events":[],"store_ref":true,"ref":2},{"type":"textnode","chunks":[" ",["count"]," "],"store_ref":true,"ref":3}]
     let adom = {
-    	state: {"name":"Matt"},
+    	state: {"count":0},
     	update: function (obj) {
     		Object.assign(adom.state, obj)
     		
@@ -25,26 +32,26 @@
     		  return v1
     		}
     		nodes.forEach(function (n) {
-    		  if (n.type === "textnode" && n.store_ref) {
+    		  if (n.store_ref !== true)
+    		    return
+    		  let el = document.querySelector(n.name + '[data-adom-id="' + n.ref + '"]')
+    		  if (n.type === "textnode") {
     		    let el = document.querySelector('span[data-adom-id="' + n.ref + '"]')
-    		    el.innerHTML = n.chunks.map(get_value).join('').trim()
+    		    el.textContent = n.chunks.map(get_value).join('').trim()
     		  } else if (n.attributes) {
     		    Object.keys(n.attributes).forEach(function (k) {
     		      if (Array.isArray(n.attributes[k])) {
-    			let el = document.querySelector(n.name + '[data-adom-id="' + n.ref + '"]')
-    			el[k] = get_value(n.attributes[k]) 
+    			el.setAttribute(k, get_value(n.attributes[k]))
     		      }
     		    })
     		  }
     		})
     		
-    		console.log(adom.state)
     	}
     }
     
-    function setName () {
-      let name = document.querySelector('#name').value
-      adom.update({ name: name })
+    function increment () {
+      adom.update({ count: adom.state.count + 1 })
     }
     
     </script>
