@@ -10,13 +10,11 @@ doctype html5
 
 html [
   body on:load(main) [
+    span each(p in people) [
+      div | {p} |
+    ]
     div | count: {count} |
     button onclick='increment()' | increment |
-    span [
-      | {count} |
-      div class={count} [
-	p | {count} |
-      ]
-    ] 
   ]
 ]
+

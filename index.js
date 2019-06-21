@@ -6,9 +6,7 @@ var adom = (function () {
   let nodes = []
   let custom_tags = {} 
   let modules = {}
-  let _app_state = [{
-    count: 0
-  }]
+  let _app_state = []
 
   let tok = undefined
   let tokPos = 0
@@ -510,24 +508,41 @@ let runtime = `
 function get_value(v) {
   if (!Array.isArray(v)) return v
   v1 = adom.state
-  v.forEach(function (i) {
-    v1 = v1[i]
-  })
+  for (let i = 0; i < v.length; i++) {
+    if (typeof v1[i] !== undefined) {
+      v1 = v1[v[i]] 
+    } else {
+      return undefined
+    }
+  }
   return v1
 }
+
 nodes.forEach(function (n) {
   if (n.store_ref !== true)
     return
-  let el = document.querySelector(n.name + '[data-adom-id="' + n.ref + '"]')
-  if (n.type === "textnode") {
-    let el = document.querySelector('span[data-adom-id="' + n.ref + '"]')
-    el.textContent = n.chunks.map(get_value).join('').trim()
-  } else if (n.attributes) {
+  let el = document.querySelector('[data-adom-id="' + n.ref + '"]')
+  if (n.attributes) {
     Object.keys(n.attributes).forEach(function (k) {
       if (Array.isArray(n.attributes[k])) {
-	el.setAttribute(k, get_value(n.attributes[k]))
+	let v = get_value(n.attributes[k])
+	if (v !== undefined) {
+	  el.setAttribute(k, get_value(n.attributes[k]))
+	}
       }
     })
+  }
+  if (n.chunks) {
+    let val = []
+    for (let i = 0; i < n.chunks.length; i++) {
+      let v = get_value(n.chunks[i])
+      if (v !== undefined) {
+	val.push(v)	
+      } else {
+	return
+      }
+    }
+    el.textContent = val.join('').trim()
   }
 })
 `
@@ -562,6 +577,15 @@ nodes.forEach(function (n) {
 
   function walk_node_tree (tree, yield_func) {
     tree.forEach(function (node) {
+      if (node.children &&
+	  node.children.length === 1 &&
+	  node.children[0].type === 'textnode' &&
+	  node.children[0].store_ref) {
+	node.children[0].is_only_child = true
+	node.children[0].store_ref = false
+	node.store_ref = true
+	node.chunks = node.children[0].chunks
+      }
       if (node.store_ref) {
 	node.ref = node_ref++
 	if (node.attributes) {
@@ -601,7 +625,7 @@ nodes.forEach(function (n) {
 	      _app_state.pop()
 	    } else {
 	      _app_state.push({ [it]: o })
-	      print_node_tree(node, yield_func)
+	      print_tag(node, yield_func)
 	      _app_state.pop()
 	    }
 	  })
@@ -624,13 +648,14 @@ nodes.forEach(function (n) {
 	  })
 	}
       } else if (node.type === 'textnode') {
-	output += (get_indents() + assemble_textnode(node.chunks, node.store_ref ? node.ref : -1) + '\n')
+	output += (get_indents() + assemble_textnode(node.chunks, (node.store_ref && !node.is_only_child) ? node.ref : -1) + '\n')
       }
     })
   }
 
 
-  return function (input) {
+  return function (input, input_state) {
+    _app_state.push(input_state)
     prog = input
     next()
 
