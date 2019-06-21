@@ -493,21 +493,28 @@ var adom = (function () {
       output += ' ' + assemble_attributes(node.attributes)
     }
     if (!node.selfClosing) {
-      output += ('>' + '\n')
+      output += node.hidden ? (' hidden>\n') : ('>\n')
       indents++
       walk_node_tree(node.children, yield_func)
       indents--
-      output += (get_indents() + '</' + node.name + '>' + '\n')
+      output += (get_indents() + '</' + node.name + '>\n')
     } else {
       // make configurable based on doctype
-      output += ' />\n'
+      output += node.hidden ? ' hidden />\n' : ' />\n'
     }
   }
 
 let runtime = `
+${evaluate_condition.toString()}
+
 function get_value(v) {
   if (!Array.isArray(v)) return v
-  v1 = adom.state
+  let idx = adom._state.length - 1
+  let check = v[0]
+  while (adom._state[idx][check] == null && idx > 0) {
+    idx--
+  }
+  v1 = adom._state[idx]
   for (let i = 0; i < v.length; i++) {
     if (typeof v1[i] !== undefined) {
       v1 = v1[v[i]] 
@@ -518,31 +525,46 @@ function get_value(v) {
   return v1
 }
 
+function update_attributes (el, attr) {
+  Object.keys(attr).forEach(function (k) {
+    if (Array.isArray(attr[k])) {
+      let v = get_value(attr[k])
+      if (v !== undefined) {
+	el.setAttribute(k, get_value(attr[k]))
+      }
+    }
+  })
+}
+
+function update_textcontent (el, chunks) {
+  let val = []
+  for (let i = 0; i < chunks.length; i++) {
+    let v = get_value(chunks[i])
+    if (v !== undefined) {
+      val.push(v)	
+    } else {
+      return
+    }
+  }
+  el.textContent = val.join('').trim()
+}
+
 nodes.forEach(function (n) {
   if (n.store_ref !== true)
     return
   let el = document.querySelector('[data-adom-id="' + n.ref + '"]')
   if (n.attributes) {
-    Object.keys(n.attributes).forEach(function (k) {
-      if (Array.isArray(n.attributes[k])) {
-	let v = get_value(n.attributes[k])
-	if (v !== undefined) {
-	  el.setAttribute(k, get_value(n.attributes[k]))
-	}
-      }
-    })
+    update_attributes(el, n.attributes)
+  }
+  if (n.condition) {
+    if (evaluate_condition(n.condition)) {
+      el.hidden = false
+    } else {
+      el.hidden = true
+    }
   }
   if (n.chunks) {
-    let val = []
-    for (let i = 0; i < n.chunks.length; i++) {
-      let v = get_value(n.chunks[i])
-      if (v !== undefined) {
-	val.push(v)	
-      } else {
-	return
-      }
-    }
-    el.textContent = val.join('').trim()
+    update_textcontent(el, n.chunks)
   }
 })
 `
@@ -553,7 +575,7 @@ nodes.forEach(function (n) {
       nodes.forEach(function (n) {
 	if (n.store_ref)
 	  visible_nodes.push(n)
-	if (n.children && n.children.length > 0)
+	if (n.children && n.children.length > 0 && !n.each)
 	  get_visible_nodes(n.children)
       })
     }
@@ -562,12 +584,13 @@ nodes.forEach(function (n) {
     const preamble = '\n' +
       indents + 'let nodes = ' + JSON.stringify(visible_nodes) + '\n' +
       indents + 'let adom = {\n' +
-      indents + '\tstate: ' + JSON.stringify(_app_state[0]) + ',\n' +
+      indents + '\t_state: [' + JSON.stringify(_app_state[0]) + '],\n' +
       indents + '\tupdate: function (obj) {\n' +
-      indents + '\t\tObject.assign(adom.state, obj)\n' +
+      indents + '\t\tObject.assign(adom._state[0], obj)\n' +
       runtime.split('\n').map(function (line) { return indents + '\t\t' + line }).join('\n') + '\n' +
       indents + '\t}\n' +
-      indents + '}\n'
+      indents + '}\n' +
+      indents + 'adom.state = adom._state[0]\n'
     const code = module.code.split('\n').map(function (line) {
       return indents + line
     }).join('\n')
@@ -602,13 +625,20 @@ nodes.forEach(function (n) {
 	}	 
       } else if (node.type === 'tag') {
 	if (node.condition && !evaluate_condition(node.condition)) {
-	  return
+	  node.hidden = true
 	}
 	if (node.each) {
 	  let it = node.each.iterator
 	  let obj = get_value(node.each.object)
 	  if (!Array.isArray(obj)) {
 	    throw new Error('object is not iteratable')
+	  }
+	  if (obj.length === 0) {
+	    node.hidden = true
+	    _app_state.push({ [it]: undefined })
+	    print_tag(node, yield_func)
+	    _app_state.pop()
+	    return
 	  }
 	  obj.forEach(function (o) {
 	    if (custom_tags[node.name]) {

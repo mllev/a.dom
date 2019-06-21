@@ -5,7 +5,8 @@ const example = fs.readFileSync('test.adom').toString()
 
 html = adom(example, {
   count: 0,
-  people: ['matt', 'mike', 'jon']
+  people: ['mark', 'mike', 'jon'],
+  cats: ['tortoise shell', 'persian']
 })
 
 console.log(html)

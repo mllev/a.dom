@@ -1,8 +1,14 @@
 module main -->
 
+console.log(nodes)
+
 function increment () {
   adom.update({ count: adom.state.count + 1 })
 }
+
+setTimeout(function () {
+  adom.update({ people: ['Matt', 'mike', 'jon'] })
+}, 2000)
 
 <--
 
@@ -10,8 +16,10 @@ doctype html5
 
 html [
   body on:load(main) [
-    span each(p in people) [
-      div | {p} |
+    div.cat each(cat in cats) | {cat} |
+    div [
+      h1 | Hello, {people[0]} |
+      p if(people[0] eq 'Matt') | conditional check ({people[1]},{count}) |
     ]
     div | count: {count} |
     button onclick='increment()' | increment |
