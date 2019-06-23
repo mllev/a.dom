@@ -549,10 +549,25 @@ function update_textcontent (el, chunks) {
   el.textContent = val.join('').trim()
 }
 
-nodes.forEach(function (n) {
-  if (n.store_ref !== true)
-    return
-  let el = document.querySelector('[data-adom-id="' + n.ref + '"]')
+function execute_loop (el, node) {
+  let arr = get_value(node.each.object)
+  let it = node.each.iterator
+  let frag = document.createDocumentFragment()
+  if (arr.length > 0) 
+    el.hidden = false
+  arr.forEach(function (i) {
+    let e = el.cloneNode(true)
+    adom._state.push({ [it]: i })
+    update_node(e, node)
+    if (node.children)
+      update_children(e, node.children)
+    frag.append(e)
+    adom._state.pop()
+  })
+  el.replaceWith(frag)
+}
+
+function update_node (el, n) {
   if (n.attributes) {
     update_attributes(el, n.attributes)
   }
@@ -566,7 +581,25 @@ nodes.forEach(function (n) {
   if (n.chunks) {
     update_textcontent(el, n.chunks)
   }
-})
+}
+
+function update_children (par, children) {
+  children.forEach(function (n) {
+    if (n.store_ref !== true) {
+      return
+    }
+    let el = par.querySelector('[data-adom-id="' + n.ref + '"]')
+    if (n.each) {
+      let elList = document.querySelectorAll('[data-adom-id="' + n.ref + '"]')
+      for (let i = 1; i < elList.length; i++) {
+	elList[i].parentNode.removeChild(elList[i])
+      }
+      execute_loop(el, n)
+    } else {
+      update_node(el, n)
+    }
+  })
+}
 `
 
   function create_module (module) {
@@ -583,11 +616,12 @@ nodes.forEach(function (n) {
     const indents = get_indents()
     const preamble = '\n' +
       indents + 'let nodes = ' + JSON.stringify(visible_nodes) + '\n' +
+      runtime.split('\n').map(function (line) { return indents + line }).join('\n') + '\n' +
       indents + 'let adom = {\n' +
       indents + '\t_state: [' + JSON.stringify(_app_state[0]) + '],\n' +
       indents + '\tupdate: function (obj) {\n' +
       indents + '\t\tObject.assign(adom._state[0], obj)\n' +
-      runtime.split('\n').map(function (line) { return indents + '\t\t' + line }).join('\n') + '\n' +
+      indents + '\t\tupdate_children(document, nodes)\n' +
       indents + '\t}\n' +
       indents + '}\n' +
       indents + 'adom.state = adom._state[0]\n'

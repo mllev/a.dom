@@ -1,28 +1,25 @@
-module main -->
-
-console.log(nodes)
-
-function increment () {
-  adom.update({ count: adom.state.count + 1 })
-}
-
-setTimeout(function () {
-  adom.update({ people: ['Matt', 'mike', 'jon'] })
-}, 2000)
-
-<--
-
 doctype html5
+
+module main -->
+  function addItem () {
+    let items = adom.state.items
+    let el = document.getElementById('item')
+  
+    items.push(el.value)
+    adom.update({ items: items })
+    el.value = ''
+  }
+<--
 
 html [
   body on:load(main) [
-    div.cat each(cat in cats) | {cat} |
-    div [
-      h1 | Hello, {people[0]} |
-      p if(people[0] eq 'Matt') | conditional check ({people[1]},{count}) |
+    h1 | TODO APP |
+    input id='item'; br;
+    button onclick='addItem()' | ADD ITEM |
+    ul [
+      li each(i in items) | {i} |
     ]
-    div | count: {count} |
-    button onclick='increment()' | increment |
+    div | count: {items.length} |
   ]
 ]
 

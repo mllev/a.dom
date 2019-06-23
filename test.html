@@ -1,143 +1,170 @@
 <!DOCTYPE html>
 <html>
     <body>
-        <div data-adom-id="0" class="cat">
-            tortoise shell
-        </div>
-        <div data-adom-id="0" class="cat cat">
-            persian
-        </div>
-        <div>
-            <h1 data-adom-id="1">
-                Hello, mark
-            </h1>
-            <p data-adom-id="2" hidden>
-                conditional check (mike,0)
-            </p>
-        </div>
-        <div data-adom-id="3">
+        <h1>
+            TODO APP
+        </h1>
+        <input id="item" />
+        <br />
+        <button onclick="addItem()">
+            ADD ITEM
+        </button>
+        <ul>
+            <li data-adom-id="0" hidden>
+                
+            </li>
+        </ul>
+        <div data-adom-id="1">
             count: 0
         </div>
-        <button onclick="increment()">
-            increment
-        </button>
     </body>
     <script>
-    let nodes = [{"type":"tag","name":"div","children":[{"type":"textnode","chunks":[" ",["cat"]," "],"store_ref":false,"is_only_child":true}],"classes":["cat"],"attributes":{"data-adom-id":0,"class":"cat cat"},"each":{"iterator":"cat","object":["cats"]},"events":[],"store_ref":true,"chunks":[" ",["cat"]," "],"ref":0},{"type":"tag","name":"h1","children":[{"type":"textnode","chunks":[" Hello, ",["people",0]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":1},"events":[],"store_ref":true,"chunks":[" Hello, ",["people",0]," "],"ref":1},{"type":"tag","name":"p","children":[{"type":"textnode","chunks":[" conditional check (",["people",1],",",["count"],") "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":2},"condition":{"cmp":"eq","ops":[["people",0],"Matt"]},"events":[],"store_ref":true,"chunks":[" conditional check (",["people",1],",",["count"],") "],"ref":2,"hidden":true},{"type":"tag","name":"div","children":[{"type":"textnode","chunks":[" count: ",["count"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":3},"events":[],"store_ref":true,"chunks":[" count: ",["count"]," "],"ref":3}]
+    let nodes = [{"type":"tag","name":"li","children":[{"type":"textnode","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":0},"each":{"iterator":"i","object":["items"]},"events":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":0,"hidden":true},{"type":"tag","name":"div","children":[{"type":"textnode","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":1},"events":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":1}]
+    
+    function evaluate_condition (condition) {
+        let lhs = condition.ops[0]
+        let rhs = condition.ops[1]
+    
+        switch (condition.cmp) {
+          case 'eq':
+    	if (get_value(lhs) == get_value(rhs))
+    	  return true
+    	return false
+          case 'ne':
+    	if (get_value(lhs) != get_value(rhs))
+    	  return true
+    	return false
+          case 'le':
+    	if (get_value(lhs) <= get_value(rhs))
+    	  return true
+    	return false
+          case 'ge':
+    	if (get_value(lhs) >= get_value(rhs))
+    	  return true
+    	return false
+          case 'lt':
+    	if (get_value(lhs) < get_value(rhs))
+    	  return true
+    	return false
+          case 'gt':
+    	if (get_value(lhs) > get_value(rhs))
+    	  return true
+    	return false
+          default:
+    	break
+        }
+        return false
+      }
+    
+    function get_value(v) {
+      if (!Array.isArray(v)) return v
+      let idx = adom._state.length - 1
+      let check = v[0]
+      while (adom._state[idx][check] == null && idx > 0) {
+        idx--
+      }
+      v1 = adom._state[idx]
+      for (let i = 0; i < v.length; i++) {
+        if (typeof v1[i] !== undefined) {
+          v1 = v1[v[i]] 
+        } else {
+          return undefined
+        }
+      }
+      return v1
+    }
+    
+    function update_attributes (el, attr) {
+      Object.keys(attr).forEach(function (k) {
+        if (Array.isArray(attr[k])) {
+          let v = get_value(attr[k])
+          if (v !== undefined) {
+    	el.setAttribute(k, get_value(attr[k]))
+          }
+        }
+      })
+    }
+    
+    function update_textcontent (el, chunks) {
+      let val = []
+      for (let i = 0; i < chunks.length; i++) {
+        let v = get_value(chunks[i])
+        if (v !== undefined) {
+          val.push(v)	
+        } else {
+          return
+        }
+      }
+      el.textContent = val.join('').trim()
+    }
+    
+    function execute_loop (el, node) {
+      let arr = get_value(node.each.object)
+      let it = node.each.iterator
+      let frag = document.createDocumentFragment()
+      if (arr.length > 0) 
+        el.hidden = false
+      arr.forEach(function (i) {
+        let e = el.cloneNode(true)
+        adom._state.push({ [it]: i })
+        update_node(e, node)
+        if (node.children)
+          update_children(e, node.children)
+        frag.append(e)
+        adom._state.pop()
+      })
+      el.replaceWith(frag)
+    }
+    
+    function update_node (el, n) {
+      if (n.attributes) {
+        update_attributes(el, n.attributes)
+      }
+      if (n.condition) {
+        if (evaluate_condition(n.condition)) {
+          el.hidden = false
+        } else {
+          el.hidden = true
+        }
+      }
+      if (n.chunks) {
+        update_textcontent(el, n.chunks)
+      }
+    }
+    
+    function update_children (par, children) {
+      children.forEach(function (n) {
+        if (n.store_ref !== true) {
+          return
+        }
+        let el = par.querySelector('[data-adom-id="' + n.ref + '"]')
+        if (n.each) {
+          let elList = document.querySelectorAll('[data-adom-id="' + n.ref + '"]')
+          for (let i = 1; i < elList.length; i++) {
+    	elList[i].parentNode.removeChild(elList[i])
+          }
+          execute_loop(el, n)
+        } else {
+          update_node(el, n)
+        }
+      })
+    }
+    
     let adom = {
-    	_state: [{"count":0,"people":["mark","mike","jon"],"cats":["tortoise shell","persian"]}],
+    	_state: [{"items":[]}],
     	update: function (obj) {
     		Object.assign(adom._state[0], obj)
-    		
-    		function evaluate_condition (condition) {
-    		    let lhs = condition.ops[0]
-    		    let rhs = condition.ops[1]
-    		
-    		    switch (condition.cmp) {
-    		      case 'eq':
-    			if (get_value(lhs) == get_value(rhs))
-    			  return true
-    			return false
-    		      case 'ne':
-    			if (get_value(lhs) != get_value(rhs))
-    			  return true
-    			return false
-    		      case 'le':
-    			if (get_value(lhs) <= get_value(rhs))
-    			  return true
-    			return false
-    		      case 'ge':
-    			if (get_value(lhs) >= get_value(rhs))
-    			  return true
-    			return false
-    		      case 'lt':
-    			if (get_value(lhs) < get_value(rhs))
-    			  return true
-    			return false
-    		      case 'gt':
-    			if (get_value(lhs) > get_value(rhs))
-    			  return true
-    			return false
-    		      default:
-    			break
-    		    }
-    		    return false
-    		  }
-    		
-    		function get_value(v) {
-    		  if (!Array.isArray(v)) return v
-    		  let idx = adom._state.length - 1
-    		  let check = v[0]
-    		  while (adom._state[idx][check] == null && idx > 0) {
-    		    idx--
-    		  }
-    		  v1 = adom._state[idx]
-    		  for (let i = 0; i < v.length; i++) {
-    		    if (typeof v1[i] !== undefined) {
-    		      v1 = v1[v[i]] 
-    		    } else {
-    		      return undefined
-    		    }
-    		  }
-    		  return v1
-    		}
-    		
-    		function update_attributes (el, attr) {
-    		  Object.keys(attr).forEach(function (k) {
-    		    if (Array.isArray(attr[k])) {
-    		      let v = get_value(attr[k])
-    		      if (v !== undefined) {
-    			el.setAttribute(k, get_value(attr[k]))
-    		      }
-    		    }
-    		  })
-    		}
-    		
-    		function update_textcontent (el, chunks) {
-    		  let val = []
-    		  for (let i = 0; i < chunks.length; i++) {
-    		    let v = get_value(chunks[i])
-    		    if (v !== undefined) {
-    		      val.push(v)	
-    		    } else {
-    		      return
-    		    }
-    		  }
-    		  el.textContent = val.join('').trim()
-    		}
-    		
-    		nodes.forEach(function (n) {
-    		  if (n.store_ref !== true)
-    		    return
-    		  let el = document.querySelector('[data-adom-id="' + n.ref + '"]')
-    		  if (n.attributes) {
-    		    update_attributes(el, n.attributes)
-    		  }
-    		  if (n.condition) {
-    		    if (evaluate_condition(n.condition)) {
-    		      el.hidden = false
-    		    } else {
-    		      el.hidden = true
-    		    }
-    		  }
-    		  if (n.chunks) {
-    		    update_textcontent(el, n.chunks)
-    		  }
-    		})
-    		
+    		update_children(document, nodes)
     	}
     }
     adom.state = adom._state[0]
-    
-    console.log(nodes)
-    
-    function increment () {
-      adom.update({ count: adom.state.count + 1 })
-    }
-    
-    setTimeout(function () {
-      adom.update({ people: ['Matt', 'mike', 'jon'] })
-    }, 2000)
-    
+      function addItem () {
+        let items = adom.state.items
+        let el = document.getElementById('item')
+      
+        items.push(el.value)
+        adom.update({ items: items })
+        el.value = ''
+      }
     </script>
 </html>
