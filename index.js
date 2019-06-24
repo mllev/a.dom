@@ -556,6 +556,7 @@ function execute_loop (el, node) {
   if (arr.length > 0) 
     el.hidden = false
   arr.forEach(function (i) {
+    console.log(it, i)
     let e = el.cloneNode(true)
     adom._state.push({ [it]: i })
     update_node(e, node)
@@ -590,7 +591,7 @@ function update_children (par, children) {
     }
     let el = par.querySelector('[data-adom-id="' + n.ref + '"]')
     if (n.each) {
-      let elList = document.querySelectorAll('[data-adom-id="' + n.ref + '"]')
+      let elList = par.querySelectorAll('[data-adom-id="' + n.ref + '"]')
       for (let i = 1; i < elList.length; i++) {
 	elList[i].parentNode.removeChild(elList[i])
       }
