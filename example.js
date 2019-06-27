@@ -8,7 +8,7 @@ html = adom(example, {
   name: 'matt'
 })
 
-console.log(html)
+//console.log(html)
 
 fs.writeFileSync('test.html', html)
 

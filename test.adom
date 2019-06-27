@@ -29,4 +29,3 @@ html [
     p if(name eq 'matt') | hello {name} |
   ]
 ]
-

@@ -1,5 +1,145 @@
 const fs = require('fs')
 
+function tokenize (prog, start_pos, end_pos) {
+  let lineno = 0
+  let cursor = start_pos
+  let tokens = []
+
+  const keywords = [
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield',
+    'eq', 'ne', 'lt', 'gt', 'ge', 'le', 'on', 'null'
+  ]
+
+  const symbols = [
+    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ','
+  ]
+
+  while (cursor <= end_pos) {
+    let c = prog[cursor]
+    let tok = { data: '' }
+    
+    if (cursor >= end_pos) {
+      tok.type = 'eof'
+      cursor++
+    } else if (c === ' ' || c === '\n' || c === '\t') {
+      let i = cursor
+      while (c === ' ' || c === '\n' || c === '\t') {
+	if (c === '\n') lineno++
+	c = prog[++i]
+      }
+      cursor = i
+      continue
+    } else if (c === '/' && prog[cursor+1] === '/') {
+      let i = cursor
+      while (c !== '\n' && i <= end_pos)
+	c = prog[++i]
+      if (c === '\n') lineno++
+      cursor = i
+      continue
+    } else if (c >= '0' && c <= '9') {
+      let num = ''
+      let i = cursor
+      let dot = false
+      while ((c >= '0' && c <= '9') || c === '.') {
+	if (c === '.') {
+	  if (dot) break
+	  else dot = true
+	}
+	num += c
+	c = prog[++i]
+      }
+      cursor = i
+      tok.type = 'int'
+      tok.data = parseInt(num)
+    } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+      let i = cursor
+      tok.data = ''
+      while ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '-') {
+	tok.data += c
+	c = prog[++i]
+      }
+      cursor = i
+      let idx = keywords.indexOf(tok.data)
+      if (idx !== -1) {
+	tok.type = keywords[idx]
+      } else {
+	tok.type = 'ident'
+      }
+    } else if (c === '|') {
+      let i = cursor + 1
+      while (true) {
+	if (i > end_pos) {
+	  throw new Error('unterminated text content')
+	}
+	if (prog[i] === '|') {
+	  i++
+	  break
+	}
+	tok.data += prog[i++]
+      }
+      tok.type = 'textcontent'
+      cursor = i
+    } else if (symbols.indexOf(c) !== -1) {
+      tok.type = c
+      cursor++
+    } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2]) {
+      let str = ''
+      let i = cursor + 3
+      while (true) {
+	if (i > end_pos) {
+	  throw new Error('unterminated long string')
+	} else if (prog[i] === '"' && prog[i+1] === '"' && prog[i+2] === '"') {
+	  i += 3
+	  break
+	}
+	str += prog[i++]
+      }
+      tok.data = str
+      tok.type = 'string'
+      cursor = i
+    } else if (c === '"' || c === '\'') {
+      const del = c
+      let i = cursor + 1
+
+      while (true) {
+	if (i > end_pos || prog[i] === '\n') {
+	  throw new Error('unterminated string')
+	}
+	if (prog[i] === del) {
+	  i++
+	  break
+	}
+	if (prog[i] === '\\' && prog[i+1] === del) {
+	  tok.data += prog[i+1]
+	  i += 2   
+	}
+	tok.data += prog[i++]
+      }
+
+      tok.type = 'string'
+      cursor = i
+    } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
+      let i = cursor + 3
+      while (i <= end_pos) {
+	if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
+	  i += 4
+	  break
+	}
+	tok.data += prog[i++]
+      }
+      if (i > end_pos) {
+	throw new Error('expected closing <--')
+      }
+      cursor = i
+      tok.type = 'module'
+    } else {
+      cursor++
+    }
+    tokens.push(tok)
+  }
+  return tokens
+}
+
 var adom = (function () {
   let prog = undefined
   
@@ -792,7 +932,6 @@ function update_children (par, children) {
 	}
 	if (tag_module) {
 	  current_event_listeners = []
-	  //console.log(tag_module)
 	  output += create_module(tag_module)
 	}
       } else if (node.type === 'textnode') {
@@ -817,6 +956,10 @@ function update_children (par, children) {
 
     current_event_listeners = []
     walk_node_tree(nodes)
+
+    let tokens = tokenize(input, 0, input.length)
+
+    console.log(tokens, tokens.length)
     
     return output
   }
