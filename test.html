@@ -10,45 +10,48 @@
             ADD ITEM
         </button>
         <ul>
-            <li data-adom-id="0" hidden>
-                
+            <li data-adom-id="0">
+                buy milk
+            </li>
+            <li data-adom-id="0">
+                buy sausage
+            </li>
+            <li data-adom-id="0">
+                buy mounds bar
             </li>
         </ul>
         <div data-adom-id="1">
-            count: 0
+            count: 3
         </div>
+        <p data-adom-id="2">
+            hello matt
+        </p>
     </body>
     <script>
-    let nodes = [{"type":"tag","name":"li","children":[{"type":"textnode","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":0},"each":{"iterator":"i","object":["items"]},"events":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":0,"hidden":true},{"type":"tag","name":"div","children":[{"type":"textnode","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":1},"events":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":1}]
+    let nodes = [{"type":"tag","name":"li","children":[{"type":"textnode","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":0},"each":{"iterator":"i","object":["items"]},"events":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":0},{"type":"tag","name":"div","children":[{"type":"textnode","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":1},"events":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":1},{"type":"tag","name":"p","children":[{"type":"textnode","chunks":[" hello ",["name"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":2},"condition":{"cmp":"eq","ops":[["name"],"matt"]},"events":[],"store_ref":true,"chunks":[" hello ",["name"]," "],"ref":2}]
     
     function evaluate_condition (condition) {
-        let lhs = condition.ops[0]
-        let rhs = condition.ops[1]
+        let lhs = get_value(condition.ops[0])
+        let rhs = get_value(condition.ops[1])
     
         switch (condition.cmp) {
           case 'eq':
-    	if (get_value(lhs) == get_value(rhs))
-    	  return true
+    	if (lhs == rhs) return true
     	return false
           case 'ne':
-    	if (get_value(lhs) != get_value(rhs))
-    	  return true
+    	if (lhs != rhs) return true
     	return false
           case 'le':
-    	if (get_value(lhs) <= get_value(rhs))
-    	  return true
+    	if (lhs <= rhs) return true
     	return false
           case 'ge':
-    	if (get_value(lhs) >= get_value(rhs))
-    	  return true
+    	if (lhs >= rhs) return true
     	return false
           case 'lt':
-    	if (get_value(lhs) < get_value(rhs))
-    	  return true
+    	if (lhs < rhs) return true
     	return false
           case 'gt':
-    	if (get_value(lhs) > get_value(rhs))
-    	  return true
+    	if (lhs > rhs) return true
     	return false
           default:
     	break
@@ -152,7 +155,7 @@
     }
     
     let adom = {
-    	_state: [{"items":[]}],
+    	_state: [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt"}],
     	update: function (obj) {
     		Object.assign(adom._state[0], obj)
     		update_children(document, nodes)

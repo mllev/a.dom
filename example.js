@@ -4,7 +4,8 @@ const fs = require('fs')
 const example = fs.readFileSync('test.adom').toString()
 
 html = adom(example, {
-  items: []
+  items: [],
+  name: 'matt'
 })
 
 console.log(html)

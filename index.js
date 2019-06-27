@@ -25,12 +25,12 @@ var adom = (function () {
   let node_ref = 0
 
   const keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'set',
-    'eq', 'ne', 'lt', 'gt', 'ge', 'le', 'on'
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield',
+    'eq', 'ne', 'lt', 'gt', 'ge', 'le', 'on', 'null'
   ]
 
   const symbols = [
-    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', '|', ':'
+    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', '|', ':', '$', ','
   ]
 
   function next () {
@@ -87,14 +87,37 @@ var adom = (function () {
     } else if (symbols.indexOf(c) !== -1) {
       tok = c
       cursor++
+    } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2]) {
+      let str = ''
+      let i = cursor + 3
+      while (true) {
+	if (i > (prog.length - 1)) {
+	  throw new Error('unterminated long string')
+	} else if (prog[i] === '"' && prog[i+1] === '"' && prog[i+2] === '"') {
+	  i += 3
+	  break
+	}
+	str += prog[i++]
+      }
+      data = str
+      tok = 'string'
+      cursor = i
     } else if (c === '"' || c === '\'') {
       const del = c
       let i = cursor
       data = ''
       c = prog[++i]
-      while (c !== del) {
+      while (c !== del && c !== '\n' && i < (prog.length - 1)) {
 	data += c
 	c = prog[++i]
+	if (c === '\\' && prog[i+1] === del) {
+	  data += prog[i+1]
+	  i += 2
+	  c = prog[i]	
+	}
+      }
+      if (c === '\n' || i === (prog.length - 1)) {
+	throw new Error('unterminated string')
       }
       cursor = i + 1
       tok = 'string'
@@ -166,7 +189,10 @@ var adom = (function () {
   }
 
   function parse_value () {
-    if (tok === 'string' || tok === 'int') {
+    if (tok === 'null') {
+      current_value = null
+      next()
+    } else if (tok === 'string' || tok === 'int') {
       current_value = data
       next()
     } else if (tok === 'ident') {
@@ -176,6 +202,19 @@ var adom = (function () {
       store_ref = true
       parse_variable()
       accessor_list = []
+    } else if (accept('[')) {
+      let arr = []
+      if (tok !== ']') {
+	parse_value()
+	arr.push(current_value)
+	while (tok === ',') {
+	  next()
+	  parse_value()
+	  arr.push(current_value)
+	}
+      }
+      expect(']')
+      current_value = arr
     } else {
       throw new Error('unexpected: ' + tok)
     }
@@ -381,6 +420,34 @@ var adom = (function () {
     next()
   }
 
+  function update_app_state (accessor, val) {
+    let ptr = _app_state[0]
+    let max = accessor.length
+
+    for (let i = 0; i < max; i++) {
+      let a = accessor[i]
+      let t = typeof ptr[a]
+
+      if (i === max - 1) {
+	ptr[a] = val
+	return
+      }
+
+      if (t === 'string' || t === 'number') {
+	throw new Error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
+      }
+
+      if (ptr[a] == null) {
+	if (typeof accessor[i+1] === 'number')
+	  ptr[a] = []
+	else
+	  ptr[a] = {}
+      }
+  
+      ptr = ptr[a]
+    }
+  }
+
   function parse_file () {
     if (tok === 'eof') {
       return
@@ -390,11 +457,23 @@ var adom = (function () {
     } else if (tok === 'tag') {
       parse_custom_tag()
       parse_file()
-    } else if (accept('set')) {
+    } else if (accept('$')) {
       let id = data
-      expect('ident')
+      let tp, errtp = tokPos
+      if (tok !== 'ident') {
+	throw new Error('expected identifier')
+      }
+      accessor_list.push(data)
+      next()
+      parse_variable()
+      expect('=')
       parse_value()
-      _app_state[0][id] = current_value
+      // for error reporting
+      tp = tokPos
+      tokPos = errtp
+      update_app_state(accessor_list, current_value)
+      tokPos = tp
+      accessor_list = []
       parse_file()
     } else if (tok === 'module') {
       parse_module()
@@ -434,33 +513,27 @@ var adom = (function () {
   }
 
   function evaluate_condition (condition) {
-    let lhs = condition.ops[0]
-    let rhs = condition.ops[1]
+    let lhs = get_value(condition.ops[0])
+    let rhs = get_value(condition.ops[1])
 
     switch (condition.cmp) {
       case 'eq':
-	if (get_value(lhs) == get_value(rhs))
-	  return true
+	if (lhs == rhs) return true
 	return false
       case 'ne':
-	if (get_value(lhs) != get_value(rhs))
-	  return true
+	if (lhs != rhs) return true
 	return false
       case 'le':
-	if (get_value(lhs) <= get_value(rhs))
-	  return true
+	if (lhs <= rhs) return true
 	return false
       case 'ge':
-	if (get_value(lhs) >= get_value(rhs))
-	  return true
+	if (lhs >= rhs) return true
 	return false
       case 'lt':
-	if (get_value(lhs) < get_value(rhs))
-	  return true
+	if (lhs < rhs) return true
 	return false
       case 'gt':
-	if (get_value(lhs) > get_value(rhs))
-	  return true
+	if (lhs > rhs) return true
 	return false
       default:
 	break
@@ -648,6 +721,8 @@ function update_children (par, children) {
 	node.ref = node_ref++
 	if (node.attributes) {
 	  node.attributes['data-adom-id'] = node.ref
+	} else {
+	  node.attributes = { 'data-adom-id': node.ref }
 	}
       }
       if (node.type === 'doctype') {
@@ -661,6 +736,16 @@ function update_children (par, children) {
       } else if (node.type === 'tag') {
 	if (node.condition && !evaluate_condition(node.condition)) {
 	  node.hidden = true
+	}
+	let tag_module = undefined
+	if (node.events && node.events.length > 0) {
+	  node.events.forEach(function (evt) {
+	    if (evt.type === 'load') {
+	      tag_module = modules[evt.handler]
+	    } else {
+	      current_event_listeners.push(evt)
+	    }
+	  })
 	}
 	if (node.each) {
 	  let it = node.each.iterator
@@ -705,12 +790,10 @@ function update_children (par, children) {
 	} else {
 	  print_tag(node, yield_func)
 	}
-	if (node.events && node.events.length > 0) {
-	  node.events.forEach(function (evt) {
-	    if (evt.type === 'load') {
-	      output += create_module(modules[evt.handler])
-	    }
-	  })
+	if (tag_module) {
+	  current_event_listeners = []
+	  //console.log(tag_module)
+	  output += create_module(tag_module)
 	}
       } else if (node.type === 'textnode') {
 	output += (get_indents() + assemble_textnode(node.chunks, (node.store_ref && !node.is_only_child) ? node.ref : -1) + '\n')
@@ -732,6 +815,7 @@ function update_children (par, children) {
       return
     }
 
+    current_event_listeners = []
     walk_node_tree(nodes)
     
     return output

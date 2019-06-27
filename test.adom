@@ -11,15 +11,22 @@ module main -->
   }
 <--
 
+$items = [
+  'buy milk',
+  'buy sausage',
+  'buy mounds bar'
+]
+
 html [
   body on:load(main) [
     h1 | TODO APP |
     input id='item'; br;
-    button onclick='addItem()' | ADD ITEM |
+    button on:click(addItem) onclick='addItem()' | ADD ITEM |
     ul [
       li each(i in items) | {i} |
     ]
     div | count: {items.length} |
+    p if(name eq 'matt') | hello {name} |
   ]
 ]
 
