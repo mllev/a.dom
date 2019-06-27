@@ -1,5 +1,20 @@
 const fs = require('fs')
 
+function get_error_text (prog, c) {
+  let i = c
+  let buf = '', pad = ''
+  while (prog[i-1] !== '\n' && i > 0) i--
+  while (prog[i] !== '\n' && i < prog.length) {
+    if (i < c) {
+      if (prog[i] === '\t') pad += '\t'
+      else pad += ' '
+    }
+    buf += prog[i++]
+  }
+  buf += ('\n' + pad + '^\n')
+  return buf
+}
+
 function tokenize (prog, start_pos, end_pos) {
   let lineno = 0
   let cursor = start_pos
@@ -16,7 +31,7 @@ function tokenize (prog, start_pos, end_pos) {
 
   while (cursor <= end_pos) {
     let c = prog[cursor]
-    let tok = { data: '' }
+    let tok = { data: '', pos: cursor }
     
     if (cursor >= end_pos) {
       tok.type = 'eof'
