@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
-    <body>
-        <h1>
+    <body class="fish butt">
+        <h1 data-adom-id="0">
             TODO APP
         </h1>
         <input id="item" />
@@ -10,29 +10,30 @@
             ADD ITEM
         </button>
         <ul>
-            <li data-adom-id="0">
+            <li data-adom-id="1">
                 buy milk
             </li>
-            <li data-adom-id="0">
+            <li data-adom-id="1">
                 buy sausage
             </li>
-            <li data-adom-id="0">
+            <li data-adom-id="1">
                 buy mounds bar
             </li>
         </ul>
-        <div data-adom-id="1">
+        <div data-adom-id="2">
             count: 3
         </div>
-        <p data-adom-id="2">
+        <p data-adom-id="3">
             hello matt
         </p>
     </body>
     <script>
-    let nodes = [{"type":"tag","name":"li","children":[{"type":"textnode","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":0},"each":{"iterator":"i","object":["items"]},"events":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":0},{"type":"tag","name":"div","children":[{"type":"textnode","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":1},"events":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":1},{"type":"tag","name":"p","children":[{"type":"textnode","chunks":[" hello ",["name"]," "],"store_ref":false,"is_only_child":true}],"classes":[],"attributes":{"data-adom-id":2},"condition":{"cmp":"eq","ops":[["name"],"matt"]},"events":[],"store_ref":true,"chunks":[" hello ",["name"]," "],"ref":2}]
+    let nodes = [{"type":"tag","name":"h1","children":[{"type":"textcontent","chunks":[" TODO APP "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":0},"classes":[],"store_ref":true,"chunks":[" TODO APP "],"ref":0,"events":[]},{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":1},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":1,"each":{"iterator":["i"],"list":["items"]},"events":[]},{"type":"tag","name":"div","children":[{"type":"textcontent","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":2},"classes":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":2,"events":[]},{"type":"tag","name":"p","children":[{"type":"textcontent","chunks":[" hello ",["name"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":3},"classes":[],"store_ref":true,"chunks":[" hello ",["name"]," "],"ref":3,"condition":{"lhs":["name"],"rhs":"matt","cmp":"eq"},"events":[]}]
+    
     
     function evaluate_condition (condition) {
-        let lhs = get_value(condition.ops[0])
-        let rhs = get_value(condition.ops[1])
+        let lhs = get_value(condition.lhs)
+        let rhs = get_value(condition.rhs)
     
         switch (condition.cmp) {
           case 'eq':
@@ -102,13 +103,12 @@
     }
     
     function execute_loop (el, node) {
-      let arr = get_value(node.each.object)
+      let arr = get_value(node.each.list)
       let it = node.each.iterator
       let frag = document.createDocumentFragment()
       if (arr.length > 0) 
         el.hidden = false
       arr.forEach(function (i) {
-        console.log(it, i)
         let e = el.cloneNode(true)
         adom._state.push({ [it]: i })
         update_node(e, node)
@@ -155,13 +155,14 @@
     }
     
     let adom = {
-    	_state: [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt"}],
+    	_state: [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt","people":[null,null,null,"matt"]}],
     	update: function (obj) {
     		Object.assign(adom._state[0], obj)
     		update_children(document, nodes)
     	}
     }
     adom.state = adom._state[0]
+    
       function addItem () {
         let items = adom.state.items
         let el = document.getElementById('item')
@@ -169,6 +170,5 @@
         items.push(el.value)
         adom.update({ items: items })
         el.value = ''
-      }
-    </script>
+      }</script>
 </html>

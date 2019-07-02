@@ -15,8 +15,34 @@ function get_error_text (prog, c) {
   return buf
 }
 
+function break_into_chunks (text) {
+  let chunks = []
+  let chunk = ''
+  let i = 0, max = text.length
+  let in_expr = false
+  while (i < max) {
+    if (text[i] === '{' && in_expr === false) {
+      in_expr = true
+      chunks.push(chunk)
+      chunk = ''
+      i++ 
+    } else if (text[i] === '}' && in_expr === true) {
+      in_expr = false
+      let toks = tokenize(chunk, 0, chunk.length - 1)
+      toks.pop() //eof
+      chunks.push(toks)
+      chunk = ''
+      i++
+    } else {
+      chunk += text[i++]
+    }
+  }
+  chunks.push(chunk)
+  return chunks
+}
+
+
 function tokenize (prog, start_pos, end_pos) {
-  let lineno = 0
   let cursor = start_pos
   let tokens = []
 
@@ -29,18 +55,18 @@ function tokenize (prog, start_pos, end_pos) {
     '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ','
   ]
 
-  while (cursor <= end_pos) {
+  while (true) {
     let c = prog[cursor]
     let tok = { data: '', pos: cursor }
-    
-    if (cursor >= end_pos) {
+
+    if (cursor > end_pos) {
       tok.type = 'eof'
-      cursor++
+      tokens.push(tok)
+      break
     } else if (c === ' ' || c === '\n' || c === '\t') {
       let i = cursor
-      while (c === ' ' || c === '\n' || c === '\t') {
-	if (c === '\n') lineno++
-	c = prog[++i]
+      while (i <= end_pos && (prog[i] === ' ' || prog[i] === '\t' || prog[i] === '\n')) {
+	i++
       }
       cursor = i
       continue
@@ -48,7 +74,6 @@ function tokenize (prog, start_pos, end_pos) {
       let i = cursor
       while (c !== '\n' && i <= end_pos)
 	c = prog[++i]
-      if (c === '\n') lineno++
       cursor = i
       continue
     } else if (c >= '0' && c <= '9') {
@@ -64,8 +89,8 @@ function tokenize (prog, start_pos, end_pos) {
 	c = prog[++i]
       }
       cursor = i
-      tok.type = 'int'
-      tok.data = parseInt(num)
+      tok.type = 'number'
+      tok.data = parseFloat(num)
     } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
       let i = cursor
       tok.data = ''
@@ -82,6 +107,7 @@ function tokenize (prog, start_pos, end_pos) {
       }
     } else if (c === '|') {
       let i = cursor + 1
+      let text = ''
       while (true) {
 	if (i > end_pos) {
 	  throw new Error('unterminated text content')
@@ -90,12 +116,14 @@ function tokenize (prog, start_pos, end_pos) {
 	  i++
 	  break
 	}
-	tok.data += prog[i++]
+	text += prog[i++]
       }
       tok.type = 'textcontent'
+      tok.data = break_into_chunks(text) 
       cursor = i
     } else if (symbols.indexOf(c) !== -1) {
       tok.type = c
+      tok.data = c
       cursor++
     } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2]) {
       let str = ''
@@ -146,7 +174,7 @@ function tokenize (prog, start_pos, end_pos) {
 	throw new Error('expected closing <--')
       }
       cursor = i
-      tok.type = 'module'
+      tok.type = 'module_body'
     } else {
       cursor++
     }
@@ -155,424 +183,32 @@ function tokenize (prog, start_pos, end_pos) {
   return tokens
 }
 
-var adom = (function () {
-  let prog = undefined
-  
-  let nodes = []
-  let custom_tags = {} 
-  let modules = {}
-  let _app_state = []
-
-  let tok = undefined
-  let tokPos = 0
-  let lineno = 1
+function parse (tokens, _app_state, input_program) {
+  let tok = tokens[0]
   let cursor = 0
-  let data = undefined
-  let accessor_list = []
-  let class_list = []
-  let current_value
-  let attr_list = {}
-  let current_condition = undefined
-  let current_each = undefined
-  let current_event_listeners = []
-  let store_ref = false
+  let nodes = []
+  let custom_tags = {}
   let root = nodes
-  let node_ref = 0
+  let store_ref = false
 
-  const keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield',
-    'eq', 'ne', 'lt', 'gt', 'ge', 'le', 'on', 'null'
-  ]
-
-  const symbols = [
-    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', '|', ':', '$', ','
-  ]
-
-  function next () {
-    let c = prog[cursor]
-    
-    tokPos = cursor
-
-    if (cursor >= prog.length) {
-      tok = 'eof'
-    } else if (c === ' ' || c === '\n' || c === '\t') {
-      let i = cursor
-      while (c === ' ' || c === '\n' || c === '\t') {
-	if (c === '\n') lineno++
-	c = prog[++i]
-      }
-      cursor = i
-      return next()
-    } else if (c === '/' && prog[cursor+1] === '/') {
-      let i = cursor
-      while (c !== '\n' && i < prog.length)
-	c = prog[++i]
-      if (c === '\n') lineno++
-      cursor = i
-      return next()
-    } else if (c >= '0' && c <= '9') {
-      let num = ''
-      let i = cursor
-      let dot = false
-      while ((c >= '0' && c <= '9') || c === '.') {
-	if (c === '.') {
-	  if (dot) break
-	  else dot = true
-	}
-	num += c
-	c = prog[++i]
-      }
-      cursor = i
-      tok = 'int'
-      data = parseInt(num)
-    } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-      let i = cursor
-      data = ''
-      while ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '-') {
-	data += c
-	c = prog[++i]
-      }
-      cursor = i
-      let idx = keywords.indexOf(data)
-      if (idx !== -1) {
-	tok = keywords[idx]
-      } else {
-	tok = 'ident'
-      }
-    } else if (symbols.indexOf(c) !== -1) {
-      tok = c
-      cursor++
-    } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2]) {
-      let str = ''
-      let i = cursor + 3
-      while (true) {
-	if (i > (prog.length - 1)) {
-	  throw new Error('unterminated long string')
-	} else if (prog[i] === '"' && prog[i+1] === '"' && prog[i+2] === '"') {
-	  i += 3
-	  break
-	}
-	str += prog[i++]
-      }
-      data = str
-      tok = 'string'
-      cursor = i
-    } else if (c === '"' || c === '\'') {
-      const del = c
-      let i = cursor
-      data = ''
-      c = prog[++i]
-      while (c !== del && c !== '\n' && i < (prog.length - 1)) {
-	data += c
-	c = prog[++i]
-	if (c === '\\' && prog[i+1] === del) {
-	  data += prog[i+1]
-	  i += 2
-	  c = prog[i]	
-	}
-      }
-      if (c === '\n' || i === (prog.length - 1)) {
-	throw new Error('unterminated string')
-      }
-      cursor = i + 1
-      tok = 'string'
-    } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
-      tok = '-->'
-      cursor += 4
-    } else {
-      cursor++
-    }
-  }
-
-  function print_error (c) {
-    let i = c
-    let buf = '', pad = ''
-    while (prog[i-1] !== '\n' && i > 0) i--
-    while (prog[i] !== '\n' && i < prog.length) {
-      if (i < c) {
-	if (prog[i] === '\t') pad += '\t'
-	else pad += ' '
-      }
-      buf += prog[i++]
-    }
-    buf += ('\n' + pad + '^\n')
-    process.stdout.write(buf)
+  function next() {
+    tok = tokens[++cursor]
   }
 
   function expect(t) {
-    if (tok === t) {
+    if (tok.type === t) {
       next()
     } else {
-      throw new Error('expected: ' + t + ' found: ' + tok)
+      throw new Error('expected: ' + t + ' found: ' + tok.type)
     }
   }
 
   function accept(t) {
-    if (tok === t) {
+    if (tok.type === t) {
       next()
       return true
     }
     return false
-  }
-
-  function parse_classes () {
-    if (accept('.')) {
-      class_list.push(data)
-      expect('ident')
-      parse_classes()
-    }
-  }
-
-  function parse_variable () {
-    if (accept('.')) {
-      let val = data
-      expect('ident')
-      accessor_list.push(val)
-      parse_variable()
-    } else if (accept('[')) {
-      let val = data
-      if (accept('int')) {
-	accessor_list.push(val)	
-      } else if (accept('string')) {
-	accessor_list.push(val)
-      } else {
-	throw new Error('Cannot index array using value')
-      }
-      expect(']')
-      parse_variable()   
-    }
-  }
-
-  function parse_value () {
-    if (tok === 'null') {
-      current_value = null
-      next()
-    } else if (tok === 'string' || tok === 'int') {
-      current_value = data
-      next()
-    } else if (tok === 'ident') {
-      accessor_list.push(data)
-      current_value = accessor_list
-      next()
-      store_ref = true
-      parse_variable()
-      accessor_list = []
-    } else if (accept('[')) {
-      let arr = []
-      if (tok !== ']') {
-	parse_value()
-	arr.push(current_value)
-	while (tok === ',') {
-	  next()
-	  parse_value()
-	  arr.push(current_value)
-	}
-      }
-      expect(']')
-      current_value = arr
-    } else {
-      throw new Error('unexpected: ' + tok)
-    }
-  }
-
-
-  function parse_ifexpr () {
-    parse_value()
-    let lhs = current_value
-    let op = data
-    if (accept('eq') || accept('ne') || accept('le') || accept('ge') || accept('gt') || accept('lt')) {
-      parse_value()
-      let rhs = current_value
-      current_condition = { cmp: op, ops: [lhs, rhs] }
-    } else {
-      current_condition = { cmp: op, ops: [lhs, true] }
-    }
-    current_value = undefined
-  }
-  
-  function parse_eachexpr () {
-    let it = data
-    expect('ident')
-    expect('in')
-    parse_value()
-    let obj = current_value
-    current_each = { iterator: it, object: obj }
-  }
-
-  function parse_attributes () {
-    let key = data
-    if (accept('ident')) {
-      current_value = true
-      if (accept('=')) {
-	if (accept('{')) {
-	  parse_value()
-	  expect('}')
-	} else {
-	  current_value = data
-	  expect('string')
-	}
-      }
-      attr_list[key] = current_value
-      parse_attributes()
-    } else if (accept('if')) {
-      expect('(')
-      parse_ifexpr()
-      expect(')')
-      parse_attributes()
-    } else if (accept('each')) {
-      expect('(')
-      parse_eachexpr()
-      expect(')')
-      parse_attributes()
-    } else if (accept('on')) {
-      expect(':')
-      let evt = data
-      expect('ident')
-      expect('(')
-      let hnd = data
-      expect('ident')
-      expect(')')
-      current_event_listeners.push({ type: evt, handler: hnd })
-      parse_attributes()
-    }
-  }
-
-  function parse_textnode () {
-    let i = cursor
-    let chunks = []
-    let text = ''
-    c = prog[i]
-    while (c !== '|' && i < prog.length - 1) {
-      if (c === '{') {
-	cursor = i + 1
-	next()
-	parse_value()
-	chunks.push(text)
-	chunks.push(current_value)
-	text = ''
-	i = cursor
-	if (tok !== '}') {
-	  throw new Error('unexpected:', tok)
-	}
-	c = prog[i]
-      }
-      text += c
-      c = prog[++i]
-    }
-    chunks.push(text)
-    cursor = i + 1
-    next()
-    return chunks
-  }
-
-  function parse_tag () {
-    let node = { type: 'tag', name: data, children: [] }
-    expect('ident')
-    parse_classes()
-    node.classes = class_list
-    class_list = []
-    parse_attributes()
-    node.attributes = attr_list
-    node.condition = current_condition
-    node.each = current_each
-    node.events = current_event_listeners
-    node.store_ref = store_ref
-    store_ref = false
-    attr_list = {}
-    current_condition = undefined
-    current_each = undefined
-    current_event_listeners = [] 
-    if (accept(';')) {
-      node.selfClosing = true
-    } else if (accept('[')) {
-      let par = root
-      root = node.children
-      parse_tag_list()
-      root = par
-      expect(']')
-    } else if (tok === '|') {
-      let textnode = parse_textnode()
-      node.children.push({
-	type: 'textnode',
-	chunks: textnode,
-	store_ref: store_ref
-      })
-      store_ref = false
-    }
-    root.push(node)
-  }
-
-  function parse_tag_list () {
-    if (accept('doctype')) {
-      root.push({ type: 'doctype', doctype: data })
-      expect('ident')
-      parse_tag_list()
-    } if (tok === 'ident') {
-      parse_tag()
-      parse_tag_list()
-    } else if (tok === '|') {
-      let textnode = parse_textnode()
-      root.push({
-	type: 'textnode',
-	chunks: textnode,
-	store_ref: store_ref
-      })
-      store_ref = false
-      parse_tag_list()
-    } else if (accept('yield')) {
-      root.push({ type: 'yield' })
-      parse_tag_list()
-    }
-  }
-
-  function parse_custom_tag () {
-    expect('tag')
-    let name = data
-    let node = { type: 'tag', children: [] }
-    expect('ident')
-    expect('[')
-    let par = root
-    root = node.children 
-    parse_tag_list()
-    root = par
-    expect(']')
-    custom_tags[name] = node
-  }
-
-  function parse_dep_list () {
-    if (accept('ident')) {
-      parse_dep_list()
-    }
-  }
-
-  function parse_module () {
-    expect('module')
-    let name = data
-    expect('ident')
-    if (accept('[')) {
-      parse_dep_list()
-      expect(']')
-    }
-    let tp = tokPos
-    if (tok !== '-->') {
-      throw new Error('expected -->')
-    }
-    let i = cursor
-    let js = ''
-    while (i < prog.length) {
-      if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
-	i += 4
-	break
-      }
-      js += prog[i++]
-    }
-    if (i >= prog.length) {
-      tokPos = tp
-      throw new Error('expected closing <--')
-    }
-    modules[name] = { code: js + '\n' }
-    cursor = i
-    next()
   }
 
   function update_app_state (accessor, val) {
@@ -589,7 +225,7 @@ var adom = (function () {
       }
 
       if (t === 'string' || t === 'number') {
-	throw new Error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
+	throw new error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
       }
 
       if (ptr[a] == null) {
@@ -603,136 +239,275 @@ var adom = (function () {
     }
   }
 
+  function get_array_or_primitive () {
+    let val = tok.data
+    if (accept('string') || accept('number')) {
+      return val
+    }
+    if (accept('[')) {
+      let arr = []
+      if (tok.type !== ']') {
+	arr.push(get_array_or_primitive())
+	while (tok.type === ',') {
+	  next()
+	  arr.push(get_array_or_primitive())
+	}
+      }
+      expect(']')
+      return arr
+    }
+    throw new Error('unexpected ' + tok.type)
+  }
+
+  function __get_variable_access_list (tokens, cursor) {
+    let tok = tokens[cursor]
+    let access_list = [tok.data]
+    if (tok.type !== 'ident') {
+      throw new Error('expected identifier')
+    }
+    tok = tokens[++cursor]
+    function next () {
+      if (tok && tok.type === '.') {
+	tok = tokens[++cursor]
+	if (tok.type !== 'ident') {
+	  throw new Error('expected identifier')
+	}
+	access_list.push(tok.data)
+	tok = tokens[++cursor]
+	next()
+      } else if (tok && tok.type === '[') {
+	tok = tokens[++cursor]
+	access_list.push(tok.data)
+	if (tok.type !== 'number' && tok.type !== 'string') {
+	  throw new Error('Cannot index array using value')
+	}
+	tok = tokens[++cursor]
+	if (tok.type !== ']') {
+	  throw new Error('expected ]')
+	}
+	tok = tokens[++cursor]
+	next() 
+      }
+    }
+    next()
+    return [access_list, cursor]
+  }
+
+  function get_variable_access_list () {
+    const data = __get_variable_access_list(tokens, cursor)
+    cursor = data[1]
+    store_ref = true
+    tok = tokens[cursor]
+    return data[0]
+  }
+
+  function get_primitive_or_variable () {
+    let val = tok.data
+    if (accept('string') || accept('number')) {
+      return val 
+    } else if (tok.type === 'ident') {
+      return get_variable_access_list()
+    } else {
+      throw new Error('unexpected ' + tok.type)
+    }
+  }
+
+  function get_class_list () {
+    let class_list = []
+    function parse_classes () {
+      if (accept('.')) {
+	class_list.push(tok.data)
+	expect('ident')
+	parse_classes()
+      }
+    }
+    parse_classes()
+    return class_list
+  }
+
+  function get_attributes () {
+    let attr = { events: [] }
+    function parse_attributes () {
+      let id = tok.data
+      if (accept('ident')) {
+	if (accept('=')) {
+	  if (accept('{')) {
+	    if (tok.type === 'string' || tok.type === 'number') {
+	      attr[id] = tok.data
+	      next()
+	    } else if (tok.type === 'ident') {
+	      attr[id] = get_variable_access_list()
+	      next()
+	    }
+	    expect('}')
+	  } else {
+	    attr[id] = tok.data
+	    expect('string')
+	  }
+	} else {
+	  attr[id] = true
+	}
+	parse_attributes()
+      } else if (accept('on')) {
+	expect(':')
+	let evt = tok.data
+	expect('ident')
+	expect('(')
+	let handler = tok.data
+	expect('ident')
+	expect(')')
+	attr.events.push({ type: evt, handler, handler })
+	parse_attributes()
+      } else if (accept('if')) {
+	expect('(')
+	let lhs = get_primitive_or_variable()
+	let cmp = tok.type
+	if (!accept('eq') && !accept('ne') && !accept('le') && !accept('ge') && !accept('gt') && !accept('lt')) {  
+	  throw new Error('expected comparison operator')
+	}
+	let rhs = get_primitive_or_variable()
+	attr._if = { lhs: lhs, rhs: rhs, cmp: cmp }
+	expect(')')
+	parse_attributes()
+      } else if (accept('each')) {
+	expect('(')
+	let it = [tok.data]
+	expect('ident')
+	if (accept(',')) {
+	  it.push(tok.data)
+	  expect('ident')
+	}
+	expect('in')
+	let data = get_primitive_or_variable()
+	attr._each = { iterator: it, list: data }
+	expect(')')
+	parse_attributes()
+      }
+    }
+    parse_attributes()
+    return attr
+  }
+
+  function parse_tag () {
+    let node = { type: 'tag', name: tok.data, children: [] }
+    expect('ident')
+    let class_list = get_class_list()
+    let attributes = get_attributes()
+    node.attributes = attributes
+    node.classes = class_list
+    if (accept(';')) {
+      node.selfClosing = true
+    } else if (accept('[')) {
+      let par = root
+      root = node.children
+      parse_tag_list()
+      root = par
+      expect(']')
+    } else if (tok.type === 'textcontent') {
+      for (let i = 0; i < tok.data.length; i++) {
+	if (Array.isArray(tok.data[i])) {
+	  let toks = tok.data[i]
+	  store_ref = true
+	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
+	}
+      }
+      node.children.push({
+	type: 'textcontent',
+	chunks: tok.data,
+	store_ref: store_ref
+      })
+      store_ref = false
+      next()
+    }
+    root.push(node)
+  }
+
+  function parse_tag_list () {
+    if (accept('doctype')) {
+      root.push({ type: 'doctype', doctype: tok.data })
+      expect('ident')
+      parse_tag_list()
+    } if (tok.type === 'ident') {
+      parse_tag()
+      parse_tag_list()
+    } else if (tok.type === 'textcontent') {
+      for (let i = 0; i < tok.data.length; i++) {
+	if (Array.isArray(tok.data[i])) {
+	  let toks = tok.data[i]
+	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
+	}
+      }
+      root.push({
+	type: 'textcontent',
+	chunks: tok.data,
+	store_ref: false 
+      })
+      store_ref = false
+      next()
+      parse_tag_list()
+    } else if (accept('yield')) {
+      root.push({ type: 'yield' })
+      parse_tag_list()
+    }
+  }
+
+  function parse_custom_tag () {
+    expect('tag')
+    let name = tok.data
+    let node = { type: 'tag', children: [] }
+    expect('ident')
+    expect('[')
+    let par = root
+    root = node.children 
+    parse_tag_list()
+    root = par
+    expect(']')
+    custom_tags[name] = node
+  }
+
   function parse_file () {
-    if (tok === 'eof') {
+    if (tok.type === 'eof') {
       return
-    } else if (tok === 'ident' || tok === 'doctype') {
+    } else if (tok.type === 'ident' || tok.type === 'doctype') {
       parse_tag_list()
       parse_file()
-    } else if (tok === 'tag') {
+    } else if (tok.type === 'tag') {
       parse_custom_tag()
       parse_file()
     } else if (accept('$')) {
-      let id = data
-      let tp, errtp = tokPos
-      if (tok !== 'ident') {
-	throw new Error('expected identifier')
-      }
-      accessor_list.push(data)
-      next()
-      parse_variable()
+      let variable = get_variable_access_list()
       expect('=')
-      parse_value()
-      // for error reporting
-      tp = tokPos
-      tokPos = errtp
-      update_app_state(accessor_list, current_value)
-      tokPos = tp
-      accessor_list = []
+      update_app_state(variable, get_array_or_primitive())
       parse_file()
-    } else if (tok === 'module') {
-      parse_module()
+    } else if (accept('module')) {
+      let name = tok.data
+      expect('ident')
+      root.push({ type: 'module', name: name, code: tok.data })
+      expect('module_body')
       parse_file()
     } else {
-      throw new Error('unexpected: ' + tok)
+      throw new Error('unexpected: ' + tok.type)
     }
-  }
-
-  function compile () {
-    parse_file()
-  }
-
-  let output = ''
-  let indents = 0
-
-  function get_indents () {
-    let pad = ''
-    for (let i = 0; i < indents; i++) {
-      pad += '    '
-    }
-    return pad
-  }
-
-  function get_value(v) {
-    if (!Array.isArray(v)) return v
-    let idx = _app_state.length - 1
-    let check = v[0]
-    while (_app_state[idx][check] == null && idx > 0) {
-      idx--
-    }
-    v1 = _app_state[idx]
-    v.forEach(function (i) {
-      v1 = v1[i]
-    })
-    return v1
-  }
-
-  function evaluate_condition (condition) {
-    let lhs = get_value(condition.ops[0])
-    let rhs = get_value(condition.ops[1])
-
-    switch (condition.cmp) {
-      case 'eq':
-	if (lhs == rhs) return true
-	return false
-      case 'ne':
-	if (lhs != rhs) return true
-	return false
-      case 'le':
-	if (lhs <= rhs) return true
-	return false
-      case 'ge':
-	if (lhs >= rhs) return true
-	return false
-      case 'lt':
-	if (lhs < rhs) return true
-	return false
-      case 'gt':
-	if (lhs > rhs) return true
-	return false
-      default:
-	break
-    }
-    return false
-  }
-
-  function assemble_textnode (chunks, ref) {
-    if (ref > -1) {
-      return '<span data-adom-id="' + ref + '">' + chunks.map(get_value).join('').trim() + '</span>'
-    } else {
-      return chunks.map(get_value).join('').trim()
-    }
-  }
-
-  function assemble_attributes (obj) {
-    return Object.keys(obj).map(function (k) { return k + '="' + get_value(obj[k]) + '"' }).join(' ')
   }
   
-  function print_tag (node, yield_func) {
-    output += (get_indents() + '<' + node.name)
-    if (node.classes.length > 0) {
-      if (node.attributes.class) {
-	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
-      } else {
-	node.attributes.class = node.classes.join(' ')
-      }
-    }
-    if (Object.keys(node.attributes).length > 0) {
-      output += ' ' + assemble_attributes(node.attributes)
-    }
-    if (!node.selfClosing) {
-      output += node.hidden ? (' hidden>\n') : ('>\n')
-      indents++
-      walk_node_tree(node.children, yield_func)
-      indents--
-      output += (get_indents() + '</' + node.name + '>\n')
-    } else {
-      // make configurable based on doctype
-      output += node.hidden ? ' hidden />\n' : ' />\n'
-    }
+  try {
+    parse_file()
+  } catch (e) {
+    console.log(e.toString())
+    console.log(get_error_text(input_program, tok.pos))
   }
 
-let runtime = `
+  return [nodes, custom_tags]
+}
+
+function execute (nodes, custom_tags, _app_state) {
+  let current_event_listeners = []
+  let modules = {}
+  let output = ''
+  let indents = 0
+  let node_ref = 0
+  let runtime = `
+
 ${evaluate_condition.toString()}
 
 function get_value(v) {
@@ -778,13 +553,12 @@ function update_textcontent (el, chunks) {
 }
 
 function execute_loop (el, node) {
-  let arr = get_value(node.each.object)
+  let arr = get_value(node.each.list)
   let it = node.each.iterator
   let frag = document.createDocumentFragment()
   if (arr.length > 0) 
     el.hidden = false
   arr.forEach(function (i) {
-    console.log(it, i)
     let e = el.cloneNode(true)
     adom._state.push({ [it]: i })
     update_node(e, node)
@@ -831,6 +605,93 @@ function update_children (par, children) {
 }
 `
 
+  function get_indents () {
+    let pad = ''
+    for (let i = 0; i < indents; i++) {
+      pad += '    '
+    }
+    return pad
+  }
+
+  function get_value(v) {
+    if (!Array.isArray(v)) return v
+    let idx = _app_state.length - 1
+    let check = v[0]
+    while (_app_state[idx][check] == null && idx > 0) {
+      idx--
+    }
+    v1 = _app_state[idx]
+    v.forEach(function (i) {
+      v1 = v1[i]
+    })
+    return v1
+  }
+
+  function evaluate_condition (condition) {
+    let lhs = get_value(condition.lhs)
+    let rhs = get_value(condition.rhs)
+
+    switch (condition.cmp) {
+      case 'eq':
+	if (lhs == rhs) return true
+	return false
+      case 'ne':
+	if (lhs != rhs) return true
+	return false
+      case 'le':
+	if (lhs <= rhs) return true
+	return false
+      case 'ge':
+	if (lhs >= rhs) return true
+	return false
+      case 'lt':
+	if (lhs < rhs) return true
+	return false
+      case 'gt':
+	if (lhs > rhs) return true
+	return false
+      default:
+	break
+    }
+    return false
+  }
+
+  function assemble_textcontent (chunks, ref) {
+    if (ref > -1) {
+      return '<span data-adom-id="' + ref + '">' + chunks.map(get_value).join('').trim() + '</span>'
+    } else {
+      return chunks.map(get_value).join('').trim()
+    }
+  }
+
+  function assemble_attributes (obj) {
+    return Object.keys(obj).map(function (k) { return k + '="' + get_value(obj[k]) + '"' }).join(' ')
+  }
+  
+  function print_tag (node, yield_func) {
+    output += (get_indents() + '<' + node.name)
+    if (node.classes.length > 0) {
+      if (node.attributes.class) {
+	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
+      } else {
+	node.attributes.class = node.classes.join(' ')
+      }
+    }
+    if (Object.keys(node.attributes).length > 0) {
+      output += ' ' + assemble_attributes(node.attributes)
+    }
+    if (!node.selfClosing) {
+      output += node.hidden ? (' hidden>\n') : ('>\n')
+      indents++
+      walk_node_tree(node.children, yield_func)
+      indents--
+      output += (get_indents() + '</' + node.name + '>\n')
+    } else {
+      // make configurable based on doctype
+      output += node.hidden ? ' hidden />\n' : ' />\n'
+    }
+  }
+
   function create_module (module) {
     let visible_nodes = []
     function get_visible_nodes (nodes) {
@@ -863,24 +724,10 @@ function update_children (par, children) {
 
   function walk_node_tree (tree, yield_func) {
     tree.forEach(function (node) {
-      if (node.children &&
-	  node.children.length === 1 &&
-	  node.children[0].type === 'textnode' &&
-	  node.children[0].store_ref) {
-	node.children[0].is_only_child = true
-	node.children[0].store_ref = false
-	node.store_ref = true
-	node.chunks = node.children[0].chunks
-      }
-      if (node.store_ref) {
-	node.ref = node_ref++
-	if (node.attributes) {
-	  node.attributes['data-adom-id'] = node.ref
-	} else {
-	  node.attributes = { 'data-adom-id': node.ref }
-	}
-      }
-      if (node.type === 'doctype') {
+      let c = node.children
+      if (node.type === 'module') {
+	modules[node.name] = node
+      } else if (node.type === 'doctype') {
 	output += get_indents() + ({
 	  html5: '<!DOCTYPE html>'
 	}[node.doctype]) + '\n'
@@ -889,6 +736,32 @@ function update_children (par, children) {
 	  yield_func()
 	}	 
       } else if (node.type === 'tag') {
+	if (c && c.length === 1 && c[0].type === 'textcontent' && c[0].store_ref) {
+	  c[0].is_only_child = true
+	  c[0].store_ref = false
+	  node.store_ref = true
+	  node.chunks = node.children[0].chunks
+	}
+	if (node.store_ref) {
+	  node.ref = node_ref++
+	  if (node.attributes) {
+	    node.attributes['data-adom-id'] = node.ref
+	  } else {
+	    node.attributes = { 'data-adom-id': node.ref }
+	  }
+	}
+	if (node.attributes._each) {
+	  node.each = node.attributes._each
+	  delete node.attributes._each
+	}
+	if (node.attributes._if) {
+	  node.condition = node.attributes._if
+	  delete node.attributes._if
+	}
+	if (node.attributes.events) {
+	  node.events = node.attributes.events
+	  delete node.attributes.events
+	}
 	if (node.condition && !evaluate_condition(node.condition)) {
 	  node.hidden = true
 	}
@@ -903,8 +776,8 @@ function update_children (par, children) {
 	  })
 	}
 	if (node.each) {
-	  let it = node.each.iterator
-	  let obj = get_value(node.each.object)
+	  let it = node.each.iterator[0]
+	  let obj = get_value(node.each.list)
 	  if (!Array.isArray(obj)) {
 	    throw new Error('object is not iteratable')
 	  }
@@ -949,36 +822,23 @@ function update_children (par, children) {
 	  current_event_listeners = []
 	  output += create_module(tag_module)
 	}
-      } else if (node.type === 'textnode') {
-	output += (get_indents() + assemble_textnode(node.chunks, (node.store_ref && !node.is_only_child) ? node.ref : -1) + '\n')
+      } else if (node.type === 'textcontent') {
+	output += (get_indents() + assemble_textcontent(node.chunks, (node.store_ref && !node.is_only_child) ? node.ref : -1) + '\n')
       }
     })
   }
 
+  walk_node_tree(nodes)
 
-  return function (input, input_state) {
-    _app_state.push(input_state)
-    prog = input
-    next()
+  return output
+}
 
-    try {
-      compile()
-    } catch (e) {
-      console.log(e.toString())
-      print_error(tokPos)    
-      return
-    }
+module.exports = function (input, input_state) {
+  let state = [input_state]
+  let tokens = tokenize(input, 0, input.length - 1)
+  let [nodes, custom_tags] = parse(tokens, state, input)
+  let output = execute(nodes, custom_tags, state)
 
-    current_event_listeners = []
-    walk_node_tree(nodes)
+  return output
+}
 
-    let tokens = tokenize(input, 0, input.length)
-
-    console.log(tokens, tokens.length)
-    
-    return output
-  }
-
-})()
-
-module.exports = adom

@@ -1,3 +1,11 @@
+$items = [
+  'buy milk',
+  'buy sausage',
+  'buy mounds bar'
+]
+
+$people[3] = 'matt'
+
 doctype html5
 
 module main -->
@@ -11,14 +19,8 @@ module main -->
   }
 <--
 
-$items = [
-  'buy milk',
-  'buy sausage',
-  'buy mounds bar'
-]
-
 html [
-  body on:load(main) [
+  body.fish.butt on:load(main) [
     h1 | TODO APP |
     input id='item'; br;
     button on:click(addItem) onclick='addItem()' | ADD ITEM |
