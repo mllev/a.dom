@@ -4,30 +4,23 @@ $items = [
   'buy mounds bar'
 ]
 
-$people[3] = 'matt'
-
 doctype html5
 
 module main -->
   function addItem () {
-    let items = adom.state.items
-    let el = document.getElementById('item')
-  
-    items.push(el.value)
-    adom.update({ items: items })
-    el.value = ''
+    $.items.push($select('#item').value)
+    $update()
   }
 <--
 
 html [
-  body.fish.butt on:load(main) [
+  body on:load(main) [
     h1 | TODO APP |
     input id='item'; br;
-    button on:click(addItem) onclick='addItem()' | ADD ITEM |
+    button on:click(addItem) | ADD ITEM |
     ul [
       li each(i in items) | {i} |
     ]
     div | count: {items.length} |
-    p if(name eq 'matt') | hello {name} |
   ]
 ]

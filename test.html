@@ -1,35 +1,31 @@
 <!DOCTYPE html>
 <html>
-    <body class="fish butt">
-        <h1 data-adom-id="0">
+    <body data-adom-id="0">
+        <h1 data-adom-id="1">
             TODO APP
         </h1>
-        <input id="item" />
-        <br />
-        <button onclick="addItem()">
+        <input id="item" data-adom-id="2" />
+        <br data-adom-id="3" />
+        <button data-adom-id="4">
             ADD ITEM
         </button>
-        <ul>
-            <li data-adom-id="1">
+        <ul data-adom-id="5">
+            <li data-adom-id="6">
                 buy milk
             </li>
-            <li data-adom-id="1">
+            <li data-adom-id="6">
                 buy sausage
             </li>
-            <li data-adom-id="1">
+            <li data-adom-id="6">
                 buy mounds bar
             </li>
         </ul>
-        <div data-adom-id="2">
+        <div data-adom-id="7">
             count: 3
         </div>
-        <p data-adom-id="3">
-            hello matt
-        </p>
     </body>
     <script>
-    let nodes = [{"type":"tag","name":"h1","children":[{"type":"textcontent","chunks":[" TODO APP "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":0},"classes":[],"store_ref":true,"chunks":[" TODO APP "],"ref":0,"events":[]},{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":1},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":1,"each":{"iterator":["i"],"list":["items"]},"events":[]},{"type":"tag","name":"div","children":[{"type":"textcontent","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":2},"classes":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":2,"events":[]},{"type":"tag","name":"p","children":[{"type":"textcontent","chunks":[" hello ",["name"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":3},"classes":[],"store_ref":true,"chunks":[" hello ",["name"]," "],"ref":3,"condition":{"lhs":["name"],"rhs":"matt","cmp":"eq"},"events":[]}]
-    
+    (function () {    
     
     function evaluate_condition (condition) {
         let lhs = get_value(condition.lhs)
@@ -102,22 +98,58 @@
       el.textContent = val.join('').trim()
     }
     
-    function execute_loop (el, node) {
+    function execute_loop (par, el, node) {
+      let elList = par.querySelectorAll('[data-adom-id="' + node.ref + '"]')
       let arr = get_value(node.each.list)
+      let currentLength = elList.length
+      let newLength = arr.length
       let it = node.each.iterator
-      let frag = document.createDocumentFragment()
-      if (arr.length > 0) 
+    
+      if (arr.length > 0) {
         el.hidden = false
-      arr.forEach(function (i) {
-        let e = el.cloneNode(true)
-        adom._state.push({ [it]: i })
-        update_node(e, node)
-        if (node.children)
-          update_children(e, node.children)
-        frag.append(e)
-        adom._state.pop()
-      })
-      el.replaceWith(frag)
+      }
+    
+      if (newLength > currentLength) {
+        let frag = document.createDocumentFragment()
+        let lastEl
+        for (let i = 0; i < currentLength; i++) {
+          adom._state.push({ [it]: arr[i] })
+          update_node(elList[i], node)
+          if (node.children) update_children(elList[i], node.children)
+          adom._state.pop()
+          lastEl = elList[i]
+        }
+        for (let i = currentLength; i < newLength; i++) {
+          let e = el.cloneNode(true)
+          adom._state.push({ [it]: arr[i] })
+          update_node(e, node)
+          if (node.children) update_children(e, node.children)
+          adom._state.pop()
+          frag.append(e)
+        }
+        lastEl.parentNode.insertBefore(frag, lastEl.nextSibling) 
+      } else if (newLength === currentLength) {
+        for (let i = 0; i < currentLength; i++) {
+          adom._state.push({ [it]: arr[i] })
+          update_node(elList[i], node)
+          if (node.children) update_children(elList[i], node.children)
+          adom._state.pop()
+        }
+      } else {
+        for (let i = 1; i < elList.length; i++) {
+          elList[i].parentNode.removeChild(elList[i])
+        }
+        let frag = document.createDocumentFragment()
+        arr.forEach(function (i) {
+          let e = el.cloneNode(true)
+          adom._state.push({ [it]: i })
+          update_node(e, node)
+          if (node.children) update_children(e, node.children)
+          frag.append(e)
+          adom._state.pop()
+        })
+        el.replaceWith(frag)
+      }
     }
     
     function update_node (el, n) {
@@ -143,11 +175,7 @@
         }
         let el = par.querySelector('[data-adom-id="' + n.ref + '"]')
         if (n.each) {
-          let elList = par.querySelectorAll('[data-adom-id="' + n.ref + '"]')
-          for (let i = 1; i < elList.length; i++) {
-    	elList[i].parentNode.removeChild(elList[i])
-          }
-          execute_loop(el, n)
+          execute_loop(par, el, n)
         } else {
           update_node(el, n)
         }
@@ -155,20 +183,20 @@
     }
     
     let adom = {
-    	_state: [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt","people":[null,null,null,"matt"]}],
-    	update: function (obj) {
-    		Object.assign(adom._state[0], obj)
-    		update_children(document, nodes)
-    	}
+    	nodes: [{"type":"tag","name":"body","children":[{"type":"tag","name":"h1","children":[{"type":"textcontent","chunks":[" TODO APP "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":1},"classes":[],"store_ref":true,"chunks":[" TODO APP "],"ref":1,"events":[]},{"type":"tag","name":"input","children":[],"attributes":{"id":"item","data-adom-id":2},"classes":[],"selfClosing":true,"store_ref":true,"ref":2,"events":[]},{"type":"tag","name":"br","children":[],"attributes":{"data-adom-id":3},"classes":[],"selfClosing":true,"store_ref":true,"ref":3,"events":[]},{"type":"tag","name":"button","children":[{"type":"textcontent","chunks":[" ADD ITEM "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":4},"classes":[],"store_ref":true,"chunks":[" ADD ITEM "],"ref":4,"events":[{"type":"click","handler":"addItem"}]},{"type":"tag","name":"ul","children":[{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":6},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":6,"each":{"iterator":["i"],"list":["items"]},"events":[]}],"attributes":{"data-adom-id":5},"classes":[],"store_ref":true,"ref":5,"events":[]},{"type":"tag","name":"div","children":[{"type":"textcontent","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":7},"classes":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":7,"events":[]}],"attributes":{"data-adom-id":0},"classes":[],"store_ref":true,"ref":0,"events":[{"type":"load","handler":"main"}]},{"type":"tag","name":"h1","children":[{"type":"textcontent","chunks":[" TODO APP "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":1},"classes":[],"store_ref":true,"chunks":[" TODO APP "],"ref":1,"events":[]},{"type":"tag","name":"input","children":[],"attributes":{"id":"item","data-adom-id":2},"classes":[],"selfClosing":true,"store_ref":true,"ref":2,"events":[]},{"type":"tag","name":"br","children":[],"attributes":{"data-adom-id":3},"classes":[],"selfClosing":true,"store_ref":true,"ref":3,"events":[]},{"type":"tag","name":"button","children":[{"type":"textcontent","chunks":[" ADD ITEM "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":4},"classes":[],"store_ref":true,"chunks":[" ADD ITEM "],"ref":4,"events":[{"type":"click","handler":"addItem"}]},{"type":"tag","name":"ul","children":[{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":6},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":6,"each":{"iterator":["i"],"list":["items"]},"events":[]}],"attributes":{"data-adom-id":5},"classes":[],"store_ref":true,"ref":5,"events":[]},{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":6},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":6,"each":{"iterator":["i"],"list":["items"]},"events":[]},{"type":"tag","name":"div","children":[{"type":"textcontent","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":7},"classes":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":7,"events":[]}],
+    	_state: [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt"}],
     }
-    adom.state = adom._state[0]
+    $ = adom._state[0]
+    $update = function (obj) {
+    	if (obj) Object.assign(adom._state[0], obj)
+    	update_children(document, adom.nodes)
+    }
+    $select = document.querySelector.bind(document)
     
       function addItem () {
-        let items = adom.state.items
-        let el = document.getElementById('item')
-      
-        items.push(el.value)
-        adom.update({ items: items })
-        el.value = ''
-      }</script>
+        $.items.push($select('#item').value)
+        $update()
+      }
+    document.querySelector('[data-adom-id="4"]').addEventListener("click", addItem)
+    })()</script>
 </html>

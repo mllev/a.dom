@@ -296,7 +296,6 @@ function parse (tokens, _app_state, input_program) {
   function get_variable_access_list () {
     const data = __get_variable_access_list(tokens, cursor)
     cursor = data[1]
-    store_ref = true
     tok = tokens[cursor]
     return data[0]
   }
@@ -337,7 +336,6 @@ function parse (tokens, _app_state, input_program) {
 	      next()
 	    } else if (tok.type === 'ident') {
 	      attr[id] = get_variable_access_list()
-	      next()
 	    }
 	    expect('}')
 	  } else {
@@ -357,6 +355,7 @@ function parse (tokens, _app_state, input_program) {
 	expect('ident')
 	expect(')')
 	attr.events.push({ type: evt, handler, handler })
+	store_ref = true
 	parse_attributes()
       } else if (accept('if')) {
 	expect('(')
@@ -368,6 +367,7 @@ function parse (tokens, _app_state, input_program) {
 	let rhs = get_primitive_or_variable()
 	attr._if = { lhs: lhs, rhs: rhs, cmp: cmp }
 	expect(')')
+	store_ref = true
 	parse_attributes()
       } else if (accept('each')) {
 	expect('(')
@@ -381,6 +381,7 @@ function parse (tokens, _app_state, input_program) {
 	let data = get_primitive_or_variable()
 	attr._each = { iterator: it, list: data }
 	expect(')')
+	store_ref = true
 	parse_attributes()
       }
     }
@@ -391,6 +392,7 @@ function parse (tokens, _app_state, input_program) {
   function parse_tag () {
     let node = { type: 'tag', name: tok.data, children: [] }
     expect('ident')
+    let old_ref = store_ref
     let class_list = get_class_list()
     let attributes = get_attributes()
     node.attributes = attributes
@@ -404,22 +406,24 @@ function parse (tokens, _app_state, input_program) {
       root = par
       expect(']')
     } else if (tok.type === 'textcontent') {
+      let ref = store_ref
       for (let i = 0; i < tok.data.length; i++) {
 	if (Array.isArray(tok.data[i])) {
 	  let toks = tok.data[i]
-	  store_ref = true
+	  ref = true
 	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
 	}
       }
       node.children.push({
 	type: 'textcontent',
 	chunks: tok.data,
-	store_ref: store_ref
+	store_ref: ref
       })
-      store_ref = false
       next()
     }
+    node.store_ref = store_ref
     root.push(node)
+    store_ref = old_ref
   }
 
   function parse_tag_list () {
@@ -431,18 +435,19 @@ function parse (tokens, _app_state, input_program) {
       parse_tag()
       parse_tag_list()
     } else if (tok.type === 'textcontent') {
+      let ref = false
       for (let i = 0; i < tok.data.length; i++) {
 	if (Array.isArray(tok.data[i])) {
 	  let toks = tok.data[i]
+	  ref = true
 	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
 	}
       }
       root.push({
 	type: 'textcontent',
 	chunks: tok.data,
-	store_ref: false 
+	store_ref: ref 
       })
-      store_ref = false
       next()
       parse_tag_list()
     } else if (accept('yield')) {
@@ -501,8 +506,8 @@ function parse (tokens, _app_state, input_program) {
 }
 
 function execute (nodes, custom_tags, _app_state) {
-  let current_event_listeners = []
   let modules = {}
+  let current_event_listeners = []
   let output = ''
   let indents = 0
   let node_ref = 0
@@ -552,22 +557,58 @@ function update_textcontent (el, chunks) {
   el.textContent = val.join('').trim()
 }
 
-function execute_loop (el, node) {
+function execute_loop (par, el, node) {
+  let elList = par.querySelectorAll('[data-adom-id="' + node.ref + '"]')
   let arr = get_value(node.each.list)
+  let currentLength = elList.length
+  let newLength = arr.length
   let it = node.each.iterator
-  let frag = document.createDocumentFragment()
-  if (arr.length > 0) 
+
+  if (arr.length > 0) {
     el.hidden = false
-  arr.forEach(function (i) {
-    let e = el.cloneNode(true)
-    adom._state.push({ [it]: i })
-    update_node(e, node)
-    if (node.children)
-      update_children(e, node.children)
-    frag.append(e)
-    adom._state.pop()
-  })
-  el.replaceWith(frag)
+  }
+
+  if (newLength > currentLength) {
+    let frag = document.createDocumentFragment()
+    let lastEl
+    for (let i = 0; i < currentLength; i++) {
+      adom._state.push({ [it]: arr[i] })
+      update_node(elList[i], node)
+      if (node.children) update_children(elList[i], node.children)
+      adom._state.pop()
+      lastEl = elList[i]
+    }
+    for (let i = currentLength; i < newLength; i++) {
+      let e = el.cloneNode(true)
+      adom._state.push({ [it]: arr[i] })
+      update_node(e, node)
+      if (node.children) update_children(e, node.children)
+      adom._state.pop()
+      frag.append(e)
+    }
+    lastEl.parentNode.insertBefore(frag, lastEl.nextSibling) 
+  } else if (newLength === currentLength) {
+    for (let i = 0; i < currentLength; i++) {
+      adom._state.push({ [it]: arr[i] })
+      update_node(elList[i], node)
+      if (node.children) update_children(elList[i], node.children)
+      adom._state.pop()
+    }
+  } else {
+    for (let i = 1; i < elList.length; i++) {
+      elList[i].parentNode.removeChild(elList[i])
+    }
+    let frag = document.createDocumentFragment()
+    arr.forEach(function (i) {
+      let e = el.cloneNode(true)
+      adom._state.push({ [it]: i })
+      update_node(e, node)
+      if (node.children) update_children(e, node.children)
+      frag.append(e)
+      adom._state.pop()
+    })
+    el.replaceWith(frag)
+  }
 }
 
 function update_node (el, n) {
@@ -593,11 +634,7 @@ function update_children (par, children) {
     }
     let el = par.querySelector('[data-adom-id="' + n.ref + '"]')
     if (n.each) {
-      let elList = par.querySelectorAll('[data-adom-id="' + n.ref + '"]')
-      for (let i = 1; i < elList.length; i++) {
-	elList[i].parentNode.removeChild(elList[i])
-      }
-      execute_loop(el, n)
+      execute_loop(par, el, n)
     } else {
       update_node(el, n)
     }
@@ -692,7 +729,7 @@ function update_children (par, children) {
     }
   }
 
-  function create_module (module) {
+  function create_module (module, events) {
     let visible_nodes = []
     function get_visible_nodes (nodes) {
       nodes.forEach(function (n) {
@@ -704,22 +741,30 @@ function update_children (par, children) {
     }
     get_visible_nodes(nodes)
     const indents = get_indents()
-    const preamble = '\n' +
-      indents + 'let nodes = ' + JSON.stringify(visible_nodes) + '\n' +
+    const code = '\n' +
+      indents + '(function () {' +
       runtime.split('\n').map(function (line) { return indents + line }).join('\n') + '\n' +
       indents + 'let adom = {\n' +
+      indents + '\tnodes: ' + JSON.stringify(visible_nodes) + ',\n' +
       indents + '\t_state: [' + JSON.stringify(_app_state[0]) + '],\n' +
-      indents + '\tupdate: function (obj) {\n' +
-      indents + '\t\tObject.assign(adom._state[0], obj)\n' +
-      indents + '\t\tupdate_children(document, nodes)\n' +
-      indents + '\t}\n' +
       indents + '}\n' +
-      indents + 'adom.state = adom._state[0]\n'
-    const code = module.code.split('\n').map(function (line) {
+      indents + '$ = adom._state[0]\n' +
+      indents + '$update = function (obj) {\n' + 
+      indents + '\tif (obj) Object.assign(adom._state[0], obj)\n' +
+      indents + '\tupdate_children(document, adom.nodes)\n' +
+      indents + '}\n' + 
+      indents + '$select = document.querySelector.bind(document)\n' +
+    module.code.split('\n').map(function (line) {
       return indents + line
-    }).join('\n')
+    }).join('\n') + '\n' + 
+    events.map(function (event) {
+      let e = event.event
+      return indents + 'document.querySelector(\'[data-adom-id="' + event.node + '"]\').addEventListener("' + e.type + '", ' + e.handler + ')' 
+    }).join('\n') + '\n' + 
+      indents + '})()'
 
-    return indents + '<script>' + preamble + code + '</script>\n'
+
+    return indents + '<script>' + code + '</script>\n'
   }
 
   function walk_node_tree (tree, yield_func) {
@@ -771,7 +816,10 @@ function update_children (par, children) {
 	    if (evt.type === 'load') {
 	      tag_module = modules[evt.handler]
 	    } else {
-	      current_event_listeners.push(evt)
+	      current_event_listeners.push({
+		node: node.ref,
+		event: evt
+	      })
 	    }
 	  })
 	}
@@ -819,8 +867,8 @@ function update_children (par, children) {
 	  print_tag(node, yield_func)
 	}
 	if (tag_module) {
+	  output += create_module(tag_module, current_event_listeners)
 	  current_event_listeners = []
-	  output += create_module(tag_module)
 	}
       } else if (node.type === 'textcontent') {
 	output += (get_indents() + assemble_textcontent(node.chunks, (node.store_ref && !node.is_only_child) ? node.ref : -1) + '\n')
