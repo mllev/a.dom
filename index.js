@@ -118,7 +118,7 @@ function tokenize (prog, start_pos, end_pos) {
 	}
 	text += prog[i++]
       }
-      tok.type = 'textcontent'
+      tok.type = 'textnode'
       tok.data = break_into_chunks(text) 
       cursor = i
     } else if (symbols.indexOf(c) !== -1) {
@@ -188,6 +188,7 @@ function parse (tokens, _app_state, input_program) {
   let cursor = 0
   let nodes = []
   let custom_tags = {}
+  let modules = {}
   let root = nodes
   let store_ref = false
 
@@ -325,7 +326,9 @@ function parse (tokens, _app_state, input_program) {
   }
 
   function get_attributes () {
-    let attr = { events: [] }
+    let control = {}
+    let events = []
+    let attr = {}
     function parse_attributes () {
       let id = tok.data
       if (accept('ident')) {
@@ -354,8 +357,7 @@ function parse (tokens, _app_state, input_program) {
 	let handler = tok.data
 	expect('ident')
 	expect(')')
-	attr.events.push({ type: evt, handler, handler })
-	store_ref = true
+	events.push({ type: evt, handler, handler })
 	parse_attributes()
       } else if (accept('if')) {
 	expect('(')
@@ -365,9 +367,8 @@ function parse (tokens, _app_state, input_program) {
 	  throw new Error('expected comparison operator')
 	}
 	let rhs = get_primitive_or_variable()
-	attr._if = { lhs: lhs, rhs: rhs, cmp: cmp }
+	control._if = { lhs: lhs, rhs: rhs, cmp: cmp }
 	expect(')')
-	store_ref = true
 	parse_attributes()
       } else if (accept('each')) {
 	expect('(')
@@ -379,23 +380,23 @@ function parse (tokens, _app_state, input_program) {
 	}
 	expect('in')
 	let data = get_primitive_or_variable()
-	attr._each = { iterator: it, list: data }
+	control._each = { iterator: it, list: data }
 	expect(')')
-	store_ref = true
 	parse_attributes()
       }
     }
     parse_attributes()
-    return attr
+    return [attr, control, events]
   }
 
   function parse_tag () {
     let node = { type: 'tag', name: tok.data, children: [] }
     expect('ident')
-    let old_ref = store_ref
     let class_list = get_class_list()
-    let attributes = get_attributes()
-    node.attributes = attributes
+    let attr_data = get_attributes()
+    node.attributes = attr_data[0]
+    node.control = attr_data[1]
+    node.events = attr_data[2]
     node.classes = class_list
     if (accept(';')) {
       node.selfClosing = true
@@ -405,25 +406,20 @@ function parse (tokens, _app_state, input_program) {
       parse_tag_list()
       root = par
       expect(']')
-    } else if (tok.type === 'textcontent') {
-      let ref = store_ref
+    } else if (tok.type === 'textnode') {
       for (let i = 0; i < tok.data.length; i++) {
 	if (Array.isArray(tok.data[i])) {
 	  let toks = tok.data[i]
-	  ref = true
 	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
 	}
       }
       node.children.push({
-	type: 'textcontent',
-	chunks: tok.data,
-	store_ref: ref
+	type: 'textnode',
+	chunks: tok.data
       })
       next()
     }
-    node.store_ref = store_ref
     root.push(node)
-    store_ref = old_ref
   }
 
   function parse_tag_list () {
@@ -434,19 +430,17 @@ function parse (tokens, _app_state, input_program) {
     } if (tok.type === 'ident') {
       parse_tag()
       parse_tag_list()
-    } else if (tok.type === 'textcontent') {
+    } else if (tok.type === 'textnode') {
       let ref = false
       for (let i = 0; i < tok.data.length; i++) {
 	if (Array.isArray(tok.data[i])) {
 	  let toks = tok.data[i]
-	  ref = true
 	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
 	}
       }
       root.push({
-	type: 'textcontent',
-	chunks: tok.data,
-	store_ref: ref 
+	type: 'textnode',
+	chunks: tok.data
       })
       next()
       parse_tag_list()
@@ -487,7 +481,7 @@ function parse (tokens, _app_state, input_program) {
     } else if (accept('module')) {
       let name = tok.data
       expect('ident')
-      root.push({ type: 'module', name: name, code: tok.data })
+      modules[name] = tok.data
       expect('module_body')
       parse_file()
     } else {
@@ -502,145 +496,100 @@ function parse (tokens, _app_state, input_program) {
     console.log(get_error_text(input_program, tok.pos))
   }
 
-  return [nodes, custom_tags]
+  return [nodes, custom_tags, modules]
 }
 
-function execute (nodes, custom_tags, _app_state) {
-  let modules = {}
+function resolve_custom_tags (nodes, custom_tags, _app_state) {
+  const resolved = []
+  let root = resolved
+
+  function walk_nodes (nodes, yield_func) {
+    nodes.forEach(function (node) {
+      if (node.type === 'yield') {
+	if (yield_func) {
+	  yield_func()
+	}
+      } else if (node.type === 'tag' && custom_tags[node.name]) {
+	let custom_tag = custom_tags[node.name]
+	root.push({ type: 'push_props', scope: node.attributes })
+	walk_nodes(custom_tag.children, function () {
+	  root.push({ type: 'pop_props' })
+	  walk_nodes(node.children, yield_func)
+	  root.push({ type: 'push_props', scope: node.attributes })
+	})
+	root.push({ type: 'pop_props' })
+      } else if (node.type === 'tag') {
+	let r = root
+	let children = node.children
+	node.children = []
+	root.push(node)
+	if (children) {
+	  root = node.children
+	  walk_nodes(children, yield_func)
+	}
+	root = r
+      } else if (node.type === 'textnode') {
+	root.push(node)
+      }
+    })
+  }
+
+  walk_nodes(nodes, undefined)
+
+  return resolved
+}
+
+function resolve_modules (nodes, modules, _app_state) {
+  const refs = []
+  let ref = 0
+  let root = refs
+
+  function walk_nodes (nodes) {
+    nodes.forEach(function (node) {
+      if (node.type === 'tag') {
+	let n = { id: -1, children: [] }
+	if (node.events.length > 0 || node.control._if || node.control._each) {
+	  n.id = ref++
+	  n.name = node.name
+	} else {
+	  for (let i in node.attributes) {
+	    if (Array.isArray(node.attributes[i])) {
+	      n.id = ref++
+	      n.name = node.name
+	      break
+	    }
+	  }
+	  if (n.id === -1) {
+	    for (let i in node.classes) {
+	      if (Array.isArray(node.classes[i])) {
+		n.id = ref++
+		n.name = node.name
+		break
+	      }
+	    }
+	  }
+	}
+	let current_root = root
+	if (n.id !== -1) {
+	  root.push(n)
+	  root = n.children
+	}
+	if (node.children) {
+	  walk_nodes(node.children)
+	}
+	root = current_root
+      }
+    })
+  }
+
+  walk_nodes(nodes)
+  console.log(refs)
+}
+
+function execute (nodes, _app_state) {
   let current_event_listeners = []
   let output = ''
   let indents = 0
-  let node_ref = 0
-  let runtime = `
-
-${evaluate_condition.toString()}
-
-function get_value(v) {
-  if (!Array.isArray(v)) return v
-  let idx = adom._state.length - 1
-  let check = v[0]
-  while (adom._state[idx][check] == null && idx > 0) {
-    idx--
-  }
-  v1 = adom._state[idx]
-  for (let i = 0; i < v.length; i++) {
-    if (typeof v1[i] !== undefined) {
-      v1 = v1[v[i]] 
-    } else {
-      return undefined
-    }
-  }
-  return v1
-}
-
-function update_attributes (el, attr) {
-  Object.keys(attr).forEach(function (k) {
-    if (Array.isArray(attr[k])) {
-      let v = get_value(attr[k])
-      if (v !== undefined) {
-	el.setAttribute(k, get_value(attr[k]))
-      }
-    }
-  })
-}
-
-function update_textcontent (el, chunks) {
-  let val = []
-  for (let i = 0; i < chunks.length; i++) {
-    let v = get_value(chunks[i])
-    if (v !== undefined) {
-      val.push(v)	
-    } else {
-      return
-    }
-  }
-  el.textContent = val.join('').trim()
-}
-
-function execute_loop (par, el, node) {
-  let elList = par.querySelectorAll('[data-adom-id="' + node.ref + '"]')
-  let arr = get_value(node.each.list)
-  let currentLength = elList.length
-  let newLength = arr.length
-  let it = node.each.iterator
-
-  if (arr.length > 0) {
-    el.hidden = false
-  }
-
-  if (newLength > currentLength) {
-    let frag = document.createDocumentFragment()
-    let lastEl
-    for (let i = 0; i < currentLength; i++) {
-      adom._state.push({ [it]: arr[i] })
-      update_node(elList[i], node)
-      if (node.children) update_children(elList[i], node.children)
-      adom._state.pop()
-      lastEl = elList[i]
-    }
-    for (let i = currentLength; i < newLength; i++) {
-      let e = el.cloneNode(true)
-      adom._state.push({ [it]: arr[i] })
-      update_node(e, node)
-      if (node.children) update_children(e, node.children)
-      adom._state.pop()
-      frag.append(e)
-    }
-    lastEl.parentNode.insertBefore(frag, lastEl.nextSibling) 
-  } else if (newLength === currentLength) {
-    for (let i = 0; i < currentLength; i++) {
-      adom._state.push({ [it]: arr[i] })
-      update_node(elList[i], node)
-      if (node.children) update_children(elList[i], node.children)
-      adom._state.pop()
-    }
-  } else {
-    for (let i = 1; i < elList.length; i++) {
-      elList[i].parentNode.removeChild(elList[i])
-    }
-    let frag = document.createDocumentFragment()
-    arr.forEach(function (i) {
-      let e = el.cloneNode(true)
-      adom._state.push({ [it]: i })
-      update_node(e, node)
-      if (node.children) update_children(e, node.children)
-      frag.append(e)
-      adom._state.pop()
-    })
-    el.replaceWith(frag)
-  }
-}
-
-function update_node (el, n) {
-  if (n.attributes) {
-    update_attributes(el, n.attributes)
-  }
-  if (n.condition) {
-    if (evaluate_condition(n.condition)) {
-      el.hidden = false
-    } else {
-      el.hidden = true
-    }
-  }
-  if (n.chunks) {
-    update_textcontent(el, n.chunks)
-  }
-}
-
-function update_children (par, children) {
-  children.forEach(function (n) {
-    if (n.store_ref !== true) {
-      return
-    }
-    let el = par.querySelector('[data-adom-id="' + n.ref + '"]')
-    if (n.each) {
-      execute_loop(par, el, n)
-    } else {
-      update_node(el, n)
-    }
-  })
-}
-`
 
   function get_indents () {
     let pad = ''
@@ -693,12 +642,8 @@ function update_children (par, children) {
     return false
   }
 
-  function assemble_textcontent (chunks, ref) {
-    if (ref > -1) {
-      return '<span data-adom-id="' + ref + '">' + chunks.map(get_value).join('').trim() + '</span>'
-    } else {
-      return chunks.map(get_value).join('').trim()
-    }
+  function assemble_textnode (chunks) {
+    return chunks.map(get_value).join('').trim()
   }
 
   function assemble_attributes (obj) {
@@ -729,103 +674,28 @@ function update_children (par, children) {
     }
   }
 
-  function create_module (module, events) {
-    let visible_nodes = []
-    function get_visible_nodes (nodes) {
-      nodes.forEach(function (n) {
-	if (n.store_ref)
-	  visible_nodes.push(n)
-	if (n.children && n.children.length > 0 && !n.each)
-	  get_visible_nodes(n.children)
-      })
-    }
-    get_visible_nodes(nodes)
-    const indents = get_indents()
-    const code = '\n' +
-      indents + '(function () {' +
-      runtime.split('\n').map(function (line) { return indents + line }).join('\n') + '\n' +
-      indents + 'let adom = {\n' +
-      indents + '\tnodes: ' + JSON.stringify(visible_nodes) + ',\n' +
-      indents + '\t_state: [' + JSON.stringify(_app_state[0]) + '],\n' +
-      indents + '}\n' +
-      indents + '$ = adom._state[0]\n' +
-      indents + '$update = function (obj) {\n' + 
-      indents + '\tif (obj) Object.assign(adom._state[0], obj)\n' +
-      indents + '\tupdate_children(document, adom.nodes)\n' +
-      indents + '}\n' + 
-      indents + '$select = document.querySelector.bind(document)\n' +
-    module.code.split('\n').map(function (line) {
-      return indents + line
-    }).join('\n') + '\n' + 
-    events.map(function (event) {
-      let e = event.event
-      return indents + 'document.querySelector(\'[data-adom-id="' + event.node + '"]\').addEventListener("' + e.type + '", ' + e.handler + ')' 
-    }).join('\n') + '\n' + 
-      indents + '})()'
-
-
-    return indents + '<script>' + code + '</script>\n'
-  }
-
   function walk_node_tree (tree, yield_func) {
     tree.forEach(function (node) {
       let c = node.children
-      if (node.type === 'module') {
-	modules[node.name] = node
-      } else if (node.type === 'doctype') {
+      if (node.type === 'doctype') {
 	output += get_indents() + ({
 	  html5: '<!DOCTYPE html>'
 	}[node.doctype]) + '\n'
       } else if (node.type === 'yield') {
 	if (yield_func) {
 	  yield_func()
-	}	 
+	}
+      } else if (node.type === 'push_props') {
+	_app_state.push({ props: node.scope })
+      } else if (node.type === 'pop_props') {
+	_app_state.pop()
       } else if (node.type === 'tag') {
-	if (c && c.length === 1 && c[0].type === 'textcontent' && c[0].store_ref) {
-	  c[0].is_only_child = true
-	  c[0].store_ref = false
-	  node.store_ref = true
-	  node.chunks = node.children[0].chunks
-	}
-	if (node.store_ref) {
-	  node.ref = node_ref++
-	  if (node.attributes) {
-	    node.attributes['data-adom-id'] = node.ref
-	  } else {
-	    node.attributes = { 'data-adom-id': node.ref }
-	  }
-	}
-	if (node.attributes._each) {
-	  node.each = node.attributes._each
-	  delete node.attributes._each
-	}
-	if (node.attributes._if) {
-	  node.condition = node.attributes._if
-	  delete node.attributes._if
-	}
-	if (node.attributes.events) {
-	  node.events = node.attributes.events
-	  delete node.attributes.events
-	}
-	if (node.condition && !evaluate_condition(node.condition)) {
+	if (node.control._if && !evaluate_condition(node.control._if)) {
 	  node.hidden = true
 	}
-	let tag_module = undefined
-	if (node.events && node.events.length > 0) {
-	  node.events.forEach(function (evt) {
-	    if (evt.type === 'load') {
-	      tag_module = modules[evt.handler]
-	    } else {
-	      current_event_listeners.push({
-		node: node.ref,
-		event: evt
-	      })
-	    }
-	  })
-	}
-	if (node.each) {
-	  let it = node.each.iterator[0]
-	  let obj = get_value(node.each.list)
+	if (node.control._each) {
+	  let it = node.control._each.iterator[0]
+	  let obj = get_value(node.control._each.list)
 	  if (!Array.isArray(obj)) {
 	    throw new Error('object is not iteratable')
 	  }
@@ -837,41 +707,15 @@ function update_children (par, children) {
 	    return
 	  }
 	  obj.forEach(function (o) {
-	    if (custom_tags[node.name]) {
-	      let props = node.attributes
-	      props[it] = o 
-	      _app_state.push({ props: props })
-	      walk_node_tree(custom_tags[node.name].children, function () {
-		_app_state.pop()
-		_app_state.push({ [it]: o })
-		walk_node_tree(node.children, yield_func)
-		_app_state.pop()
-		_app_state.push({ props: props })
-	      })
-	      _app_state.pop()
-	    } else {
-	      _app_state.push({ [it]: o })
-	      print_tag(node, yield_func)
-	      _app_state.pop()
-	    }
+	    _app_state.push({ [it]: o })
+	    print_tag(node, yield_func)
+	    _app_state.pop()
 	  })
 	  return
 	}
-	if (custom_tags[node.name]) {
-	  _app_state.push({ props: node.attributes })
-	  walk_node_tree(custom_tags[node.name].children, function () {
-	    walk_node_tree(node.children, yield_func)
-	  })
-	  _app_state.pop()
-	} else {
-	  print_tag(node, yield_func)
-	}
-	if (tag_module) {
-	  output += create_module(tag_module, current_event_listeners)
-	  current_event_listeners = []
-	}
-      } else if (node.type === 'textcontent') {
-	output += (get_indents() + assemble_textcontent(node.chunks, (node.store_ref && !node.is_only_child) ? node.ref : -1) + '\n')
+	print_tag(node, yield_func)
+      } else if (node.type === 'textnode') {
+	output += (get_indents() + assemble_textnode(node.chunks) + '\n')
       }
     })
   }
@@ -884,8 +728,12 @@ function update_children (par, children) {
 module.exports = function (input, input_state) {
   let state = [input_state]
   let tokens = tokenize(input, 0, input.length - 1)
-  let [nodes, custom_tags] = parse(tokens, state, input)
-  let output = execute(nodes, custom_tags, state)
+  let [nodes, custom_tags, modules] = parse(tokens, state, input)
+ 
+  nodes = resolve_custom_tags(nodes, custom_tags, state)
+  resolve_modules(nodes, modules, state)
+
+  let output = execute(nodes, state)
 
   return output
 }

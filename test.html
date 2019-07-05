@@ -1,202 +1,59 @@
-<!DOCTYPE html>
 <html>
-    <body data-adom-id="0">
-        <h1 data-adom-id="1">
+    <body>
+        <h1>
             TODO APP
         </h1>
-        <input id="item" data-adom-id="2" />
-        <br data-adom-id="3" />
-        <button data-adom-id="4">
+        <input id="item" />
+        <br />
+        <button>
             ADD ITEM
         </button>
-        <ul data-adom-id="5">
-            <li data-adom-id="6">
-                buy milk
+        <ul>
+            <li>
+                <ul>
+                    <li>
+                        hi, buy milk, matt
+                    </li>
+                    <li>
+                        hi, buy milk, josephine
+                    </li>
+                </ul>
+                <p>
+                    here buy milk
+                </p>
+                <br />
             </li>
-            <li data-adom-id="6">
-                buy sausage
+            <li>
+                <ul>
+                    <li>
+                        hi, buy sausage, matt
+                    </li>
+                    <li>
+                        hi, buy sausage, josephine
+                    </li>
+                </ul>
+                <p>
+                    here buy sausage
+                </p>
+                <br />
             </li>
-            <li data-adom-id="6">
-                buy mounds bar
+            <li>
+                <ul>
+                    <li>
+                        hi, buy mounds bar, matt
+                    </li>
+                    <li>
+                        hi, buy mounds bar, josephine
+                    </li>
+                </ul>
+                <p>
+                    here buy mounds bar
+                </p>
+                <br />
             </li>
         </ul>
-        <div data-adom-id="7">
+        <div>
             count: 3
         </div>
     </body>
-    <script>
-    (function () {    
-    
-    function evaluate_condition (condition) {
-        let lhs = get_value(condition.lhs)
-        let rhs = get_value(condition.rhs)
-    
-        switch (condition.cmp) {
-          case 'eq':
-    	if (lhs == rhs) return true
-    	return false
-          case 'ne':
-    	if (lhs != rhs) return true
-    	return false
-          case 'le':
-    	if (lhs <= rhs) return true
-    	return false
-          case 'ge':
-    	if (lhs >= rhs) return true
-    	return false
-          case 'lt':
-    	if (lhs < rhs) return true
-    	return false
-          case 'gt':
-    	if (lhs > rhs) return true
-    	return false
-          default:
-    	break
-        }
-        return false
-      }
-    
-    function get_value(v) {
-      if (!Array.isArray(v)) return v
-      let idx = adom._state.length - 1
-      let check = v[0]
-      while (adom._state[idx][check] == null && idx > 0) {
-        idx--
-      }
-      v1 = adom._state[idx]
-      for (let i = 0; i < v.length; i++) {
-        if (typeof v1[i] !== undefined) {
-          v1 = v1[v[i]] 
-        } else {
-          return undefined
-        }
-      }
-      return v1
-    }
-    
-    function update_attributes (el, attr) {
-      Object.keys(attr).forEach(function (k) {
-        if (Array.isArray(attr[k])) {
-          let v = get_value(attr[k])
-          if (v !== undefined) {
-    	el.setAttribute(k, get_value(attr[k]))
-          }
-        }
-      })
-    }
-    
-    function update_textcontent (el, chunks) {
-      let val = []
-      for (let i = 0; i < chunks.length; i++) {
-        let v = get_value(chunks[i])
-        if (v !== undefined) {
-          val.push(v)	
-        } else {
-          return
-        }
-      }
-      el.textContent = val.join('').trim()
-    }
-    
-    function execute_loop (par, el, node) {
-      let elList = par.querySelectorAll('[data-adom-id="' + node.ref + '"]')
-      let arr = get_value(node.each.list)
-      let currentLength = elList.length
-      let newLength = arr.length
-      let it = node.each.iterator
-    
-      if (arr.length > 0) {
-        el.hidden = false
-      }
-    
-      if (newLength > currentLength) {
-        let frag = document.createDocumentFragment()
-        let lastEl
-        for (let i = 0; i < currentLength; i++) {
-          adom._state.push({ [it]: arr[i] })
-          update_node(elList[i], node)
-          if (node.children) update_children(elList[i], node.children)
-          adom._state.pop()
-          lastEl = elList[i]
-        }
-        for (let i = currentLength; i < newLength; i++) {
-          let e = el.cloneNode(true)
-          adom._state.push({ [it]: arr[i] })
-          update_node(e, node)
-          if (node.children) update_children(e, node.children)
-          adom._state.pop()
-          frag.append(e)
-        }
-        lastEl.parentNode.insertBefore(frag, lastEl.nextSibling) 
-      } else if (newLength === currentLength) {
-        for (let i = 0; i < currentLength; i++) {
-          adom._state.push({ [it]: arr[i] })
-          update_node(elList[i], node)
-          if (node.children) update_children(elList[i], node.children)
-          adom._state.pop()
-        }
-      } else {
-        for (let i = 1; i < elList.length; i++) {
-          elList[i].parentNode.removeChild(elList[i])
-        }
-        let frag = document.createDocumentFragment()
-        arr.forEach(function (i) {
-          let e = el.cloneNode(true)
-          adom._state.push({ [it]: i })
-          update_node(e, node)
-          if (node.children) update_children(e, node.children)
-          frag.append(e)
-          adom._state.pop()
-        })
-        el.replaceWith(frag)
-      }
-    }
-    
-    function update_node (el, n) {
-      if (n.attributes) {
-        update_attributes(el, n.attributes)
-      }
-      if (n.condition) {
-        if (evaluate_condition(n.condition)) {
-          el.hidden = false
-        } else {
-          el.hidden = true
-        }
-      }
-      if (n.chunks) {
-        update_textcontent(el, n.chunks)
-      }
-    }
-    
-    function update_children (par, children) {
-      children.forEach(function (n) {
-        if (n.store_ref !== true) {
-          return
-        }
-        let el = par.querySelector('[data-adom-id="' + n.ref + '"]')
-        if (n.each) {
-          execute_loop(par, el, n)
-        } else {
-          update_node(el, n)
-        }
-      })
-    }
-    
-    let adom = {
-    	nodes: [{"type":"tag","name":"body","children":[{"type":"tag","name":"h1","children":[{"type":"textcontent","chunks":[" TODO APP "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":1},"classes":[],"store_ref":true,"chunks":[" TODO APP "],"ref":1,"events":[]},{"type":"tag","name":"input","children":[],"attributes":{"id":"item","data-adom-id":2},"classes":[],"selfClosing":true,"store_ref":true,"ref":2,"events":[]},{"type":"tag","name":"br","children":[],"attributes":{"data-adom-id":3},"classes":[],"selfClosing":true,"store_ref":true,"ref":3,"events":[]},{"type":"tag","name":"button","children":[{"type":"textcontent","chunks":[" ADD ITEM "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":4},"classes":[],"store_ref":true,"chunks":[" ADD ITEM "],"ref":4,"events":[{"type":"click","handler":"addItem"}]},{"type":"tag","name":"ul","children":[{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":6},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":6,"each":{"iterator":["i"],"list":["items"]},"events":[]}],"attributes":{"data-adom-id":5},"classes":[],"store_ref":true,"ref":5,"events":[]},{"type":"tag","name":"div","children":[{"type":"textcontent","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":7},"classes":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":7,"events":[]}],"attributes":{"data-adom-id":0},"classes":[],"store_ref":true,"ref":0,"events":[{"type":"load","handler":"main"}]},{"type":"tag","name":"h1","children":[{"type":"textcontent","chunks":[" TODO APP "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":1},"classes":[],"store_ref":true,"chunks":[" TODO APP "],"ref":1,"events":[]},{"type":"tag","name":"input","children":[],"attributes":{"id":"item","data-adom-id":2},"classes":[],"selfClosing":true,"store_ref":true,"ref":2,"events":[]},{"type":"tag","name":"br","children":[],"attributes":{"data-adom-id":3},"classes":[],"selfClosing":true,"store_ref":true,"ref":3,"events":[]},{"type":"tag","name":"button","children":[{"type":"textcontent","chunks":[" ADD ITEM "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":4},"classes":[],"store_ref":true,"chunks":[" ADD ITEM "],"ref":4,"events":[{"type":"click","handler":"addItem"}]},{"type":"tag","name":"ul","children":[{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":6},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":6,"each":{"iterator":["i"],"list":["items"]},"events":[]}],"attributes":{"data-adom-id":5},"classes":[],"store_ref":true,"ref":5,"events":[]},{"type":"tag","name":"li","children":[{"type":"textcontent","chunks":[" ",["i"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":6},"classes":[],"store_ref":true,"chunks":[" ",["i"]," "],"ref":6,"each":{"iterator":["i"],"list":["items"]},"events":[]},{"type":"tag","name":"div","children":[{"type":"textcontent","chunks":[" count: ",["items","length"]," "],"store_ref":false,"is_only_child":true}],"attributes":{"data-adom-id":7},"classes":[],"store_ref":true,"chunks":[" count: ",["items","length"]," "],"ref":7,"events":[]}],
-    	_state: [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt"}],
-    }
-    $ = adom._state[0]
-    $update = function (obj) {
-    	if (obj) Object.assign(adom._state[0], obj)
-    	update_children(document, adom.nodes)
-    }
-    $select = document.querySelector.bind(document)
-    
-      function addItem () {
-        $.items.push($select('#item').value)
-        $update()
-      }
-    document.querySelector('[data-adom-id="4"]').addEventListener("click", addItem)
-    })()</script>
 </html>

@@ -4,6 +4,9 @@ $items = [
   'buy mounds bar'
 ]
 
+$people[0].name = 'matt'
+$people[1].name = 'josephine'
+
 doctype html5
 
 module main -->
@@ -13,13 +16,25 @@ module main -->
   }
 <--
 
+tag Li [
+  ul [
+    li each(p in people) | {props.title}, {i}, {p.name} |
+  ]
+  yield
+  br;
+]
+
 html [
   body on:load(main) [
     h1 | TODO APP |
     input id='item'; br;
     button on:click(addItem) | ADD ITEM |
     ul [
-      li each(i in items) | {i} |
+      li each(i in items) [
+	Li title='hi' [
+	  p | here {i} |
+	]
+      ]
     ]
     div | count: {items.length} |
   ]
