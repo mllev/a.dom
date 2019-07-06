@@ -57,4 +57,36 @@
             count: 3
         </div>
     </body>
+    <script>
+(function () {
+const __adom_refs = [{"id":0,"children":[{"id":1,"children":[],"events":[{"type":"click","handler":"addItem"}],"name":"button","attributes":{"data-adom-id":1}},{"id":2,"children":[{"id":3,"children":[],"name":"li","attributes":{"data-adom-id":3}}],"name":"li","attributes":{"data-adom-id":2}}],"events":[{"type":"load","handler":"main"}],"name":"body","attributes":{"data-adom-id":0}}]
+const __adom_state = [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt","people":[{"name":"matt"},{"name":"josephine"}]}]
+const $ = __adom_state[0]
+
+function $select (sel) {
+  return document.querySelector(sel)
+}
+
+function $selectAll (sel) {
+  return document.querySelectorAll(sel) 
+}
+
+function $attach (e, sel, handler) {
+  $selectAll(sel).forEach(function (el) {
+    el.addEventListener(e, handler)
+  })
+}
+
+function $update () {
+  __adom_refs.forEach(function (ref) {
+    console.log(ref)
+  })
+}
+
+  function addItem () {
+    $.items.push($select('#item').value)
+    $update()
+  }
+$attach('click', '[data-adom-id="1"]', addItem);})()
+    </script>
 </html>

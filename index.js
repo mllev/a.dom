@@ -551,47 +551,132 @@ function expand_custom_tags (nodes, custom_tags, _app_state) {
 }
 
 function attach_modules (nodes, modules, _app_state) {
-  const refs = []
-  let ref = 0
-  let root = refs
+  let node_map = {}
 
-  function store_ref (n, node) {
-    let id = ref++
+  function store_ref (n, node, id) {
     node.attributes['data-adom-id'] = id
     n.id = id
     n.name = node.name
     n.attributes = node.attributes
+    node_map[id] = node
   }
 
-  function walk_nodes (nodes) {
-    nodes.forEach(function (node) {
-      if (node.type === 'tag') {
-	let n = { id: -1, children: [] }
-	if (node.events.length > 0 || node.control._if || node.control._each) {
-	  store_ref(n, node)
-	} else {
-	  for (let i in node.attributes) {
-	    if (Array.isArray(node.attributes[i])) {
-	      store_ref(n, node)
-	      break
+  function find_refs (nodes) {
+    let refs = []
+    let root = refs
+    let ref = 0
+    function walk_nodes(nodes) {
+      nodes.forEach(function (node) {
+	if (node.type === 'tag') {
+	  let n = { id: -1, children: [] }
+	  if (node.events.length > 0) {
+	    n.events = node.events
+	    store_ref(n, node, ref++)
+	  } else if (node.control._if || node.control._each) {
+	    store_ref(n, node, ref++)
+	  } else {
+	    for (let i in node.attributes) {
+	      if (Array.isArray(node.attributes[i])) {
+		store_ref(n, node, ref++)
+		break
+	      }
 	    }
 	  }
+	  let current_root = root
+	  if (n.id !== -1) {
+	    root.push(n)
+	    root = n.children
+	  }
+	  if (node.children) {
+	    walk_nodes(node.children)
+	  }
+	  root = current_root
 	}
-	let current_root = root
-	if (n.id !== -1) {
-	  root.push(n)
-	  root = n.children
-	}
-	if (node.children) {
-	  walk_nodes(node.children)
-	}
-	root = current_root
-      }
-    })
+      })
+    }
+    walk_nodes(nodes)
+    return refs
   }
 
-  walk_nodes(nodes)
-  console.log(JSON.stringify(refs, null, 2))
+  function find_module_roots (refs) {
+    let module_roots = []
+    function walk_nodes (refs) {
+      refs.forEach(function (ref) {
+	if (ref.events) {
+	  ref.events.forEach(function (e) {
+	    if (e.type === 'load') {
+	      module_roots.push({ name: e.handler, node: ref }) 
+	    }
+	  })
+	} 
+	if (ref.children.length > 0) {
+	  walk_nodes(ref.children)
+	}
+      })
+    }
+    walk_nodes(refs)
+    return module_roots
+  }
+
+  function find_events (refs) {
+    let events = []
+    function walk_nodes (refs) {
+      refs.forEach(function (ref) {
+	if (ref.events) {
+	  ref.events.forEach(function (e) {
+	    events.push({ event: e, node: ref })
+	  })
+	} 
+	if (ref.children.length > 0) {
+	  walk_nodes(ref.children)
+	}
+      })
+    }
+    walk_nodes(refs)
+    return events
+  }
+  
+  let refs = find_refs(nodes)
+  let module_roots = find_module_roots(refs)
+  let runtime = `
+const __adom_refs = ${JSON.stringify(refs)}
+const __adom_state = [${JSON.stringify(_app_state[0])}]
+const $ = __adom_state[0]
+
+function $select (sel) {
+  return document.querySelector(sel)
+}
+
+function $selectAll (sel) {
+  return document.querySelectorAll(sel) 
+}
+
+function $attach (e, sel, handler) {
+  $selectAll(sel).forEach(function (el) {
+    el.addEventListener(e, handler)
+  })
+}
+
+function $update () {
+  __adom_refs.forEach(function (ref) {
+    console.log(ref)
+  })
+}
+`
+
+  module_roots.forEach(function (module) {
+    let node = node_map[module.node.id]
+    let code = modules[module.name]
+    let events = find_events(module.node.children)
+    let module_script = '(function () {' + runtime + code + '\n'
+
+    events.forEach(function (event) {
+      module_script += `$attach('${event.event.type}', '[data-adom-id="${event.node.id}"]', ${event.event.handler});`
+    })
+  
+    module_script += '})()'
+    node.module = module_script
+  })
 }
 
 function execute (nodes, _app_state) {
@@ -683,6 +768,9 @@ function execute (nodes, _app_state) {
     } else {
       // make configurable based on doctype
       output += node.hidden ? ' hidden />\n' : ' />\n'
+    }
+    if (node.module) {
+      output += (get_indents() + '<script>\n' + node.module + '\n' + get_indents() + '</script>\n')
     }
   }
 
