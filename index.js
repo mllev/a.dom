@@ -397,6 +397,15 @@ function parse (tokens, _app_state, input_program) {
     node.attributes = attr_data[0]
     node.control = attr_data[1]
     node.events = attr_data[2]
+    /*
+    if (class_list > 0) {
+      if (node.attributes.class) {
+	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
+      } else {
+	node.attributes.class = node.classes.join(' ')
+      }
+    }
+    */
     node.classes = class_list
     if (accept(';')) {
       node.selfClosing = true
@@ -418,6 +427,8 @@ function parse (tokens, _app_state, input_program) {
 	chunks: tok.data
       })
       next()
+    } else {
+      throw new Error('unexpected ' + tok.type)
     }
     root.push(node)
   }
@@ -499,7 +510,7 @@ function parse (tokens, _app_state, input_program) {
   return [nodes, custom_tags, modules]
 }
 
-function resolve_custom_tags (nodes, custom_tags, _app_state) {
+function expand_custom_tags (nodes, custom_tags, _app_state) {
   const resolved = []
   let root = resolved
 
@@ -528,7 +539,7 @@ function resolve_custom_tags (nodes, custom_tags, _app_state) {
 	  walk_nodes(children, yield_func)
 	}
 	root = r
-      } else if (node.type === 'textnode') {
+      } else if (node.type === 'textnode' || node.type === 'doctype') {
 	root.push(node)
       }
     })
@@ -539,33 +550,30 @@ function resolve_custom_tags (nodes, custom_tags, _app_state) {
   return resolved
 }
 
-function resolve_modules (nodes, modules, _app_state) {
+function attach_modules (nodes, modules, _app_state) {
   const refs = []
   let ref = 0
   let root = refs
+
+  function store_ref (n, node) {
+    let id = ref++
+    node.attributes['data-adom-id'] = id
+    n.id = id
+    n.name = node.name
+    n.attributes = node.attributes
+  }
 
   function walk_nodes (nodes) {
     nodes.forEach(function (node) {
       if (node.type === 'tag') {
 	let n = { id: -1, children: [] }
 	if (node.events.length > 0 || node.control._if || node.control._each) {
-	  n.id = ref++
-	  n.name = node.name
+	  store_ref(n, node)
 	} else {
 	  for (let i in node.attributes) {
 	    if (Array.isArray(node.attributes[i])) {
-	      n.id = ref++
-	      n.name = node.name
+	      store_ref(n, node)
 	      break
-	    }
-	  }
-	  if (n.id === -1) {
-	    for (let i in node.classes) {
-	      if (Array.isArray(node.classes[i])) {
-		n.id = ref++
-		n.name = node.name
-		break
-	      }
 	    }
 	  }
 	}
@@ -583,13 +591,17 @@ function resolve_modules (nodes, modules, _app_state) {
   }
 
   walk_nodes(nodes)
-  console.log(refs)
+  console.log(JSON.stringify(refs, null, 2))
 }
 
 function execute (nodes, _app_state) {
   let current_event_listeners = []
   let output = ''
   let indents = 0
+
+  const doctype_map = {
+    'html5': '<!DOCTYPE html>'
+  }
 
   function get_indents () {
     let pad = ''
@@ -650,7 +662,7 @@ function execute (nodes, _app_state) {
     return Object.keys(obj).map(function (k) { return k + '="' + get_value(obj[k]) + '"' }).join(' ')
   }
   
-  function print_tag (node, yield_func) {
+  function print_tag (node) {
     output += (get_indents() + '<' + node.name)
     if (node.classes.length > 0) {
       if (node.attributes.class) {
@@ -665,7 +677,7 @@ function execute (nodes, _app_state) {
     if (!node.selfClosing) {
       output += node.hidden ? (' hidden>\n') : ('>\n')
       indents++
-      walk_node_tree(node.children, yield_func)
+      walk_node_tree(node.children)
       indents--
       output += (get_indents() + '</' + node.name + '>\n')
     } else {
@@ -674,17 +686,13 @@ function execute (nodes, _app_state) {
     }
   }
 
-  function walk_node_tree (tree, yield_func) {
+  function walk_node_tree (tree) {
     tree.forEach(function (node) {
       let c = node.children
       if (node.type === 'doctype') {
-	output += get_indents() + ({
-	  html5: '<!DOCTYPE html>'
-	}[node.doctype]) + '\n'
-      } else if (node.type === 'yield') {
-	if (yield_func) {
-	  yield_func()
-	}
+	let dt = doctype_map[node.doctype]
+	if (!dt) throw new Error('unknown doctype: ' + node.doctype)
+	output += get_indents() + dt + '\n'
       } else if (node.type === 'push_props') {
 	_app_state.push({ props: node.scope })
       } else if (node.type === 'pop_props') {
@@ -702,18 +710,18 @@ function execute (nodes, _app_state) {
 	  if (obj.length === 0) {
 	    node.hidden = true
 	    _app_state.push({ [it]: undefined })
-	    print_tag(node, yield_func)
+	    print_tag(node)
 	    _app_state.pop()
 	    return
 	  }
 	  obj.forEach(function (o) {
 	    _app_state.push({ [it]: o })
-	    print_tag(node, yield_func)
+	    print_tag(node)
 	    _app_state.pop()
 	  })
 	  return
 	}
-	print_tag(node, yield_func)
+	print_tag(node)
       } else if (node.type === 'textnode') {
 	output += (get_indents() + assemble_textnode(node.chunks) + '\n')
       }
@@ -729,9 +737,9 @@ module.exports = function (input, input_state) {
   let state = [input_state]
   let tokens = tokenize(input, 0, input.length - 1)
   let [nodes, custom_tags, modules] = parse(tokens, state, input)
- 
-  nodes = resolve_custom_tags(nodes, custom_tags, state)
-  resolve_modules(nodes, modules, state)
+
+  nodes = expand_custom_tags(nodes, custom_tags, state)
+  attach_modules(nodes, modules, state)
 
   let output = execute(nodes, state)
 
