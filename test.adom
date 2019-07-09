@@ -27,7 +27,7 @@ tag Li [
 html [
   body on:load(main) [
     h1 | TODO APP |
-    input id='item'; br;
+    input name={items[0]} id='item'; br;
     button on:click(addItem) | ADD ITEM |
     ul [
       li each(i in items) [

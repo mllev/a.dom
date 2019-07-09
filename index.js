@@ -553,11 +553,11 @@ function expand_custom_tags (nodes, custom_tags, _app_state) {
 function attach_modules (nodes, modules, _app_state) {
   let node_map = {}
 
-  function store_ref (n, node, id) {
+  function store_ref (n, node, id, attributes, textnodes) {
     node.attributes['data-adom-id'] = id
     n.id = id
-    n.name = node.name
-    n.attributes = node.attributes
+    n.attributes = attributes || []
+    n.textnodes = textnodes || []
     node_map[id] = node
   }
 
@@ -565,21 +565,36 @@ function attach_modules (nodes, modules, _app_state) {
     let refs = []
     let root = refs
     let ref = 0
-    function walk_nodes(nodes) {
+    function walk_nodes(nodes, par) {
       nodes.forEach(function (node) {
+	let n = { id: -1, children: [] }
 	if (node.type === 'tag') {
-	  let n = { id: -1, children: [] }
 	  if (node.events.length > 0) {
 	    n.events = node.events
 	    store_ref(n, node, ref++)
 	  } else if (node.control._if || node.control._each) {
 	    store_ref(n, node, ref++)
 	  } else {
+	    let textnodes = []
+	    let attr = {}
 	    for (let i in node.attributes) {
 	      if (Array.isArray(node.attributes[i])) {
-		store_ref(n, node, ref++)
-		break
+		attr[i] = node.attributes[i]
 	      }
+	    }
+
+	    for (let n of node.children) {
+	      if (n.type === 'textnode') {
+		for (let i in n.chunks) {
+		  if (Array.isArray(n.chunks[i])) {
+		    textnodes.push({ index: i, chunks: n.chunks })
+		    break
+		  }
+		}
+	      }
+	    }
+	    if (Object.keys(attr).length || textnodes.length) { 
+	      store_ref(n, node, ref++, attr, textnodes)
 	    }
 	  }
 	  let current_root = root
@@ -588,7 +603,7 @@ function attach_modules (nodes, modules, _app_state) {
 	    root = n.children
 	  }
 	  if (node.children) {
-	    walk_nodes(node.children)
+	    walk_nodes(node.children, node)
 	  }
 	  root = current_root
 	}
@@ -626,6 +641,7 @@ function attach_modules (nodes, modules, _app_state) {
 	  ref.events.forEach(function (e) {
 	    events.push({ event: e, node: ref })
 	  })
+	  delete ref.events
 	} 
 	if (ref.children.length > 0) {
 	  walk_nodes(ref.children)
@@ -638,8 +654,10 @@ function attach_modules (nodes, modules, _app_state) {
   
   let refs = find_refs(nodes)
   let module_roots = find_module_roots(refs)
-  let runtime = `
-const __adom_refs = ${JSON.stringify(refs)}
+  
+  function runtime (root) {
+    return `
+const __adom_refs = ${JSON.stringify(root)}
 const __adom_state = [${JSON.stringify(_app_state[0])}]
 const $ = __adom_state[0]
 
@@ -657,18 +675,30 @@ function $attach (e, sel, handler) {
   })
 }
 
-function $update () {
-  __adom_refs.forEach(function (ref) {
-    console.log(ref)
-  })
+function __adom_each_ref (fn) {
+  function walk (children) {
+    children.forEach(function (node) {
+      fn(node)
+      if (node.children) {
+	walk(node.children)
+      }
+    })
+  }
+  walk(__adom_refs)
 }
-`
+
+function $update () {
+  __adom_each_ref(function (node) {
+    console.log(node)
+  })
+}`
+  }
 
   module_roots.forEach(function (module) {
     let node = node_map[module.node.id]
     let code = modules[module.name]
     let events = find_events(module.node.children)
-    let module_script = '(function () {' + runtime + code + '\n'
+    let module_script = '(function () {' + runtime(module.node.children) + code + '\n'
 
     events.forEach(function (event) {
       module_script += `$attach('${event.event.type}', '[data-adom-id="${event.node.id}"]', ${event.event.handler});`

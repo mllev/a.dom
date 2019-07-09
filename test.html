@@ -4,62 +4,62 @@
         <h1>
             TODO APP
         </h1>
-        <input id="item" />
+        <input name="buy milk" id="item" data-adom-id="1" />
         <br />
-        <button data-adom-id="1">
+        <button data-adom-id="2">
             ADD ITEM
         </button>
         <ul>
-            <li data-adom-id="2">
+            <li data-adom-id="3">
                 <ul>
-                    <li data-adom-id="3">
+                    <li data-adom-id="4">
                         hi, buy milk, matt
                     </li>
-                    <li data-adom-id="3">
+                    <li data-adom-id="4">
                         hi, buy milk, josephine
                     </li>
                 </ul>
-                <p>
+                <p data-adom-id="5">
                     here buy milk
                 </p>
                 <br />
             </li>
-            <li data-adom-id="2">
+            <li data-adom-id="3">
                 <ul>
-                    <li data-adom-id="3">
+                    <li data-adom-id="4">
                         hi, buy sausage, matt
                     </li>
-                    <li data-adom-id="3">
+                    <li data-adom-id="4">
                         hi, buy sausage, josephine
                     </li>
                 </ul>
-                <p>
+                <p data-adom-id="5">
                     here buy sausage
                 </p>
                 <br />
             </li>
-            <li data-adom-id="2">
+            <li data-adom-id="3">
                 <ul>
-                    <li data-adom-id="3">
+                    <li data-adom-id="4">
                         hi, buy mounds bar, matt
                     </li>
-                    <li data-adom-id="3">
+                    <li data-adom-id="4">
                         hi, buy mounds bar, josephine
                     </li>
                 </ul>
-                <p>
+                <p data-adom-id="5">
                     here buy mounds bar
                 </p>
                 <br />
             </li>
         </ul>
-        <div>
+        <div data-adom-id="6">
             count: 3
         </div>
     </body>
     <script>
 (function () {
-const __adom_refs = [{"id":0,"children":[{"id":1,"children":[],"events":[{"type":"click","handler":"addItem"}],"name":"button","attributes":{"data-adom-id":1}},{"id":2,"children":[{"id":3,"children":[],"name":"li","attributes":{"data-adom-id":3}}],"name":"li","attributes":{"data-adom-id":2}}],"events":[{"type":"load","handler":"main"}],"name":"body","attributes":{"data-adom-id":0}}]
+const __adom_refs = [{"id":1,"children":[],"attributes":{"name":["items",0]},"textnodes":[]},{"id":2,"children":[],"attributes":[],"textnodes":[]},{"id":3,"children":[{"id":4,"children":[],"attributes":[],"textnodes":[]},{"id":5,"children":[],"attributes":{},"textnodes":[{"index":"1","chunks":[" here ",["i"]," "]}]}],"attributes":[],"textnodes":[]},{"id":6,"children":[],"attributes":{},"textnodes":[{"index":"1","chunks":[" count: ",["items","length"]," "]}]}]
 const __adom_state = [{"items":["buy milk","buy sausage","buy mounds bar"],"name":"matt","people":[{"name":"matt"},{"name":"josephine"}]}]
 const $ = __adom_state[0]
 
@@ -77,16 +77,27 @@ function $attach (e, sel, handler) {
   })
 }
 
-function $update () {
-  __adom_refs.forEach(function (ref) {
-    console.log(ref)
-  })
+function __adom_each_ref (fn) {
+  function walk (children) {
+    children.forEach(function (node) {
+      fn(node)
+      if (node.children) {
+	walk(node.children)
+      }
+    })
+  }
+  walk(__adom_refs)
 }
 
+function $update () {
+  __adom_each_ref(function (node) {
+    console.log(node)
+  })
+}
   function addItem () {
     $.items.push($select('#item').value)
     $update()
   }
-$attach('click', '[data-adom-id="1"]', addItem);})()
+$attach('click', '[data-adom-id="2"]', addItem);})()
     </script>
 </html>
