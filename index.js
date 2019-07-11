@@ -755,25 +755,24 @@ function $update () {
 	      current[i].parentNode.removeChild(current[i])
 	    }
 	    return
-	  } 
+	  }
+
+	  function push_scope_and_continue (el, item) {
+	    __adom_state.push({ [iterator]: item })
+	    __update_node(el, node)
+	    if (node.children.length) {
+	      walk(node.children, el)
+	    }
+	    __adom_state.pop()
+	  }  
 	  
 	  if (list.length <= current.length) {
 	    list.forEach(function (item, i) {
-	      __adom_state.push({ [iterator]: item })
-	      __update_node(current[i], node)
-	      if (node.children.length) {
-		walk(node.children, current[i])
-	      }
-	      __adom_state.pop()
+	      push_scope_and_continue(current[i], item)
 	    })
 	  } else {
 	    current.forEach(function (el, i) {
-	      __adom_state.push({ [iterator]: list[i] })
-	      __update_node(el, node)
-	      if (node.children.length) {
-		walk(node.children, el)
-	      }
-	      __adom_state.pop() 
+	      push_scope_and_continue(el, list[i])
 	    })
 	  }
 	
@@ -785,12 +784,7 @@ function $update () {
 	    let frag = document.createDocumentFragment()
 	    for (let i = current.length; i < list.length; i++) {
 	      let el = template.cloneNode(true)
-	      __adom_state.push({ [iterator]: list[i] })
-	      __update_node(el, node)
-	      if (node.children.length) {
-		walk(node.children, el)
-	      }
-	      __adom_state.pop() 
+	      push_scope_and_continue(el, list[i])
 	      frag.appendChild(el) 
 	    }
 	    current[current.length - 1].parentNode.insertBefore(frag, current[current.length - 1].nextSibling);
