@@ -37,5 +37,6 @@ html [
       ]
     ]
     div | count: {items.length} |
+    span if(items.length eq 7) | COUNT IS SEVEN |
   ]
 ]

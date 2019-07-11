@@ -568,32 +568,42 @@ function attach_modules (nodes, modules, _app_state) {
     function walk_nodes(nodes, par) {
       nodes.forEach(function (node) {
 	let n = { id: -1, children: [] }
-	if (node.type === 'tag') {
+	if (node.type === 'pop_props') {
+	  root.push(node) 
+	} else if (node.type === 'push_props') {
+	  root.push(node)
+	} else if (node.type === 'tag') {
 	  if (node.events.length > 0) {
 	    n.events = node.events
-	    store_ref(n, node, ref++)
-	  } else if (node.control._if || node.control._each) {
 	    store_ref(n, node, ref++)
 	  } else {
 	    let textnodes = []
 	    let attr = {}
+	    let _if = node.control._if
+	    let _each = node.control._each
+
 	    for (let i in node.attributes) {
 	      if (Array.isArray(node.attributes[i])) {
 		attr[i] = node.attributes[i]
 	      }
 	    }
 
-	    for (let n of node.children) {
+	    for (let i = 0; i < node.children.length; i++) {
+	      const n = node.children[i]
 	      if (n.type === 'textnode') {
-		for (let i in n.chunks) {
-		  if (Array.isArray(n.chunks[i])) {
+		for (let j in n.chunks) {
+		  if (Array.isArray(n.chunks[j])) {
 		    textnodes.push({ index: i, chunks: n.chunks })
 		    break
 		  }
 		}
 	      }
 	    }
-	    if (Object.keys(attr).length || textnodes.length) { 
+  
+	    if (Object.keys(attr).length || textnodes.length || _if || _each) {
+	      n.name = node.name
+	      n._if = _if || {}
+	      n._each = _each || {}
 	      store_ref(n, node, ref++, attr, textnodes)
 	    }
 	  }
@@ -624,7 +634,7 @@ function attach_modules (nodes, modules, _app_state) {
 	    }
 	  })
 	} 
-	if (ref.children.length > 0) {
+	if (ref.children && ref.children.length > 0) {
 	  walk_nodes(ref.children)
 	}
       })
@@ -643,7 +653,7 @@ function attach_modules (nodes, modules, _app_state) {
 	  })
 	  delete ref.events
 	} 
-	if (ref.children.length > 0) {
+	if (ref.children && ref.children.length > 0) {
 	  walk_nodes(ref.children)
 	}
       })
@@ -675,22 +685,127 @@ function $attach (e, sel, handler) {
   })
 }
 
-function __adom_each_ref (fn) {
-  function walk (children) {
-    children.forEach(function (node) {
-      fn(node)
-      if (node.children) {
-	walk(node.children)
-      }
-    })
+function __get_value(v) {
+  if (!Array.isArray(v)) return v
+  let idx = __adom_state.length - 1
+  let check = v[0]
+  while (__adom_state[idx][check] == null && idx > 0) {
+    idx--
   }
-  walk(__adom_refs)
+  v1 = __adom_state[idx]
+  v.forEach(function (i) {
+    v1 = v1[i]
+  })
+  return v1
+}
+
+function __evaluate_condition (condition) {
+  let lhs = __get_value(condition.lhs)
+  let rhs = __get_value(condition.rhs)
+  let cmp = condition.cmp
+
+  if (cmp === 'eq' && lhs == rhs) return true
+  if (cmp === 'ne' && lhs != rhs) return true
+  if (cmp === 'le' && lhs <= rhs) return true
+  if (cmp === 'ge' && lhs >= rhs) return true
+  if (cmp === 'lt' && lhs <  rhs) return true
+  if (cmp === 'gt' && lhs >  rhs) return true
+  
+  return false
+}
+
+function __assemble_textnode (chunks) {
+  return chunks.map(__get_value).join('').trim()
+}
+
+function __update_node (el, node) {
+  if (node._if && node._if.cmp && !__evaluate_condition(node._if)) {
+    el.hidden = true
+    return 
+  } else {
+    el.hidden = false
+  }
+  for (a in node.attributes) {
+    el[a] = __get_value(node.attributes[a])
+  }
+  for (let i = 0; i < node.textnodes.length; i++) {
+    const tn = node.textnodes[i]
+    el.childNodes[tn.index].textContent = __assemble_textnode(tn.chunks)
+  }
 }
 
 function $update () {
-  __adom_each_ref(function (node) {
-    console.log(node)
-  })
+  function walk (children, parentElement) {
+    children.forEach(function (node) {
+      if (node.type === 'push_props') {
+	__adom_state.push({ props: node.scope })
+      } else if (node.type === 'pop_props') {
+	__adom_state.pop()
+      } else {
+	const sel = '[data-adom-id="' + node.id + '"]'
+	if (node._each && node._each.iterator) {
+	  const current = parentElement.querySelectorAll(sel)
+	  const template = current[0]
+	  const iterator = node._each.iterator[0]
+	  const list = __get_value(node._each.list)
+  
+	  if (list.length === 0) {
+	    template.hidden = true
+	    for (let i = 1; i < current.length; i++) {
+	      current[i].parentNode.removeChild(current[i])
+	    }
+	    return
+	  } 
+	  
+	  if (list.length <= current.length) {
+	    list.forEach(function (item, i) {
+	      __adom_state.push({ [iterator]: item })
+	      __update_node(current[i], node)
+	      if (node.children.length) {
+		walk(node.children, current[i])
+	      }
+	      __adom_state.pop()
+	    })
+	  } else {
+	    current.forEach(function (el, i) {
+	      __adom_state.push({ [iterator]: list[i] })
+	      __update_node(el, node)
+	      if (node.children.length) {
+		walk(node.children, el)
+	      }
+	      __adom_state.pop() 
+	    })
+	  }
+	
+	  if (list.length < current.length) {
+	    for (let i = list.length; i < current.length; i++) {
+	      current[i].parentNode.removeChild(current[i]) 
+	    }
+	  } else if (list.length > current.length) {
+	    let frag = document.createDocumentFragment()
+	    for (let i = current.length; i < list.length; i++) {
+	      let el = template.cloneNode(true)
+	      __adom_state.push({ [iterator]: list[i] })
+	      __update_node(el, node)
+	      if (node.children.length) {
+		walk(node.children, el)
+	      }
+	      __adom_state.pop() 
+	      frag.appendChild(el) 
+	    }
+	    current[current.length - 1].parentNode.insertBefore(frag, current[current.length - 1].nextSibling);
+	  }
+	} else {
+	  const el = parentElement.querySelector(sel)
+	  __update_node(el, node)
+	  if (node.children.length) {
+	    walk(node.children, el)
+	  }
+	}
+      }
+    })
+  }
+  walk(__adom_refs, document)
 }`
   }
 
