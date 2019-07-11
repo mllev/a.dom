@@ -734,7 +734,10 @@ function __update_node (el, node) {
   }
 }
 
-function $update () {
+function $update (obj) {
+  if (obj) {
+    Object.assign($, obj)
+  }
   function walk (children, parentElement) {
     children.forEach(function (node) {
       if (node.type === 'push_props') {
