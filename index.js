@@ -474,7 +474,7 @@ function parse (tokens, _app_state, input_program) {
     expect('[')
     let par = root
     root = node.children 
-    parse_tag_list()
+    parse_tag()
     root = par
     expect(']')
     custom_tags[name] = node
@@ -527,6 +527,8 @@ function expand_custom_tags (nodes, custom_tags, _app_state) {
 	}
       } else if (node.type === 'tag' && custom_tags[node.name]) {
 	let custom_tag = custom_tags[node.name]
+	custom_tag.children[0].events = node.events
+	custom_tag.children[0].control = node.control
 	root.push({ type: 'push_props', scope: node.attributes })
 	walk_nodes(custom_tag.children, function () {
 	  root.push({ type: 'pop_props' })

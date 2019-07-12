@@ -1,26 +1,37 @@
-doctype html5
-
 module main -->
 
 function route (e) {
-  $update({ page: e.target.dataset.route })
+  e.preventDefault()
+  const page = e.target.dataset.route
+  window.history.pushState('', '', page)
+  $update({ page: page })
+}
+
+function sayHi () {
+  alert('hi')
 }
 
 <--
+
+tag Page1 [
+  p | HELLO, FROM PAGE 1 |
+]
+
+tag Page2 [
+  p | HELLO, FROM PAGE 2 |
+]
+
+doctype html5
 
 html lang='en' [
   head []
   body on:load(main) [
     div [
-      a data-route='/page1' on:click(route) | Page 1 |
-      a data-route='/page2' on:click(route) | Page 2 |
+      a href='/page1' data-route='/page1' on:click(route) | Page 1 |
+      a href='/page2' data-route='/page2' on:click(route) | Page 2 |
     ]
-    div if(page eq '/page1') [
-      p | HELLO, FROM PAGE 1 |
-    ]
-    div if(page eq '/page2') [
-      p | HELLO, FROM PAGE 2 |
-    ]
+    div if(page eq '/page1') [ Page1 on:click(sayHi); ]
+    div if(page eq '/page2') [ Page2; ]
   ]
 ]
 
