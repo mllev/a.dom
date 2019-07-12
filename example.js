@@ -1,14 +1,15 @@
 const adom = require('./index')
 const fs = require('fs')
+const http = require('http')
 
-const example = fs.readFileSync('test.adom').toString()
+function render (file, data) {
+  return adom(fs.readFileSync(file).toString(), data)
+}
 
-html = adom(example, {
-  items: [],
-  name: 'matt'
-})
+http.createServer(function (req, res) {
+  const html = render('test.adom', { page: req.url })
 
-//console.log(html)
-
-fs.writeFileSync('test.html', html)
+  res.writeHead(200, { 'Content-Type': 'text/html' })
+  res.end(html)
+}).listen(8000, function () { console.log('listening') })
 

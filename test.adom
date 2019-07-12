@@ -1,42 +1,26 @@
-$items = [
-  'buy milk',
-  'buy sausage',
-  'buy mounds bar'
-]
-
-$people[0].name = 'matt'
-$people[1].name = 'josephine'
-
 doctype html5
 
 module main -->
-  function addItem () {
-    $.items.push($select('#item').value)
-    $update()
-  }
+
+function route (e) {
+  $update({ page: e.target.dataset.route })
+}
+
 <--
 
-tag Li [
-  ul [
-    li each(p in people) | {props.title}, {i}, {p.name} |
+html lang='en' [
+  head []
+  body on:load(main) [
+    div [
+      a data-route='/page1' on:click(route) | Page 1 |
+      a data-route='/page2' on:click(route) | Page 2 |
+    ]
+    div if(page eq '/page1') [
+      p | HELLO, FROM PAGE 1 |
+    ]
+    div if(page eq '/page2') [
+      p | HELLO, FROM PAGE 2 |
+    ]
   ]
-  yield
-  br;
 ]
 
-html [
-  body on:load(main) [
-    h1 | TODO APP |
-    input name={items[0]} id='item'; br;
-    button on:click(addItem) | ADD ITEM |
-    ul [
-      li each(i in items) [
-	Li title='hi' [
-	  p | here {i} |
-	]
-      ]
-    ]
-    div | count: {items.length} |
-    span if(items.length eq 7) | COUNT IS SEVEN |
-  ]
-]

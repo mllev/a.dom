@@ -15,32 +15,6 @@ function get_error_text (prog, c) {
   return buf
 }
 
-function break_into_chunks (text) {
-  let chunks = []
-  let chunk = ''
-  let i = 0, max = text.length
-  let in_expr = false
-  while (i < max) {
-    if (text[i] === '{' && in_expr === false) {
-      in_expr = true
-      chunks.push(chunk)
-      chunk = ''
-      i++ 
-    } else if (text[i] === '}' && in_expr === true) {
-      in_expr = false
-      let toks = tokenize(chunk, 0, chunk.length - 1)
-      toks.pop() //eof
-      chunks.push(toks)
-      chunk = ''
-      i++
-    } else {
-      chunk += text[i++]
-    }
-  }
-  chunks.push(chunk)
-  return chunks
-}
-
 
 function tokenize (prog, start_pos, end_pos) {
   let cursor = start_pos
@@ -54,6 +28,33 @@ function tokenize (prog, start_pos, end_pos) {
   const symbols = [
     '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ','
   ]
+
+  function break_into_chunks (text) {
+    let chunks = []
+    let chunk = ''
+    let i = 0, max = text.length
+    let in_expr = false
+    while (i < max) {
+      if (text[i] === '{' && in_expr === false) {
+	in_expr = true
+	chunks.push(chunk)
+	chunk = ''
+	i++ 
+      } else if (text[i] === '}' && in_expr === true) {
+	in_expr = false
+	let toks = tokenize(chunk, 0, chunk.length - 1)
+	toks.pop() //eof
+	chunks.push(toks)
+	chunk = ''
+	i++
+      } else {
+	chunk += text[i++]
+      }
+    }
+    chunks.push(chunk)
+    return chunks
+  }
+
 
   while (true) {
     let c = prog[cursor]
@@ -104,6 +105,10 @@ function tokenize (prog, start_pos, end_pos) {
 	tok.type = keywords[idx]
       } else {
 	tok.type = 'ident'
+      }
+      if (tok.data === 'true' || tok.data === 'false') {
+	tok.type = 'bool'
+	tok.data = (tok.data === 'true')
       }
     } else if (c === '|') {
       let i = cursor + 1
@@ -242,7 +247,7 @@ function parse (tokens, _app_state, input_program) {
 
   function get_array_or_primitive () {
     let val = tok.data
-    if (accept('string') || accept('number')) {
+    if (accept('string') || accept('number') || accept('bool')) {
       return val
     }
     if (accept('[')) {
@@ -303,7 +308,7 @@ function parse (tokens, _app_state, input_program) {
 
   function get_primitive_or_variable () {
     let val = tok.data
-    if (accept('string') || accept('number')) {
+    if (accept('string') || accept('number') || accept('bool')) {
       return val 
     } else if (tok.type === 'ident') {
       return get_variable_access_list()
@@ -575,48 +580,46 @@ function attach_modules (nodes, modules, _app_state) {
 	} else if (node.type === 'tag') {
 	  if (node.events.length > 0) {
 	    n.events = node.events
-	    store_ref(n, node, ref++)
-	  } else {
-	    let textnodes = []
-	    let attr = {}
-	    let _if = node.control._if
-	    let _each = node.control._each
+	  }
+	  let textnodes = []
+	  let attr = {}
+	  let _if = node.control._if
+	  let _each = node.control._each
 
-	    for (let i in node.attributes) {
-	      if (Array.isArray(node.attributes[i])) {
-		attr[i] = node.attributes[i]
-	      }
+	  for (let i in node.attributes) {
+	    if (Array.isArray(node.attributes[i])) {
+	      attr[i] = node.attributes[i]
 	    }
+	  }
 
-	    for (let i = 0; i < node.children.length; i++) {
-	      const n = node.children[i]
-	      if (n.type === 'textnode') {
-		for (let j in n.chunks) {
-		  if (Array.isArray(n.chunks[j])) {
-		    textnodes.push({ index: i, chunks: n.chunks })
-		    break
-		  }
+	  for (let i = 0; i < node.children.length; i++) {
+	    const n = node.children[i]
+	    if (n.type === 'textnode') {
+	      for (let j in n.chunks) {
+		if (Array.isArray(n.chunks[j])) {
+		  textnodes.push({ index: i, chunks: n.chunks })
+		  break
 		}
 	      }
 	    }
-  
-	    if (Object.keys(attr).length || textnodes.length || _if || _each) {
-	      n.name = node.name
-	      n._if = _if || {}
-	      n._each = _each || {}
-	      store_ref(n, node, ref++, attr, textnodes)
-	    }
 	  }
-	  let current_root = root
-	  if (n.id !== -1) {
-	    root.push(n)
-	    root = n.children
+
+	  if (Object.keys(attr).length || textnodes.length || _if || _each || n.events) {
+	    n.name = node.name
+	    n._if = _if || {}
+	    n._each = _each || {}
+	    store_ref(n, node, ref++, attr, textnodes)
 	  }
-	  if (node.children) {
-	    walk_nodes(node.children, node)
-	  }
-	  root = current_root
 	}
+	let current_root = root
+	if (n.id !== -1) {
+	  root.push(n)
+	  root = n.children
+	}
+	if (node.children) {
+	  walk_nodes(node.children, node)
+	}
+	root = current_root
       })
     }
     walk_nodes(nodes)
@@ -679,12 +682,6 @@ function $selectAll (sel) {
   return document.querySelectorAll(sel) 
 }
 
-function $attach (e, sel, handler) {
-  $selectAll(sel).forEach(function (el) {
-    el.addEventListener(e, handler)
-  })
-}
-
 function __get_value(v) {
   if (!Array.isArray(v)) return v
   let idx = __adom_state.length - 1
@@ -726,7 +723,12 @@ function __update_node (el, node) {
     el.hidden = false
   }
   for (a in node.attributes) {
-    el[a] = __get_value(node.attributes[a])
+    if (a.indexOf('data-') === 0) {
+      const id = a.replace('data-', '').replace(/-([a-z])/g, function (g) { return g[1].toUpperCase(); })
+      el.dataset[id] = __get_value(node.attributes[a])  
+    } else {
+      el[a] = __get_value(node.attributes[a])
+    }
   }
   for (let i = 0; i < node.textnodes.length; i++) {
     const tn = node.textnodes[i]
@@ -811,10 +813,26 @@ function $update (obj) {
     let code = modules[module.name]
     let events = find_events(module.node.children)
     let module_script = '(function () {' + runtime(module.node.children) + code + '\n'
+    let eventMap = {}
 
-    events.forEach(function (event) {
-      module_script += `$attach('${event.event.type}', '[data-adom-id="${event.node.id}"]', ${event.event.handler});`
+    events.forEach(function (e) {
+      const t = e.event.type
+      if (eventMap[t]) {
+	eventMap[t].push({ id: e.node.id, handler: e.event.handler })
+      } else {
+	eventMap[t] = [{ id: e.node.id, handler: e.event.handler }]
+      }
     })
+
+    for (e in eventMap) {
+      module_script += `document.addEventListener('${e}', function (e) {
+	${eventMap[e].map(function (evt) {
+	  return `if (e.target.dataset.adomId == ${evt.id}) {
+	    ${evt.handler}(e);
+	  }`
+	}).join('\n')}
+      })\n`
+    }
   
     module_script += '})()'
     node.module = module_script
