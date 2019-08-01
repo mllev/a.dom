@@ -1,37 +1,28 @@
-module main -->
-
-function route (e) {
-  e.preventDefault()
-  const page = e.target.dataset.route
-  window.history.pushState('', '', page)
-  $update({ page: page })
-}
-
-function sayHi () {
-  alert('hi')
-}
-
-<--
-
 tag Page1 [
   p | HELLO, FROM PAGE 1 |
 ]
 
 tag Page2 [
-  p | HELLO, FROM PAGE 2 |
+  div [
+    p | HELLO, FROM PAGE 2 |
+    yield
+  ]
 ]
 
 doctype html5
+
+$items[0].name = 'matt'
 
 html lang='en' [
   head []
   body on:load(main) [
     div [
-      a href='/page1' data-route='/page1' on:click(route) | Page 1 |
-      a href='/page2' data-route='/page2' on:click(route) | Page 2 |
+      a href='/page1' data-route='/page1' | Page 1 |
+      a href='/page2' data-route='/page2' | Page 2 |
     ]
-    div if(page eq '/page1') [ Page1 on:click(sayHi); ]
-    div if(page eq '/page2') [ Page2; ]
+    div if(page eq '/page1') [ Page1; ]
+    div if(page eq '/page2') [ Page2 [ Page1; ] ]
+    div each(i in items) | {i.name} |
   ]
 ]
 

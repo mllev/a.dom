@@ -402,15 +402,6 @@ function parse (tokens, _app_state, input_program) {
     node.attributes = attr_data[0]
     node.control = attr_data[1]
     node.events = attr_data[2]
-    /*
-    if (class_list > 0) {
-      if (node.attributes.class) {
-	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
-      } else {
-	node.attributes.class = node.classes.join(' ')
-      }
-    }
-    */
     node.classes = class_list
     if (accept(';')) {
       node.selfClosing = true
@@ -558,287 +549,8 @@ function expand_custom_tags (nodes, custom_tags, _app_state) {
 }
 
 function attach_modules (nodes, modules, _app_state) {
-  let node_map = {}
-
-  function store_ref (n, node, id, attributes, textnodes) {
-    node.attributes['data-adom-id'] = id
-    n.id = id
-    n.attributes = attributes || []
-    n.textnodes = textnodes || []
-    node_map[id] = node
-  }
-
-  function find_refs (nodes) {
-    let refs = []
-    let root = refs
-    let ref = 0
-    function walk_nodes(nodes, par) {
-      nodes.forEach(function (node) {
-	let n = { id: -1, children: [] }
-	if (node.type === 'pop_props') {
-	  root.push(node) 
-	} else if (node.type === 'push_props') {
-	  root.push(node)
-	} else if (node.type === 'tag') {
-	  if (node.events.length > 0) {
-	    n.events = node.events
-	  }
-	  let textnodes = []
-	  let attr = {}
-	  let _if = node.control._if
-	  let _each = node.control._each
-
-	  for (let i in node.attributes) {
-	    if (Array.isArray(node.attributes[i])) {
-	      attr[i] = node.attributes[i]
-	    }
-	  }
-
-	  for (let i = 0; i < node.children.length; i++) {
-	    const n = node.children[i]
-	    if (n.type === 'textnode') {
-	      for (let j in n.chunks) {
-		if (Array.isArray(n.chunks[j])) {
-		  textnodes.push({ index: i, chunks: n.chunks })
-		  break
-		}
-	      }
-	    }
-	  }
-
-	  if (Object.keys(attr).length || textnodes.length || _if || _each || n.events) {
-	    n.name = node.name
-	    n._if = _if || {}
-	    n._each = _each || {}
-	    store_ref(n, node, ref++, attr, textnodes)
-	  }
-	}
-	let current_root = root
-	if (n.id !== -1) {
-	  root.push(n)
-	  root = n.children
-	}
-	if (node.children) {
-	  walk_nodes(node.children, node)
-	}
-	root = current_root
-      })
-    }
-    walk_nodes(nodes)
-    return refs
-  }
-
-  function find_module_roots (refs) {
-    let module_roots = []
-    function walk_nodes (refs) {
-      refs.forEach(function (ref) {
-	if (ref.events) {
-	  ref.events.forEach(function (e) {
-	    if (e.type === 'load') {
-	      module_roots.push({ name: e.handler, node: ref }) 
-	    }
-	  })
-	} 
-	if (ref.children && ref.children.length > 0) {
-	  walk_nodes(ref.children)
-	}
-      })
-    }
-    walk_nodes(refs)
-    return module_roots
-  }
-
-  function find_events (refs) {
-    let events = []
-    function walk_nodes (refs) {
-      refs.forEach(function (ref) {
-	if (ref.events) {
-	  ref.events.forEach(function (e) {
-	    events.push({ event: e, node: ref })
-	  })
-	  delete ref.events
-	} 
-	if (ref.children && ref.children.length > 0) {
-	  walk_nodes(ref.children)
-	}
-      })
-    }
-    walk_nodes(refs)
-    return events
-  }
-  
-  let refs = find_refs(nodes)
-  let module_roots = find_module_roots(refs)
-  
-  function runtime (root) {
-    return `
-const __adom_refs = ${JSON.stringify(root)}
-const __adom_state = [${JSON.stringify(_app_state[0])}]
-const $ = __adom_state[0]
-
-function $select (sel) {
-  return document.querySelector(sel)
-}
-
-function $selectAll (sel) {
-  return document.querySelectorAll(sel) 
-}
-
-function __get_value(v) {
-  if (!Array.isArray(v)) return v
-  let idx = __adom_state.length - 1
-  let check = v[0]
-  while (__adom_state[idx][check] == null && idx > 0) {
-    idx--
-  }
-  v1 = __adom_state[idx]
-  v.forEach(function (i) {
-    v1 = v1[i]
-  })
-  return v1
-}
-
-function __evaluate_condition (condition) {
-  let lhs = __get_value(condition.lhs)
-  let rhs = __get_value(condition.rhs)
-  let cmp = condition.cmp
-
-  if (cmp === 'eq' && lhs == rhs) return true
-  if (cmp === 'ne' && lhs != rhs) return true
-  if (cmp === 'le' && lhs <= rhs) return true
-  if (cmp === 'ge' && lhs >= rhs) return true
-  if (cmp === 'lt' && lhs <  rhs) return true
-  if (cmp === 'gt' && lhs >  rhs) return true
-  
-  return false
-}
-
-function __assemble_textnode (chunks) {
-  return chunks.map(__get_value).join('').trim()
-}
-
-function __update_node (el, node) {
-  if (node._if && node._if.cmp && !__evaluate_condition(node._if)) {
-    el.hidden = true
-    return 
-  } else {
-    el.hidden = false
-  }
-  for (a in node.attributes) {
-    if (a.indexOf('data-') === 0) {
-      const id = a.replace('data-', '').replace(/-([a-z])/g, function (g) { return g[1].toUpperCase(); })
-      el.dataset[id] = __get_value(node.attributes[a])  
-    } else {
-      el[a] = __get_value(node.attributes[a])
-    }
-  }
-  for (let i = 0; i < node.textnodes.length; i++) {
-    const tn = node.textnodes[i]
-    el.childNodes[tn.index].textContent = __assemble_textnode(tn.chunks)
-  }
-}
-
-function $update (obj) {
-  if (obj) {
-    Object.assign($, obj)
-  }
-  function walk (children, parentElement) {
-    children.forEach(function (node) {
-      if (node.type === 'push_props') {
-	__adom_state.push({ props: node.scope })
-      } else if (node.type === 'pop_props') {
-	__adom_state.pop()
-      } else {
-	const sel = '[data-adom-id="' + node.id + '"]'
-	if (node._each && node._each.iterator) {
-	  const current = parentElement.querySelectorAll(sel)
-	  const template = current[0]
-	  const iterator = node._each.iterator[0]
-	  const list = __get_value(node._each.list)
-  
-	  if (list.length === 0) {
-	    template.hidden = true
-	    for (let i = 1; i < current.length; i++) {
-	      current[i].parentNode.removeChild(current[i])
-	    }
-	    return
-	  }
-
-	  function push_scope_and_continue (el, item) {
-	    __adom_state.push({ [iterator]: item })
-	    __update_node(el, node)
-	    if (node.children.length) {
-	      walk(node.children, el)
-	    }
-	    __adom_state.pop()
-	  }  
-	  
-	  if (list.length <= current.length) {
-	    list.forEach(function (item, i) {
-	      push_scope_and_continue(current[i], item)
-	    })
-	  } else {
-	    current.forEach(function (el, i) {
-	      push_scope_and_continue(el, list[i])
-	    })
-	  }
-	
-	  if (list.length < current.length) {
-	    for (let i = list.length; i < current.length; i++) {
-	      current[i].parentNode.removeChild(current[i]) 
-	    }
-	  } else if (list.length > current.length) {
-	    let frag = document.createDocumentFragment()
-	    for (let i = current.length; i < list.length; i++) {
-	      let el = template.cloneNode(true)
-	      push_scope_and_continue(el, list[i])
-	      frag.appendChild(el) 
-	    }
-	    current[current.length - 1].parentNode.insertBefore(frag, current[current.length - 1].nextSibling);
-	  }
-	} else {
-	  const el = parentElement.querySelector(sel)
-	  __update_node(el, node)
-	  if (node.children.length) {
-	    walk(node.children, el)
-	  }
-	}
-      }
-    })
-  }
-  walk(__adom_refs, document)
-}`
-  }
-
-  module_roots.forEach(function (module) {
-    let node = node_map[module.node.id]
-    let code = modules[module.name]
-    let events = find_events(module.node.children)
-    let module_script = '(function () {' + runtime(module.node.children) + code + '\n'
-    let eventMap = {}
-
-    events.forEach(function (e) {
-      const t = e.event.type
-      if (eventMap[t]) {
-	eventMap[t].push({ id: e.node.id, handler: e.event.handler })
-      } else {
-	eventMap[t] = [{ id: e.node.id, handler: e.event.handler }]
-      }
-    })
-
-    for (e in eventMap) {
-      module_script += `document.addEventListener('${e}', function (e) {
-	${eventMap[e].map(function (evt) {
-	  return `if (e.target.dataset.adomId == ${evt.id}) {
-	    ${evt.handler}(e);
-	  }`
-	}).join('\n')}
-      })\n`
-    }
-  
-    module_script += '})()'
-    node.module = module_script
-  })
+  console.log('hi')
+  console.log(nodes) 
 }
 
 function execute (nodes, _app_state) {
@@ -875,29 +587,15 @@ function execute (nodes, _app_state) {
   function evaluate_condition (condition) {
     let lhs = get_value(condition.lhs)
     let rhs = get_value(condition.rhs)
+    let cmp = condition.cmp
 
-    switch (condition.cmp) {
-      case 'eq':
-	if (lhs == rhs) return true
-	return false
-      case 'ne':
-	if (lhs != rhs) return true
-	return false
-      case 'le':
-	if (lhs <= rhs) return true
-	return false
-      case 'ge':
-	if (lhs >= rhs) return true
-	return false
-      case 'lt':
-	if (lhs < rhs) return true
-	return false
-      case 'gt':
-	if (lhs > rhs) return true
-	return false
-      default:
-	break
-    }
+    if (cmp === 'eq' && lhs == rhs) return true
+    if (cmp === 'ne' && lhs != rhs) return true
+    if (cmp === 'le' && lhs <= rhs) return true
+    if (cmp === 'ge' && lhs >= rhs) return true
+    if (cmp === 'lt' && lhs <  rhs) return true
+    if (cmp === 'gt' && lhs >  rhs) return true
+    
     return false
   }
 
@@ -922,14 +620,14 @@ function execute (nodes, _app_state) {
       output += ' ' + assemble_attributes(node.attributes)
     }
     if (!node.selfClosing) {
-      output += node.hidden ? (' hidden>\n') : ('>\n')
+      output += '>\n'
       indents++
       walk_node_tree(node.children)
       indents--
       output += (get_indents() + '</' + node.name + '>\n')
     } else {
       // make configurable based on doctype
-      output += node.hidden ? ' hidden />\n' : ' />\n'
+      output += ' />\n'
     }
     if (node.module) {
       output += (get_indents() + '<script>\n' + node.module + '\n' + get_indents() + '</script>\n')
@@ -948,30 +646,24 @@ function execute (nodes, _app_state) {
       } else if (node.type === 'pop_props') {
 	_app_state.pop()
       } else if (node.type === 'tag') {
-	if (node.control._if && !evaluate_condition(node.control._if)) {
-	  node.hidden = true
-	}
 	if (node.control._each) {
 	  let it = node.control._each.iterator[0]
 	  let obj = get_value(node.control._each.list)
 	  if (!Array.isArray(obj)) {
 	    throw new Error('object is not iteratable')
 	  }
-	  if (obj.length === 0) {
-	    node.hidden = true
-	    _app_state.push({ [it]: undefined })
-	    print_tag(node)
-	    _app_state.pop()
-	    return
-	  }
 	  obj.forEach(function (o) {
 	    _app_state.push({ [it]: o })
-	    print_tag(node)
+	    if (!node.control._if || (node.control._if && evaluate_condition(node.control._if))) {
+	      print_tag(node)
+	    }
 	    _app_state.pop()
 	  })
-	  return
+	} else {
+	  if (!node.control._if || (node.control._if && evaluate_condition(node.control._if))) {
+	    print_tag(node)
+	  }
 	}
-	print_tag(node)
       } else if (node.type === 'textnode') {
 	output += (get_indents() + assemble_textnode(node.chunks) + '\n')
       }
