@@ -1,28 +1,25 @@
-tag Page1 [
-  p | HELLO, FROM PAGE 1 |
+$testClass = 'classsss'
+
+$items = [
+  'buy milk',
+  'walk cat',
+  'throw dinner in garbage'
 ]
-
-tag Page2 [
-  div [
-    p | HELLO, FROM PAGE 2 |
-    yield
-  ]
-]
-
-doctype html5
-
-$items[0].name = 'matt'
 
 html lang='en' [
   head []
   body on:load(main) [
-    div [
+    div class={testClass} [
       a href='/page1' data-route='/page1' | Page 1 |
       a href='/page2' data-route='/page2' | Page 2 |
     ]
-    div if(page eq '/page1') [ Page1; ]
-    div if(page eq '/page2') [ Page2 [ Page1; ] ]
-    div each(i in items) | {i.name} |
+    if (page eq '/page1') [ div | Page 1 | ]
+    if (page eq '/page2') [ div | Page 2 | ]
+    if (testClass eq '{testClass}') [ p | YASSS | ]
+    if (10 gt 11) [ p | Sad | ]
+    each (i in items) [
+      div | Hello |
+    ]
   ]
 ]
 

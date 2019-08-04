@@ -165,6 +165,7 @@ function tokenize (prog, start_pos, end_pos) {
       }
 
       tok.type = 'string'
+      tok.data = break_into_chunks(tok.data)
       cursor = i
     } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
       let i = cursor + 3
@@ -191,11 +192,13 @@ function tokenize (prog, start_pos, end_pos) {
 function parse (tokens, _app_state, input_program) {
   let tok = tokens[0]
   let cursor = 0
-  let nodes = []
-  let custom_tags = {}
-  let modules = {}
-  let root = nodes
-  let store_ref = false
+  let ops = []
+
+  function emit (op, data) {
+    let i = { op: op }
+    if (data) i.data = data
+    ops.push(i)
+  }
 
   function next() {
     tok = tokens[++cursor]
@@ -330,8 +333,19 @@ function parse (tokens, _app_state, input_program) {
     return class_list
   }
 
+  function parse_chunks (c) {
+    let chunks = []
+    for (let i = 0; i < c.length; i++) {
+      if (Array.isArray(c[i])) {
+	chunks.push(__get_variable_access_list(c[i], 0)[0])
+      } else {
+	chunks.push(c[i])
+      }
+    }
+    return chunks
+  }
+
   function get_attributes () {
-    let control = {}
     let events = []
     let attr = {}
     function parse_attributes () {
@@ -339,16 +353,17 @@ function parse (tokens, _app_state, input_program) {
       if (accept('ident')) {
 	if (accept('=')) {
 	  if (accept('{')) {
-	    if (tok.type === 'string' || tok.type === 'number') {
-	      attr[id] = tok.data
-	      next()
-	    } else if (tok.type === 'ident') {
-	      attr[id] = get_variable_access_list()
+	    if (tok.type === 'ident') {
+	      attr[id] = [get_variable_access_list()]
+	    } else {
+	      throw new Error('unexpected ' + tok.type)
 	    }
 	    expect('}')
+	  } else if (tok.type === 'string') {
+	    attr[id] = parse_chunks(tok.data)
+	    next()
 	  } else {
-	    attr[id] = tok.data
-	    expect('string')
+	    throw new Error('unexpected ' + tok.type)
 	  }
 	} else {
 	  attr[id] = true
@@ -364,95 +379,96 @@ function parse (tokens, _app_state, input_program) {
 	expect(')')
 	events.push({ type: evt, handler, handler })
 	parse_attributes()
-      } else if (accept('if')) {
-	expect('(')
-	let lhs = get_primitive_or_variable()
-	let cmp = tok.type
-	if (!accept('eq') && !accept('ne') && !accept('le') && !accept('ge') && !accept('gt') && !accept('lt')) {  
-	  throw new Error('expected comparison operator')
-	}
-	let rhs = get_primitive_or_variable()
-	control._if = { lhs: lhs, rhs: rhs, cmp: cmp }
-	expect(')')
-	parse_attributes()
-      } else if (accept('each')) {
-	expect('(')
-	let it = [tok.data]
-	expect('ident')
-	if (accept(',')) {
-	  it.push(tok.data)
-	  expect('ident')
-	}
-	expect('in')
-	let data = get_primitive_or_variable()
-	control._each = { iterator: it, list: data }
-	expect(')')
-	parse_attributes()
       }
     }
     parse_attributes()
-    return [attr, control, events]
+    return [attr, events]
   }
 
   function parse_tag () {
-    let node = { type: 'tag', name: tok.data, children: [] }
+    let node = { tagname: tok.data }
     expect('ident')
     let class_list = get_class_list()
     let attr_data = get_attributes()
     node.attributes = attr_data[0]
-    node.control = attr_data[1]
-    node.events = attr_data[2]
-    node.classes = class_list
+    node.events = attr_data[1]
     if (accept(';')) {
-      node.selfClosing = true
+      emit('tag_self_close', node)
     } else if (accept('[')) {
-      let par = root
-      root = node.children
+      emit('tag_begin', node)
       parse_tag_list()
-      root = par
       expect(']')
+      emit('tag_end', node.tagname)
     } else if (tok.type === 'textnode') {
-      for (let i = 0; i < tok.data.length; i++) {
-	if (Array.isArray(tok.data[i])) {
-	  let toks = tok.data[i]
-	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
-	}
-      }
-      node.children.push({
-	type: 'textnode',
-	chunks: tok.data
-      })
+      emit('tag_begin', node)
+      emit('textnode', parse_chunks(tok.data))
+      emit('tag_end', node.tagname)
       next()
     } else {
       throw new Error('unexpected ' + tok.type)
     }
-    root.push(node)
   }
 
   function parse_tag_list () {
     if (accept('doctype')) {
-      root.push({ type: 'doctype', doctype: tok.data })
       expect('ident')
       parse_tag_list()
-    } if (tok.type === 'ident') {
+    } else if (accept('if')) {
+      expect('(')
+      let lhs
+      if (tok.type === 'ident') {
+	lhs = [get_primitive_or_variable()]
+      } else {
+	lhs = get_primitive_or_variable()
+	if (Array.isArray(lhs)) lhs = parse_chunks(lhs)
+      }
+      let cmp = tok.type
+      if (!accept('eq') && !accept('ne') && !accept('le') && !accept('ge') && !accept('gt') && !accept('lt')) {  
+	throw new Error('expected comparison operator')
+      }
+      let rhs
+      if (tok.type === 'ident') {
+	rhs = [get_primitive_or_variable()]
+      } else {
+	rhs = get_primitive_or_variable()
+	if (Array.isArray(rhs)) rhs = parse_chunks(rhs)
+      }
+      let _if = { lhs: lhs, rhs: rhs, cmp: cmp }
+      expect(')')
+      emit('jump_if', { condition: _if })
+      let ins = ops.length - 1
+      expect('[')
+      parse_tag_list()
+      expect(']')
+      ops[ins].data.position = ops.length - 1
+      parse_tag_list()
+    } else if (accept('each')) {
+      expect('(')
+      let it = [tok.data]
+      expect('ident')
+      if (accept(',')) {
+	it.push(tok.data)
+	expect('ident')
+      }
+      expect('in')
+      let data = get_variable_access_list()
+      let _each = { iterator: it, list: data }
+      emit('each', { condition: _each })
+      let ins = ops.length - 1
+      expect(')')
+      expect('[')
+      parse_tag_list()
+      expect(']')
+      ops[ins].data.position = ops.length - 1
+      parse_tag_list()
+    } else if (tok.type === 'ident') {
       parse_tag()
       parse_tag_list()
     } else if (tok.type === 'textnode') {
-      let ref = false
-      for (let i = 0; i < tok.data.length; i++) {
-	if (Array.isArray(tok.data[i])) {
-	  let toks = tok.data[i]
-	  tok.data[i] = __get_variable_access_list(toks, 0)[0]
-	}
-      }
-      root.push({
-	type: 'textnode',
-	chunks: tok.data
-      })
+      tok.data = parse_chunks(tok.data)
       next()
       parse_tag_list()
     } else if (accept('yield')) {
-      root.push({ type: 'yield' })
       parse_tag_list()
     }
   }
@@ -460,15 +476,12 @@ function parse (tokens, _app_state, input_program) {
   function parse_custom_tag () {
     expect('tag')
     let name = tok.data
-    let node = { type: 'tag', children: [] }
     expect('ident')
+    emit('custom_tag_begin', name)
     expect('[')
-    let par = root
-    root = node.children 
     parse_tag()
-    root = par
     expect(']')
-    custom_tags[name] = node
+    emit('custom_tag_end', name)
   }
 
   function parse_file () {
@@ -488,7 +501,6 @@ function parse (tokens, _app_state, input_program) {
     } else if (accept('module')) {
       let name = tok.data
       expect('ident')
-      modules[name] = tok.data
       expect('module_body')
       parse_file()
     } else {
@@ -503,71 +515,12 @@ function parse (tokens, _app_state, input_program) {
     console.log(get_error_text(input_program, tok.pos))
   }
 
-  return [nodes, custom_tags, modules]
+  return ops
 }
 
-function expand_custom_tags (nodes, custom_tags, _app_state) {
-  const resolved = []
-  let root = resolved
-
-  function walk_nodes (nodes, yield_func) {
-    nodes.forEach(function (node) {
-      if (node.type === 'yield') {
-	if (yield_func) {
-	  yield_func()
-	}
-      } else if (node.type === 'tag' && custom_tags[node.name]) {
-	let custom_tag = custom_tags[node.name]
-	custom_tag.children[0].events = node.events
-	custom_tag.children[0].control = node.control
-	root.push({ type: 'push_props', scope: node.attributes })
-	walk_nodes(custom_tag.children, function () {
-	  root.push({ type: 'pop_props' })
-	  walk_nodes(node.children, yield_func)
-	  root.push({ type: 'push_props', scope: node.attributes })
-	})
-	root.push({ type: 'pop_props' })
-      } else if (node.type === 'tag') {
-	let r = root
-	let children = node.children
-	node.children = []
-	root.push(node)
-	if (children) {
-	  root = node.children
-	  walk_nodes(children, yield_func)
-	}
-	root = r
-      } else if (node.type === 'textnode' || node.type === 'doctype') {
-	root.push(node)
-      }
-    })
-  }
-
-  walk_nodes(nodes, undefined)
-
-  return resolved
-}
-
-function attach_modules (nodes, modules, _app_state) {
-  console.log('hi')
-  console.log(nodes) 
-}
-
-function execute (nodes, _app_state) {
-  let current_event_listeners = []
-  let output = ''
-  let indents = 0
-
+function execute (ops, _app_state) {
   const doctype_map = {
     'html5': '<!DOCTYPE html>'
-  }
-
-  function get_indents () {
-    let pad = ''
-    for (let i = 0; i < indents; i++) {
-      pad += '    '
-    }
-    return pad
   }
 
   function get_value(v) {
@@ -584,9 +537,18 @@ function execute (nodes, _app_state) {
     return v1
   }
 
+  function assemble_chunks (chunks) {
+    if (!Array.isArray(chunks)) return chunks
+    return chunks.map(get_value).join('').trim()
+  }
+
+  function assemble_attributes (obj) {
+    return Object.keys(obj).map(function (k) { return k + '="' + assemble_chunks(obj[k]) + '"' }).join(' ')
+  }
+
   function evaluate_condition (condition) {
-    let lhs = get_value(condition.lhs)
-    let rhs = get_value(condition.rhs)
+    let lhs = assemble_chunks(condition.lhs)
+    let rhs = assemble_chunks(condition.rhs)
     let cmp = condition.cmp
 
     if (cmp === 'eq' && lhs == rhs) return true
@@ -599,91 +561,57 @@ function execute (nodes, _app_state) {
     return false
   }
 
-  function assemble_textnode (chunks) {
-    return chunks.map(get_value).join('').trim()
-  }
+  function exec () {
+    let output = ''
+    let ptr = 0
 
-  function assemble_attributes (obj) {
-    return Object.keys(obj).map(function (k) { return k + '="' + get_value(obj[k]) + '"' }).join(' ')
-  }
-  
-  function print_tag (node) {
-    output += (get_indents() + '<' + node.name)
-    if (node.classes.length > 0) {
-      if (node.attributes.class) {
-	node.attributes.class = (node.classes.join(' ') + ' ' + node.attributes.class)
-      } else {
-	node.attributes.class = node.classes.join(' ')
+    while (true) {
+      let op = ops[ptr++]
+      switch (op.op) {
+	case 'tag_begin':
+	  let n = op.data.tagname
+	  let a = assemble_attributes(op.data.attributes)
+	  a = a ? (' ' + a) : ''
+	  output += '<' + n + a + '>'
+	  break
+	case 'tag_end':
+	  output += '</' + op.data + '>'
+	  break
+	case 'textnode':
+	  output += assemble_chunks(op.data)
+	  break
+	case 'jump_if':
+	  let jmp = !evaluate_condition(op.data.condition)
+	  if (jmp) ptr = op.data.position
+	  break
+	case 'each':
+	  let iter0 = op.data.condition.iterator[0]
+	  let iter1 = op.data.condition.iterator[1]
+	  let list = get_value(op.data.condition.list)
+	  console.log(iter0, list)
+	  break
+	default:
+	  break
+      }
+      if (ptr >= ops.length) {
+	break
       }
     }
-    if (Object.keys(node.attributes).length > 0) {
-      output += ' ' + assemble_attributes(node.attributes)
-    }
-    if (!node.selfClosing) {
-      output += '>\n'
-      indents++
-      walk_node_tree(node.children)
-      indents--
-      output += (get_indents() + '</' + node.name + '>\n')
-    } else {
-      // make configurable based on doctype
-      output += ' />\n'
-    }
-    if (node.module) {
-      output += (get_indents() + '<script>\n' + node.module + '\n' + get_indents() + '</script>\n')
-    }
+
+    return output
   }
 
-  function walk_node_tree (tree) {
-    tree.forEach(function (node) {
-      let c = node.children
-      if (node.type === 'doctype') {
-	let dt = doctype_map[node.doctype]
-	if (!dt) throw new Error('unknown doctype: ' + node.doctype)
-	output += get_indents() + dt + '\n'
-      } else if (node.type === 'push_props') {
-	_app_state.push({ props: node.scope })
-      } else if (node.type === 'pop_props') {
-	_app_state.pop()
-      } else if (node.type === 'tag') {
-	if (node.control._each) {
-	  let it = node.control._each.iterator[0]
-	  let obj = get_value(node.control._each.list)
-	  if (!Array.isArray(obj)) {
-	    throw new Error('object is not iteratable')
-	  }
-	  obj.forEach(function (o) {
-	    _app_state.push({ [it]: o })
-	    if (!node.control._if || (node.control._if && evaluate_condition(node.control._if))) {
-	      print_tag(node)
-	    }
-	    _app_state.pop()
-	  })
-	} else {
-	  if (!node.control._if || (node.control._if && evaluate_condition(node.control._if))) {
-	    print_tag(node)
-	  }
-	}
-      } else if (node.type === 'textnode') {
-	output += (get_indents() + assemble_textnode(node.chunks) + '\n')
-      }
-    })
-  }
-
-  walk_node_tree(nodes)
-
-  return output
+  return exec()
 }
 
 module.exports = function (input, input_state) {
   let state = [input_state]
   let tokens = tokenize(input, 0, input.length - 1)
-  let [nodes, custom_tags, modules] = parse(tokens, state, input)
+  let ops = parse(tokens, state, input)
+  console.log(JSON.stringify(ops, null, 2))
+  let output = execute(ops, state)
 
-  nodes = expand_custom_tags(nodes, custom_tags, state)
-  attach_modules(nodes, modules, state)
-
-  let output = execute(nodes, state)
+  console.log(output)
 
   return output
 }
