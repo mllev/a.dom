@@ -21,12 +21,11 @@ function tokenize (prog, start_pos, end_pos) {
   let tokens = []
 
   const keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield',
-    'eq', 'ne', 'lt', 'gt', 'ge', 'le', 'on', 'null'
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'on', 'null'
   ]
 
   const symbols = [
-    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ','
+    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ',', '>', '<'
   ]
 
   function break_into_chunks (text) {
@@ -126,11 +125,27 @@ function tokenize (prog, start_pos, end_pos) {
       tok.type = 'textnode'
       tok.data = break_into_chunks(text) 
       cursor = i
+    } else if (c === '<' && prog[cursor+1] === '=') {
+      tok.type = '<='
+      tok.data = '<='
+      cursor += 2
+    } else if (c === '>' && prog[cursor+1] === '=') {
+      tok.type = '>='
+      tok.data = '>='
+      cursor += 2
+    } else if (c === '=' && prog[cursor+1] === '=') {
+      tok.type = '=='
+      tok.data = '=='
+      cursor += 2
+    } else if (c === '!' && prog[cursor+1] === '=') {
+      tok.type = '!='
+      tok.data = '!='
+      cursor += 2
     } else if (symbols.indexOf(c) !== -1) {
       tok.type = c
       tok.data = c
       cursor++
-    } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2]) {
+    } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2] === '"') {
       let str = ''
       let i = cursor + 3
       while (true) {
@@ -165,7 +180,6 @@ function tokenize (prog, start_pos, end_pos) {
       }
 
       tok.type = 'string'
-      tok.data = break_into_chunks(tok.data)
       cursor = i
     } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
       let i = cursor + 3
@@ -189,7 +203,7 @@ function tokenize (prog, start_pos, end_pos) {
   return tokens
 }
 
-function parse (tokens, _app_state, input_program) {
+function parse (tokens, input_program) {
   let tok = tokens[0]
   let cursor = 0
   let ops = []
@@ -220,38 +234,13 @@ function parse (tokens, _app_state, input_program) {
     return false
   }
 
-  function update_app_state (accessor, val) {
-    let ptr = _app_state[0]
-    let max = accessor.length
-
-    for (let i = 0; i < max; i++) {
-      let a = accessor[i]
-      let t = typeof ptr[a]
-
-      if (i === max - 1) {
-	ptr[a] = val
-	return
-      }
-
-      if (t === 'string' || t === 'number') {
-	throw new error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
-      }
-
-      if (ptr[a] == null) {
-	if (typeof accessor[i+1] === 'number')
-	  ptr[a] = []
-	else
-	  ptr[a] = {}
-      }
-  
-      ptr = ptr[a]
-    }
-  }
 
   function get_array_or_primitive () {
     let val = tok.data
-    if (accept('string') || accept('number') || accept('bool')) {
-      return val
+    let type = tok.type
+    let pos = tok.pos
+    if (accept('number') || accept('bool') || accept('string')) {
+      return { type: type, value: val, pos: pos }
     }
     if (accept('[')) {
       let arr = []
@@ -263,7 +252,7 @@ function parse (tokens, _app_state, input_program) {
 	}
       }
       expect(']')
-      return arr
+      return { type: 'array', value: arr, pos: pos }
     }
     throw new Error('unexpected ' + tok.type)
   }
@@ -286,10 +275,10 @@ function parse (tokens, _app_state, input_program) {
 	next()
       } else if (tok && tok.type === '[') {
 	tok = tokens[++cursor]
-	access_list.push(tok.data)
 	if (tok.type !== 'number' && tok.type !== 'string') {
 	  throw new Error('Cannot index array using value')
 	}
+	access_list.push(tok.data)
 	tok = tokens[++cursor]
 	if (tok.type !== ']') {
 	  throw new Error('expected ]')
@@ -303,16 +292,19 @@ function parse (tokens, _app_state, input_program) {
   }
 
   function get_variable_access_list () {
+    const pos = tok.pos
     const data = __get_variable_access_list(tokens, cursor)
     cursor = data[1]
     tok = tokens[cursor]
-    return data[0]
+    return { type: 'variable', value: data[0], pos: pos }
   }
 
   function get_primitive_or_variable () {
-    let val = tok.data
-    if (accept('string') || accept('number') || accept('bool')) {
-      return val 
+    const val = tok.data
+    const pos = tok.pos
+    const type = tok.type
+    if (accept('number') || accept('bool') || accept('string')) {
+      return { type: type, value: val, pos: pos }
     } else if (tok.type === 'ident') {
       return get_variable_access_list()
     } else {
@@ -353,14 +345,10 @@ function parse (tokens, _app_state, input_program) {
       if (accept('ident')) {
 	if (accept('=')) {
 	  if (accept('{')) {
-	    if (tok.type === 'ident') {
-	      attr[id] = [get_variable_access_list()]
-	    } else {
-	      throw new Error('unexpected ' + tok.type)
-	    }
+	    attr[id] = get_primitive_or_variable()
 	    expect('}')
 	  } else if (tok.type === 'string') {
-	    attr[id] = parse_chunks(tok.data)
+	    attr[id] = { type: 'string', value: tok.data, pos: tok.pos }
 	    next()
 	  } else {
 	    throw new Error('unexpected ' + tok.type)
@@ -411,28 +399,17 @@ function parse (tokens, _app_state, input_program) {
 
   function parse_tag_list () {
     if (accept('doctype')) {
+      emit('doctype', tok.data)
       expect('ident')
       parse_tag_list()
     } else if (accept('if')) {
       expect('(')
-      let lhs
-      if (tok.type === 'ident') {
-	lhs = [get_primitive_or_variable()]
-      } else {
-	lhs = get_primitive_or_variable()
-	if (Array.isArray(lhs)) lhs = parse_chunks(lhs)
-      }
+      let lhs = get_primitive_or_variable()
       let cmp = tok.type
-      if (!accept('eq') && !accept('ne') && !accept('le') && !accept('ge') && !accept('gt') && !accept('lt')) {  
+      if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {  
 	throw new Error('expected comparison operator')
       }
-      let rhs
-      if (tok.type === 'ident') {
-	rhs = [get_primitive_or_variable()]
-      } else {
-	rhs = get_primitive_or_variable()
-	if (Array.isArray(rhs)) rhs = parse_chunks(rhs)
-      }
+      let rhs = get_primitive_or_variable()
       let _if = { lhs: lhs, rhs: rhs, cmp: cmp }
       expect(')')
       emit('jump_if', { condition: _if })
@@ -465,10 +442,11 @@ function parse (tokens, _app_state, input_program) {
       parse_tag()
       parse_tag_list()
     } else if (tok.type === 'textnode') {
-      tok.data = parse_chunks(tok.data)
+      emit('textnode', parse_chunks(tok.data))
       next()
       parse_tag_list()
     } else if (accept('yield')) {
+      emit('yield')
       parse_tag_list()
     }
   }
@@ -496,7 +474,7 @@ function parse (tokens, _app_state, input_program) {
     } else if (accept('$')) {
       let variable = get_variable_access_list()
       expect('=')
-      update_app_state(variable, get_array_or_primitive())
+      emit('set', { key: variable, value: get_array_or_primitive() })
       parse_file()
     } else if (accept('module')) {
       let name = tok.data
@@ -518,9 +496,37 @@ function parse (tokens, _app_state, input_program) {
   return ops
 }
 
-function execute (ops, _app_state) {
+function execute (ops, _app_state, prog) {
   const doctype_map = {
     'html5': '<!DOCTYPE html>'
+  }
+
+  function update_app_state (accessor, val) {
+    let ptr = _app_state[0]
+    let max = accessor.length
+
+    for (let i = 0; i < max; i++) {
+      let a = accessor[i]
+      let t = typeof ptr[a]
+
+      if (i === max - 1) {
+	ptr[a] = val
+	return
+      }
+
+      if (t === 'string' || t === 'number') {
+	throw new error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
+      }
+
+      if (ptr[a] == null) {
+	if (typeof accessor[i+1] === 'number')
+	  ptr[a] = []
+	else
+	  ptr[a] = {}
+      }
+  
+      ptr = ptr[a]
+    }
   }
 
   function get_value(v) {
@@ -537,18 +543,31 @@ function execute (ops, _app_state) {
     return v1
   }
 
-  function assemble_chunks (chunks) {
-    if (!Array.isArray(chunks)) return chunks
-    return chunks.map(get_value).join('').trim()
-  }
-
-  function assemble_attributes (obj) {
-    return Object.keys(obj).map(function (k) { return k + '="' + assemble_chunks(obj[k]) + '"' }).join(' ')
+  function resolve_value (v) {
+    switch (v.type) {
+      case 'string':
+      case 'number':
+      case 'bool':
+	return v.value
+      break
+      case 'variable':
+	try {
+	  return get_value(v.value)
+	} catch (e) {
+	  console.log(e)
+	  console.log(get_error_text(prog, v.pos))
+	}
+      break
+      case 'array':
+	return v.value.map(resolve_value)
+      break
+    }
+    console.log(v)
   }
 
   function evaluate_condition (condition) {
-    let lhs = assemble_chunks(condition.lhs)
-    let rhs = assemble_chunks(condition.rhs)
+    let lhs = condition.lhs
+    let rhs = condition.rhs
     let cmp = condition.cmp
 
     if (cmp === 'eq' && lhs == rhs) return true
@@ -568,17 +587,16 @@ function execute (ops, _app_state) {
     while (true) {
       let op = ops[ptr++]
       switch (op.op) {
+	case 'set':
+	  const acc = op.data.key.value
+	  const val = resolve_value(op.data.value)
+	  update_app_state(acc, val)
+	  break
 	case 'tag_begin':
-	  let n = op.data.tagname
-	  let a = assemble_attributes(op.data.attributes)
-	  a = a ? (' ' + a) : ''
-	  output += '<' + n + a + '>'
 	  break
 	case 'tag_end':
-	  output += '</' + op.data + '>'
 	  break
 	case 'textnode':
-	  output += assemble_chunks(op.data)
 	  break
 	case 'jump_if':
 	  let jmp = !evaluate_condition(op.data.condition)
@@ -607,9 +625,10 @@ function execute (ops, _app_state) {
 module.exports = function (input, input_state) {
   let state = [input_state]
   let tokens = tokenize(input, 0, input.length - 1)
-  let ops = parse(tokens, state, input)
+  console.log(JSON.stringify(tokens, null, 2))
+  let ops = parse(tokens, input)
   console.log(JSON.stringify(ops, null, 2))
-  let output = execute(ops, state)
+  let output = execute(ops, state, input)
 
   console.log(output)
 
