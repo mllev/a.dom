@@ -1,20 +1,5 @@
 const fs = require('fs')
 
-function get_error_text (prog, c) {
-  let i = c
-  let buf = '', pad = ''
-  while (prog[i-1] !== '\n' && i > 0) i--
-  while (prog[i] !== '\n' && i < prog.length) {
-    if (i < c) {
-      if (prog[i] === '\t') pad += '\t'
-      else pad += ' '
-    }
-    buf += prog[i++]
-  }
-  buf += ('\n' + pad + '^\n')
-  return buf
-}
-
 
 function tokenize (prog, start_pos, end_pos) {
   let cursor = start_pos
@@ -214,7 +199,7 @@ function tokenize (prog, start_pos, end_pos) {
   return tokens
 }
 
-function parse (tokens, input_program) {
+function parse (tokens) {
   let tok = tokens[0]
   let cursor = 0
   let ops = []
@@ -443,13 +428,13 @@ function parse (tokens, input_program) {
       expect('in')
       let data = get_variable_access_list()
       let _each = { iterator: it, list: data }
-      emit('each', { condition: _each })
+      emit('begin_each', { condition: _each })
       let ins = ops.length - 1
       expect(')')
       expect('[')
       parse_tag_list()
       expect(']')
-      ops[ins].data.position = ops.length - 1
+      emit('iterate')
       parse_tag_list()
     } else if (tok.type === 'ident') {
       parse_tag()
@@ -500,17 +485,12 @@ function parse (tokens, input_program) {
     }
   }
   
-  try {
-    parse_file()
-  } catch (e) {
-    console.log(e.toString())
-    console.log(get_error_text(input_program, tok.pos))
-  }
+  parse_file()
 
   return ops
 }
 
-function execute (ops, _app_state, prog) {
+function execute (ops, _app_state) {
   const doctype_map = {
     'html5': '<!DOCTYPE html>'
   }
@@ -580,8 +560,8 @@ function execute (ops, _app_state, prog) {
   }
 
   function evaluate_condition (condition) {
-    let lhs = condition.lhs
-    let rhs = condition.rhs
+    let lhs = resolve_value(condition.lhs)
+    let rhs = resolve_value(condition.rhs)
     let cmp = condition.cmp
 
     if (cmp === '==' && lhs == rhs) return true
@@ -594,39 +574,83 @@ function execute (ops, _app_state, prog) {
     return false
   }
 
+  function get_attribute_string (attr) {
+    let a = ''
+    let keys = Object.keys(attr)
+    keys.forEach(function (k, i) {
+      a += k + '="' + resolve_value(attr[k]) + '"'
+      if (i < keys.length - 1) a += ' '
+    })
+    return a
+  }
+
+  function get_textnode_string (chunks) {
+    let t = ''
+    chunks.forEach(function (c) {
+      if (c.type === 'chunk') t += c.value
+      else t += resolve_value(c)
+    })
+    return t.trim()
+  }
+
   function exec () {
     let output = ''
     let ptr = 0
+    let loops = []
 
     while (true) {
       let op = ops[ptr++]
       switch (op.op) {
+	case 'custom_tag_begin':
+	  break
+	case 'custom_tag_end':
+	  break
 	case 'set':
 	  const acc = op.data.key.value
 	  const val = resolve_value(op.data.value)
-	  try {
-	    update_app_state(acc, val)
-	  } catch (e) {
-	    console.log(e.toString())
-	    console.log(get_error_text(prog, op.data.key.pos))
-	  }
+	  update_app_state(acc, val)
+	  break
+	case 'tag_self_close':
+	  output += '<' + op.data.tagname + ' ' +
+	    get_attribute_string(op.data.attributes) + ' />'
 	  break
 	case 'tag_begin':
-	  console.log(op.data)
+	  output += '<' + op.data.tagname + ' ' +
+	    get_attribute_string(op.data.attributes) + '>'
 	  break
 	case 'tag_end':
+	  output += '</' + op.data + '>'
 	  break
 	case 'textnode':
-	  console.log(op.data)
+	  output += get_textnode_string(op.data)
 	  break
 	case 'jump_if':
-	  //let jmp = !evaluate_condition(op.data.condition)
-	  //if (jmp) ptr = op.data.position
+	  let jmp = !evaluate_condition(op.data.condition)
+	  if (jmp) ptr = op.data.position + 1
 	  break
-	case 'each':
+	case 'begin_each':
 	  let iter0 = op.data.condition.iterator[0]
 	  let iter1 = op.data.condition.iterator[1]
-	  let list = get_value(op.data.condition.list)
+	  let list = resolve_value(op.data.condition.list)
+	  loops.push({
+	    i: 0,
+	    iterator: op.data.condition.iterator,
+	    list: list,
+	    start: ptr
+	  })
+	  _app_state.push({ [iter0]: list[0], [iter1]: 0 })
+	  break
+	case 'iterate':
+	  let loop = loops[loops.length-1]
+	  if (loop.i < loop.list.length - 1) {
+	    ptr = loop.start
+	    loop.i++
+	    _app_state[_app_state.length-1][loop.iterator[0]] = loop.list[loop.i]
+	    _app_state[_app_state.length-1][loop.iterator[1]] = loop.i
+	  } else {
+	    loops.pop()
+	    _app_state.pop()
+	  }
 	  break
 	default:
 	  break
@@ -642,19 +666,28 @@ function execute (ops, _app_state, prog) {
   return exec()
 }
 
-module.exports = function (input, input_state) {
+module.exports = function (prog, input_state) {
+  function get_error_text (c) {
+    let i = c
+    let buf = '', pad = ''
+    while (prog[i-1] !== '\n' && i > 0) i--
+    while (prog[i] !== '\n' && i < prog.length) {
+      if (i < c) {
+	if (prog[i] === '\t') pad += '\t'
+	else pad += ' '
+      }
+      buf += prog[i++]
+    }
+    buf += ('\n' + pad + '^\n')
+    return buf
+  }
+
   let state = [input_state]
-  let tokens = tokenize(input, 0, input.length - 1)
-  let ops = parse(tokens, input)
+  let tokens = tokenize(prog, 0, prog.length - 1)
+  let ops = parse(tokens)
+  let output = execute(ops, state)
   
   console.log(JSON.stringify(ops, null, 2))
-  
-  return ''
-  let output = execute(ops, state, input)
-
-  //console.log(JSON.stringify(tokens, null, 2))
-  //console.log(JSON.stringify(ops, null, 2))
-  //console.log(output)
 
   return output
 }
