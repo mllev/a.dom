@@ -211,10 +211,6 @@ function tokenize (prog, start_pos, end_pos) {
     }
     tokens.push(tok)
   }
-  tokens.forEach(function (t) {
-    console.log(t)
-    console.log(get_error_text(prog, t.pos))
-  })
   return tokens
 }
 
@@ -340,18 +336,6 @@ function parse (tokens, input_program) {
     return class_list
   }
 
-  function parse_chunks (c) {
-    let chunks = []
-    for (let i = 0; i < c.length; i++) {
-      if (Array.isArray(c[i])) {
-	chunks.push(__get_variable_access_list(c[i], 0)[0])
-      } else {
-	chunks.push(c[i])
-      }
-    }
-    return chunks
-  }
-
   function get_attributes () {
     let events = []
     let attr = {}
@@ -388,6 +372,21 @@ function parse (tokens, input_program) {
     return [attr, events]
   }
 
+  function get_textnode () {
+    let t = []
+    function parse_textnode () {
+      t.push({ type: 'chunk', value: tok.data, pos: tok.pos })
+      expect('chunk')
+      if (accept('{')) {
+	t.push(get_variable_access_list())
+	expect('}')
+	parse_textnode()
+      }
+    }
+    parse_textnode()
+    return t 
+  }
+
   function parse_tag () {
     let node = { tagname: tok.data }
     expect('ident')
@@ -402,11 +401,10 @@ function parse (tokens, input_program) {
       parse_tag_list()
       expect(']')
       emit('tag_end', node.tagname)
-    } else if (tok.type === 'textnode') {
+    } else if (tok.type === 'chunk') {
       emit('tag_begin', node)
-      emit('textnode', parse_chunks(tok.data))
+      emit('textnode', get_textnode())
       emit('tag_end', node.tagname)
-      next()
     } else {
       throw new Error('unexpected ' + tok.type)
     }
@@ -456,9 +454,10 @@ function parse (tokens, input_program) {
     } else if (tok.type === 'ident') {
       parse_tag()
       parse_tag_list()
-    } else if (tok.type === 'textnode') {
-      emit('textnode', parse_chunks(tok.data))
-      next()
+    } else if (tok.type === 'chunk') {
+      emit('tag_begin', node)
+      emit('textnode', get_textnode())
+      emit('tag_end', node.tagname)
       parse_tag_list()
     } else if (accept('yield')) {
       emit('yield')
@@ -646,8 +645,11 @@ function execute (ops, _app_state, prog) {
 module.exports = function (input, input_state) {
   let state = [input_state]
   let tokens = tokenize(input, 0, input.length - 1)
-  return ''
   let ops = parse(tokens, input)
+  
+  console.log(JSON.stringify(ops, null, 2))
+  
+  return ''
   let output = execute(ops, state, input)
 
   //console.log(JSON.stringify(tokens, null, 2))
