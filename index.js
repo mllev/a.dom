@@ -28,36 +28,43 @@ function tokenize (prog, start_pos, end_pos) {
     '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ',', '>', '<'
   ]
 
-  function break_into_chunks (text) {
+  function break_into_chunks (text, cursor) {
     let chunks = []
     let chunk = ''
     let i = 0, max = text.length
     let in_expr = false
+    let pos = cursor
     while (i < max) {
       if (text[i] === '{' && in_expr === false) {
 	in_expr = true
-	chunks.push(chunk)
-	chunk = ''
-	i++ 
+	chunks.push({ type: 'chunk', data: chunk, pos: pos })
+	chunk = '{'
+	i++
+	pos = cursor + i
       } else if (text[i] === '}' && in_expr === true) {
 	in_expr = false
+	chunk += '}'
 	let toks = tokenize(chunk, 0, chunk.length - 1)
 	toks.pop() //eof
-	chunks.push(toks)
+	toks.forEach(function (t) {
+	  t.pos += pos
+	  chunks.push(t)
+	})
 	chunk = ''
 	i++
+	pos = cursor + i + 1
       } else {
 	chunk += text[i++]
       }
     }
-    chunks.push(chunk)
+    chunks.push({ type: 'chunk', data: chunk, pos: pos })
     return chunks
   }
 
 
   while (true) {
     let c = prog[cursor]
-    let tok = { data: '', pos: cursor }
+    let tok = { type: '', data: '', pos: cursor }
 
     if (cursor > end_pos) {
       tok.type = 'eof'
@@ -114,17 +121,21 @@ function tokenize (prog, start_pos, end_pos) {
       let text = ''
       while (true) {
 	if (i > end_pos) {
-	  throw new Error('unterminated text content')
+	  throw new Error('unterminated text node')
 	}
+	
 	if (prog[i] === '|') {
 	  i++
 	  break
 	}
 	text += prog[i++]
       }
-      tok.type = 'textnode'
-      tok.data = break_into_chunks(text) 
+      let chunks = break_into_chunks(text, cursor)
+      chunks.forEach(function (c) {
+	tokens.push(c)
+      })
       cursor = i
+      continue
     } else if (c === '<' && prog[cursor+1] === '=') {
       tok.type = '<='
       tok.data = '<='
@@ -200,6 +211,10 @@ function tokenize (prog, start_pos, end_pos) {
     }
     tokens.push(tok)
   }
+  tokens.forEach(function (t) {
+    console.log(t)
+    console.log(get_error_text(prog, t.pos))
+  })
   return tokens
 }
 
@@ -504,10 +519,15 @@ function execute (ops, _app_state, prog) {
   function update_app_state (accessor, val) {
     let ptr = _app_state[0]
     let max = accessor.length
+    let prev = undefined
 
     for (let i = 0; i < max; i++) {
       let a = accessor[i]
       let t = typeof ptr[a]
+
+      if (Array.isArray(ptr) && typeof a === 'string') {
+	throw new Error(prev + ' is an array')
+      }
 
       if (i === max - 1) {
 	ptr[a] = val
@@ -515,7 +535,7 @@ function execute (ops, _app_state, prog) {
       }
 
       if (t === 'string' || t === 'number') {
-	throw new error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
+	throw new Error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
       }
 
       if (ptr[a] == null) {
@@ -526,6 +546,7 @@ function execute (ops, _app_state, prog) {
       }
   
       ptr = ptr[a]
+      prev = a
     }
   }
 
@@ -551,18 +572,12 @@ function execute (ops, _app_state, prog) {
 	return v.value
       break
       case 'variable':
-	try {
-	  return get_value(v.value)
-	} catch (e) {
-	  console.log(e)
-	  console.log(get_error_text(prog, v.pos))
-	}
+	return get_value(v.value)
       break
       case 'array':
 	return v.value.map(resolve_value)
       break
     }
-    console.log(v)
   }
 
   function evaluate_condition (condition) {
@@ -570,12 +585,12 @@ function execute (ops, _app_state, prog) {
     let rhs = condition.rhs
     let cmp = condition.cmp
 
-    if (cmp === 'eq' && lhs == rhs) return true
-    if (cmp === 'ne' && lhs != rhs) return true
-    if (cmp === 'le' && lhs <= rhs) return true
-    if (cmp === 'ge' && lhs >= rhs) return true
-    if (cmp === 'lt' && lhs <  rhs) return true
-    if (cmp === 'gt' && lhs >  rhs) return true
+    if (cmp === '==' && lhs == rhs) return true
+    if (cmp === '!=' && lhs != rhs) return true
+    if (cmp === '<=' && lhs <= rhs) return true
+    if (cmp === '>=' && lhs >= rhs) return true
+    if (cmp === '<'  && lhs <  rhs) return true
+    if (cmp === '>'  && lhs >  rhs) return true
     
     return false
   }
@@ -590,23 +605,29 @@ function execute (ops, _app_state, prog) {
 	case 'set':
 	  const acc = op.data.key.value
 	  const val = resolve_value(op.data.value)
-	  update_app_state(acc, val)
+	  try {
+	    update_app_state(acc, val)
+	  } catch (e) {
+	    console.log(e.toString())
+	    console.log(get_error_text(prog, op.data.key.pos))
+	  }
 	  break
 	case 'tag_begin':
+	  console.log(op.data)
 	  break
 	case 'tag_end':
 	  break
 	case 'textnode':
+	  console.log(op.data)
 	  break
 	case 'jump_if':
-	  let jmp = !evaluate_condition(op.data.condition)
-	  if (jmp) ptr = op.data.position
+	  //let jmp = !evaluate_condition(op.data.condition)
+	  //if (jmp) ptr = op.data.position
 	  break
 	case 'each':
 	  let iter0 = op.data.condition.iterator[0]
 	  let iter1 = op.data.condition.iterator[1]
 	  let list = get_value(op.data.condition.list)
-	  console.log(iter0, list)
 	  break
 	default:
 	  break
@@ -625,12 +646,13 @@ function execute (ops, _app_state, prog) {
 module.exports = function (input, input_state) {
   let state = [input_state]
   let tokens = tokenize(input, 0, input.length - 1)
-  console.log(JSON.stringify(tokens, null, 2))
+  return ''
   let ops = parse(tokens, input)
-  console.log(JSON.stringify(ops, null, 2))
   let output = execute(ops, state, input)
 
-  console.log(output)
+  //console.log(JSON.stringify(tokens, null, 2))
+  //console.log(JSON.stringify(ops, null, 2))
+  //console.log(output)
 
   return output
 }

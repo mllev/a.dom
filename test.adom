@@ -13,7 +13,8 @@ html lang='en' [
       a href='/page1' data-route='/page1' | Page 1 |
       a href='/page2' data-route='/page2' | Page 2 |
     ]
-    if (page == '/page1') [ div | Page 1 | ]
+    div | this {is[0]} a {test.field} of {the.re[0].not} chunking |
+    if (page == '/page1') [ div | Page 1 {testClass[0].hi.test[3]} | ]
     if (page == '/page2') [ div | Page 2 | ]
     if (10 > 11) [ p | Sad | ]
     each (i in items) [
