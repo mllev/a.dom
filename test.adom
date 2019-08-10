@@ -1,9 +1,17 @@
 $testClass = 'classsss'
 
-$items = [
+$items0 = [
   'buy milk',
   'walk cat',
   'throw dinner in garbage'
+]
+
+$items = items0
+
+$random = [items[1]]
+
+tag Button [
+  a href={props.href} [ span | {props.text} | ]
 ]
 
 html lang='en' [
@@ -16,6 +24,7 @@ html lang='en' [
     if (page == '/page1') [ div | Page 1 {items[2]} | ]
     if (page == '/page2') [ div | Page 2 | ]
     if (10 <= 11) [ p | Sad | ]
+    Button href='/' text={random[0]};
     input name='name';
     each (i, idx in items) [
       if (idx > 1) [ b | YOOOO | ]

@@ -232,12 +232,7 @@ function parse (tokens) {
 
 
   function get_array_or_primitive () {
-    let val = tok.data
-    let type = tok.type
     let pos = tok.pos
-    if (accept('number') || accept('bool') || accept('string')) {
-      return { type: type, value: val, pos: pos }
-    }
     if (accept('[')) {
       let arr = []
       if (tok.type !== ']') {
@@ -249,6 +244,8 @@ function parse (tokens) {
       }
       expect(']')
       return { type: 'array', value: arr, pos: pos }
+    } else {
+      return get_primitive_or_variable()
     }
     throw new Error('unexpected ' + tok.type)
   }
@@ -380,7 +377,8 @@ function parse (tokens) {
     node.attributes = attr_data[0]
     node.events = attr_data[1]
     if (accept(';')) {
-      emit('tag_self_close', node)
+      node.self_close = true
+      emit('tag_begin', node)
     } else if (accept('[')) {
       emit('tag_begin', node)
       parse_tag_list()
@@ -415,7 +413,7 @@ function parse (tokens) {
       expect('[')
       parse_tag_list()
       expect(']')
-      ops[ins].data.position = ops.length - 1
+      ops[ins].data.jump = ops.length
       parse_tag_list()
     } else if (accept('each')) {
       expect('(')
@@ -454,11 +452,13 @@ function parse (tokens) {
     expect('tag')
     let name = tok.data
     expect('ident')
-    emit('custom_tag_begin', name)
+    emit('custom_tag', { name: name })
+    let pos = ops.length - 1
     expect('[')
     parse_tag()
     expect(']')
-    emit('custom_tag_end', name)
+    emit('custom_tag_end')
+    ops[pos].data.jump = ops.length
   }
 
   function parse_file () {
@@ -584,6 +584,14 @@ function execute (ops, _app_state) {
     return a
   }
 
+  function get_attribute_data (attr) {
+    let a = {}
+    Object.keys(attr).forEach(function (k) {
+      a[k] = resolve_value(attr[k]) 
+    })
+    return a
+  }
+
   function get_textnode_string (chunks) {
     let t = ''
     chunks.forEach(function (c) {
@@ -597,26 +605,41 @@ function execute (ops, _app_state) {
     let output = ''
     let ptr = 0
     let loops = []
+    let yields = []
+    let returns = []
+    let tags = {}
 
     while (true) {
+      if (ptr >= ops.length) break
       let op = ops[ptr++]
+
       switch (op.op) {
-	case 'custom_tag_begin':
+	case 'custom_tag':
+	  tags[op.data.name] = ptr
+	  ptr = op.data.jump
 	  break
 	case 'custom_tag_end':
+	  _app_state.pop()
+	  ptr = returns.pop()
 	  break
 	case 'set':
 	  const acc = op.data.key.value
 	  const val = resolve_value(op.data.value)
 	  update_app_state(acc, val)
 	  break
-	case 'tag_self_close':
-	  output += '<' + op.data.tagname + ' ' +
-	    get_attribute_string(op.data.attributes) + ' />'
-	  break
 	case 'tag_begin':
-	  output += '<' + op.data.tagname + ' ' +
-	    get_attribute_string(op.data.attributes) + '>'
+	  const name = op.data.tagname
+	  if (tags[name]) {
+	    const a = get_attribute_data(op.data.attributes)
+	    _app_state.push({ props: a })
+	    returns.push(ptr)
+	    ptr = tags[name]
+	  } else {
+	    const a = get_attribute_string(op.data.attributes)
+	    output += '<' + name + ' ' + a
+	    if (op.data.self_close) output += ' />'
+	    else output += '>'
+	  }
 	  break
 	case 'tag_end':
 	  output += '</' + op.data + '>'
@@ -626,7 +649,7 @@ function execute (ops, _app_state) {
 	  break
 	case 'jump_if':
 	  let jmp = !evaluate_condition(op.data.condition)
-	  if (jmp) ptr = op.data.position + 1
+	  if (jmp) ptr = op.data.jump
 	  break
 	case 'begin_each':
 	  let iter0 = op.data.condition.iterator[0]
@@ -641,12 +664,13 @@ function execute (ops, _app_state) {
 	  _app_state.push({ [iter0]: list[0], [iter1]: 0 })
 	  break
 	case 'iterate':
+	  let max = _app_state.length - 1
 	  let loop = loops[loops.length-1]
 	  if (loop.i < loop.list.length - 1) {
-	    ptr = loop.start
 	    loop.i++
-	    _app_state[_app_state.length-1][loop.iterator[0]] = loop.list[loop.i]
-	    _app_state[_app_state.length-1][loop.iterator[1]] = loop.i
+	    _app_state[max][loop.iterator[0]] = loop.list[loop.i]
+	    _app_state[max][loop.iterator[1]] = loop.i
+	    ptr = loop.start
 	  } else {
 	    loops.pop()
 	    _app_state.pop()
@@ -654,9 +678,6 @@ function execute (ops, _app_state) {
 	  break
 	default:
 	  break
-      }
-      if (ptr >= ops.length) {
-	break
       }
     }
 
