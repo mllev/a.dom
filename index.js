@@ -614,6 +614,15 @@ function execute (ops, _app_state) {
       let op = ops[ptr++]
 
       switch (op.op) {
+	case 'yield':
+	  let y = yields[yields.length-1]
+	  if (y !== null) {
+	    _app_state.pop()
+	    let tmp = y.jump
+	    y.jump = ptr
+	    ptr = tmp
+	  }
+	  break
 	case 'custom_tag':
 	  tags[op.data.name] = ptr
 	  ptr = op.data.jump
@@ -632,7 +641,12 @@ function execute (ops, _app_state) {
 	  if (tags[name]) {
 	    const a = get_attribute_data(op.data.attributes)
 	    _app_state.push({ props: a })
-	    returns.push(ptr)
+	    if (!op.data.self_close) {
+	      yields.push({ data: { props: a }, jump: ptr })
+	    } else {
+	      yields.push(null)
+	      returns.push(ptr)
+	    }
 	    ptr = tags[name]
 	  } else {
 	    const a = get_attribute_string(op.data.attributes)
@@ -642,7 +656,16 @@ function execute (ops, _app_state) {
 	  }
 	  break
 	case 'tag_end':
-	  output += '</' + op.data + '>'
+	  if (tags[op.data]) {
+	    let y = yields.pop()
+	    if (y !== null) {
+	      returns.push(ptr)
+	      ptr = y.jump
+	      _app_state.push(y.data)
+	    }
+	  } else {
+	    output += '</' + op.data + '>'
+	  }
 	  break
 	case 'textnode':
 	  output += get_textnode_string(op.data)
