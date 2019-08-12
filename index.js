@@ -1,12 +1,9 @@
-const fs = require('fs')
-
-
 function tokenize (prog, start_pos, end_pos) {
   let cursor = start_pos
   let tokens = []
 
   const keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'on', 'null'
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'on', 'null', 'export', 'file'
   ]
 
   const symbols = [
@@ -203,6 +200,7 @@ function parse (tokens) {
   let tok = tokens[0]
   let cursor = 0
   let ops = []
+  let current_tag
 
   function emit (op, data) {
     let i = { op: op }
@@ -231,15 +229,15 @@ function parse (tokens) {
   }
 
 
-  function get_array_or_primitive () {
+  function get_right_hand_side () {
     let pos = tok.pos
     if (accept('[')) {
       let arr = []
       if (tok.type !== ']') {
-	arr.push(get_array_or_primitive())
+	arr.push(get_right_hand_side())
 	while (tok.type === ',') {
 	  next()
-	  arr.push(get_array_or_primitive())
+	  arr.push(get_right_hand_side())
 	}
       }
       expect(']')
@@ -381,13 +379,17 @@ function parse (tokens) {
       emit('tag_begin', node)
     } else if (accept('[')) {
       emit('tag_begin', node)
+      let pos = ops.length - 1
       parse_tag_list()
       expect(']')
       emit('tag_end', node.tagname)
+      ops[pos].data.jump = ops.length - pos
     } else if (tok.type === 'chunk') {
       emit('tag_begin', node)
+      let pos = ops.length - 1
       emit('textnode', get_textnode())
       emit('tag_end', node.tagname)
+      ops[pos].data.jump = ops.length - pos
     } else {
       throw new Error('unexpected ' + tok.type)
     }
@@ -409,11 +411,11 @@ function parse (tokens) {
       let _if = { lhs: lhs, rhs: rhs, cmp: cmp }
       expect(')')
       emit('jump_if', { condition: _if })
-      let ins = ops.length - 1
+      let pos = ops.length - 1
       expect('[')
       parse_tag_list()
       expect(']')
-      ops[ins].data.jump = ops.length
+      ops[pos].data.jump = ops.length - pos
       parse_tag_list()
     } else if (accept('each')) {
       expect('(')
@@ -443,7 +445,7 @@ function parse (tokens) {
       emit('tag_end', node.tagname)
       parse_tag_list()
     } else if (accept('yield')) {
-      emit('yield')
+      emit('yield', current_tag)
       parse_tag_list()
     }
   }
@@ -455,15 +457,27 @@ function parse (tokens) {
     emit('custom_tag', { name: name })
     let pos = ops.length - 1
     expect('[')
+    current_tag = name
     parse_tag()
+    current_tag = undefined
     expect(']')
-    emit('custom_tag_end')
-    ops[pos].data.jump = ops.length
+    emit('custom_tag_return', name)
+    ops[pos].data.jump = ops.length - pos
   }
 
   function parse_file () {
     if (tok.type === 'eof') {
       return
+    } else if (accept('import')) {
+      let f = tok.data
+      expect('string')
+      emit('import', f)
+      parse_file()
+    } else if (accept('export')) {
+      let s = tok.data
+      expect('ident')
+      emit('export', s)
+      parse_file()
     } else if (tok.type === 'ident' || tok.type === 'doctype') {
       parse_tag_list()
       parse_file()
@@ -473,12 +487,23 @@ function parse (tokens) {
     } else if (accept('$')) {
       let variable = get_variable_access_list()
       expect('=')
-      emit('set', { key: variable, value: get_array_or_primitive() })
-      parse_file()
+      if (accept('file')) {
+	let f = tok.data
+	let p = tok.pos
+	expect('string')
+	emit('set', { key: variable, value: { type: 'file', value: f, pos: p }})
+	parse_file()
+      } else {
+	emit('set', { key: variable, value: get_right_hand_side() })
+	parse_file()
+      }
     } else if (accept('module')) {
       let name = tok.data
+      let p = tok.pos
       expect('ident')
+      let body = tok.data
       expect('module_body')
+      emit('module', { name: name, body: body, pos: p })
       parse_file()
     } else {
       throw new Error('unexpected: ' + tok.type)
@@ -518,10 +543,11 @@ function execute (ops, _app_state) {
       }
 
       if (ptr[a] == null) {
-	if (typeof accessor[i+1] === 'number')
+	if (typeof accessor[i+1] === 'number') {
 	  ptr[a] = []
-	else
+	} else {
 	  ptr[a] = {}
+	}
       }
   
       ptr = ptr[a]
@@ -605,31 +631,26 @@ function execute (ops, _app_state) {
     let output = ''
     let ptr = 0
     let loops = []
-    let yields = []
-    let returns = []
     let tags = {}
+    let current_tag = undefined
 
-    while (true) {
-      if (ptr >= ops.length) break
+    while (ptr < ops.length) {
       let op = ops[ptr++]
-
+  
       switch (op.op) {
 	case 'yield':
-	  let y = yields[yields.length-1]
-	  if (y !== null) {
-	    _app_state.pop()
-	    let tmp = y.jump
-	    y.jump = ptr
+	  let tmp = tags[op.data].jump1
+	  if (tmp != null) {
+	    tags[op.data].jump2 = ptr
 	    ptr = tmp
 	  }
 	  break
 	case 'custom_tag':
-	  tags[op.data.name] = ptr
-	  ptr = op.data.jump
+	  tags[op.data.name] = { jump0: ptr }
+	  ptr += op.data.jump - 1
 	  break
-	case 'custom_tag_end':
-	  _app_state.pop()
-	  ptr = returns.pop()
+	case 'custom_tag_return':
+	  ptr = tags[op.data].jump3
 	  break
 	case 'set':
 	  const acc = op.data.key.value
@@ -641,13 +662,13 @@ function execute (ops, _app_state) {
 	  if (tags[name]) {
 	    const a = get_attribute_data(op.data.attributes)
 	    _app_state.push({ props: a })
-	    if (!op.data.self_close) {
-	      yields.push({ data: { props: a }, jump: ptr })
+	    if (op.data.self_close) {
+	      tags[name].jump3 = ptr
 	    } else {
-	      yields.push(null)
-	      returns.push(ptr)
+	      tags[name].jump1 = ptr
+	      tags[name].jump3 = ptr + op.data.jump - 1
 	    }
-	    ptr = tags[name]
+	    ptr = tags[name].jump0
 	  } else {
 	    const a = get_attribute_string(op.data.attributes)
 	    output += '<' + name + ' ' + a
@@ -657,12 +678,7 @@ function execute (ops, _app_state) {
 	  break
 	case 'tag_end':
 	  if (tags[op.data]) {
-	    let y = yields.pop()
-	    if (y !== null) {
-	      returns.push(ptr)
-	      ptr = y.jump
-	      _app_state.push(y.data)
-	    }
+	    ptr = tags[op.data].jump2 
 	  } else {
 	    output += '</' + op.data + '>'
 	  }
@@ -672,7 +688,7 @@ function execute (ops, _app_state) {
 	  break
 	case 'jump_if':
 	  let jmp = !evaluate_condition(op.data.condition)
-	  if (jmp) ptr = op.data.jump
+	  if (jmp) ptr += op.data.jump - 1
 	  break
 	case 'begin_each':
 	  let iter0 = op.data.condition.iterator[0]
@@ -710,29 +726,102 @@ function execute (ops, _app_state) {
   return exec()
 }
 
-module.exports = function (prog, input_state) {
-  function get_error_text (c) {
-    let i = c
-    let buf = '', pad = ''
-    while (prog[i-1] !== '\n' && i > 0) i--
-    while (prog[i] !== '\n' && i < prog.length) {
-      if (i < c) {
-	if (prog[i] === '\t') pad += '\t'
-	else pad += ' '
-      }
-      buf += prog[i++]
+function resolve_imports_and_exports (ops) {
+  let fs = require('fs')
+  let ptr = 0
+  let custom_tags = {}
+  let modules = {}
+  let current = null
+  let exp = []
+
+  while (ptr < ops.length) {
+    let op = ops[ptr++]
+    switch (op.op) {
+      case 'import':
+	let new_ops = []
+	let f = op.data
+	let file = fs.readFileSync(f).toString()
+	let output = compile(file)
+
+	output.exports.forEach(function (e) {
+	  if (e.type === 'custom_tag') {
+	    for (let i = e.data.start; i <= e.data.end; i++) {
+	      new_ops.push(output.opcodes[i])
+	    }
+	  } else if (e.type === 'module') {
+	    new_ops.push({ op: 'module', data: e.data })
+	  }
+	})
+	ops.splice(ptr, 0, ...new_ops)
+	break
+      case 'module':
+	modules[op.data.name] = {
+	  type: 'module',
+	  data: {
+	    name: op.data.name,
+	    body: op.data.body,
+	    pos: op.data.pos
+	  }
+	}
+	break
+      case 'custom_tag':
+	current = custom_tags[op.data.name] = {
+	  type: 'custom_tag',
+	  data: { start: ptr - 1 }
+	}
+	break
+      case 'custom_tag_return':
+	current.data.end = ptr - 1
+	break
+      case 'export':
+	let e = op.data
+	let tag = custom_tags[e]
+	let mod = modules[e]
+
+	if (tag && mod) throw new Error(e + ' is ambiguous.')
+	if (!tag && !mod) throw new Error(e + ' is not defined.')
+
+	if (tag) exp.push(tag)
+	if (mod) exp.push({ type: 'module', data: mod })
+	break
+      default:
+	break
     }
-    buf += ('\n' + pad + '^\n')
-    return buf
   }
 
-  let state = [input_state]
+  return {
+    opcodes: ops,
+    exports: exp
+  }
+}
+
+function get_error_text (prog, c) {
+  let i = c
+  let buf = '', pad = ''
+  while (prog[i-1] !== '\n' && i > 0) i--
+  while (prog[i] !== '\n' && i < prog.length) {
+    if (i < c) {
+      if (prog[i] === '\t') pad += '\t'
+      else pad += ' '
+    }
+    buf += prog[i++]
+  }
+  buf += ('\n' + pad + '^\n')
+  return buf
+}
+
+function compile (prog) {
   let tokens = tokenize(prog, 0, prog.length - 1)
   let ops = parse(tokens)
-  let output = execute(ops, state)
-  
-  console.log(JSON.stringify(ops, null, 2))
 
+  return resolve_imports_and_exports(ops)
+}
+
+module.exports = function (prog, input_state) {
+  let state = [input_state]
+  let { opcodes } = compile(prog)
+  let output = execute(opcodes, state)
+  
   return output
 }
 

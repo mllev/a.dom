@@ -1,3 +1,5 @@
+import 'test2.adom'
+
 $testClass = 'classsss'
 
 $items0 = [
@@ -10,22 +12,6 @@ $items = items0
 
 $random = [items[1]]
 
-tag Button [
-  a href={props.href} [ span | {props.text} | yield ]
-]
-
-tag Component [
-  div.carousel [
-    img src='/img';
-    div.decoration [
-      yield
-      Button href='/page1' text='inside component' [
-	span | last test |
-      ]
-    ]
-  ]
-]
-
 html lang='en' [
   head []
   body on:load(main) [
@@ -36,12 +22,15 @@ html lang='en' [
     if (page == '/page1') [ div | Page 1 {items[2]} | ]
     if (page == '/page2') [ div | Page 2 | ]
     if (10 <= 11) [ p | Sad | ]
-    Button href='/' text={random[0]} [
-      b | YIELD |
-      Component [
-	span | component child |
+    Something title='PLEASE SHOW UP';
+    Component1 [ 
+      span | Hello {random} from component 1 |
+      Component2 [
+	p | inside component 2 |
+	Something title='very inside';
       ]
     ]
+    br;
     input name='name';
     each (i, idx in items) [
       if (idx > 1) [ b | YOOOO | ]
