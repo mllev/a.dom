@@ -5,7 +5,8 @@ $testClass = 'classsss'
 $items0 = [
   'buy milk',
   'walk cat',
-  'throw dinner in garbage'
+  'throw dinner in garbage',
+  testClass
 ]
 
 $items = items0
@@ -30,10 +31,10 @@ html lang='en' [
 	Something title='very inside';
       ]
     ]
-    br;
+    br
     input name='name';
     each (i, idx in items) [
-      if (idx > 1) [ b | YOOOO | ]
+      if (idx == 1) [ b | YOOOO | ]
       div | {idx}: {i} |
     ]
   ]

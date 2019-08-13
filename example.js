@@ -2,8 +2,10 @@ const adom = require('./index')
 const fs = require('fs')
 const http = require('http')
 
+const compiler = new adom({ cache: true })
+
 function render (file, data) {
-  return adom(fs.readFileSync(file).toString(), data)
+  return compiler.compile_file(file, data)
 }
 
 const pages = [

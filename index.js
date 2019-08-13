@@ -103,7 +103,7 @@ function tokenize (prog, start_pos, end_pos) {
       let text = ''
       while (true) {
 	if (i > end_pos) {
-	  throw new Error('unterminated text node')
+	  throw { msg: 'unterminated text node', pos: cursor }
 	}
 	
 	if (prog[i] === '|') {
@@ -143,7 +143,7 @@ function tokenize (prog, start_pos, end_pos) {
       let i = cursor + 3
       while (true) {
 	if (i > end_pos) {
-	  throw new Error('unterminated long string')
+	  throw { msg: 'unterminated long string', pos: cursor }
 	} else if (prog[i] === '"' && prog[i+1] === '"' && prog[i+2] === '"') {
 	  i += 3
 	  break
@@ -159,7 +159,7 @@ function tokenize (prog, start_pos, end_pos) {
 
       while (true) {
 	if (i > end_pos || prog[i] === '\n') {
-	  throw new Error('unterminated string')
+	  throw { msg: 'unterminated string', pos: cursor }
 	}
 	if (prog[i] === del) {
 	  i++
@@ -184,11 +184,12 @@ function tokenize (prog, start_pos, end_pos) {
 	tok.data += prog[i++]
       }
       if (i > end_pos) {
-	throw new Error('expected closing <--')
+	throw { msg: 'expected closing <--', pos: cursor }
       }
       cursor = i
       tok.type = 'module_body'
     } else {
+      tok.type = tok.data = c
       cursor++
     }
     tokens.push(tok)
@@ -216,7 +217,7 @@ function parse (tokens) {
     if (tok.type === t) {
       next()
     } else {
-      throw new Error('expected: ' + t + ' found: ' + tok.type)
+      throw { msg: 'expected: ' + t + ' found: ' + tok.type, pos: tok.pos }
     }
   }
 
@@ -227,7 +228,6 @@ function parse (tokens) {
     }
     return false
   }
-
 
   function get_right_hand_side () {
     let pos = tok.pos
@@ -245,21 +245,21 @@ function parse (tokens) {
     } else {
       return get_primitive_or_variable()
     }
-    throw new Error('unexpected ' + tok.type)
+    throw { msg: 'unexpected ' + tok.type, pos: tok.pos }
   }
 
   function __get_variable_access_list (tokens, cursor) {
     let tok = tokens[cursor]
     let access_list = [tok.data]
     if (tok.type !== 'ident') {
-      throw new Error('expected identifier')
+      throw { msg: 'expected identifier', pos: tok.pos }
     }
     tok = tokens[++cursor]
     function next () {
       if (tok && tok.type === '.') {
 	tok = tokens[++cursor]
 	if (tok.type !== 'ident') {
-	  throw new Error('expected identifier')
+	  throw { msg: 'expected identifier', pos: tok.pos }
 	}
 	access_list.push(tok.data)
 	tok = tokens[++cursor]
@@ -267,12 +267,12 @@ function parse (tokens) {
       } else if (tok && tok.type === '[') {
 	tok = tokens[++cursor]
 	if (tok.type !== 'number' && tok.type !== 'string') {
-	  throw new Error('Cannot index array using value')
+	  throw { msg: 'cannot be used to index array', pos: tok.pos }
 	}
 	access_list.push(tok.data)
 	tok = tokens[++cursor]
 	if (tok.type !== ']') {
-	  throw new Error('expected ]')
+	  throw { msg: 'expected ]', pos: tok.pos }
 	}
 	tok = tokens[++cursor]
 	next() 
@@ -299,7 +299,7 @@ function parse (tokens) {
     } else if (tok.type === 'ident') {
       return get_variable_access_list()
     } else {
-      throw new Error('unexpected ' + tok.type)
+      throw { msg: 'unexpected ' + tok.type, pos: pos }
     }
   }
 
@@ -330,10 +330,10 @@ function parse (tokens) {
 	    attr[id] = { type: 'string', value: tok.data, pos: tok.pos }
 	    next()
 	  } else {
-	    throw new Error('unexpected ' + tok.type)
+	    throw { msg: 'unexpected ' + tok.type, pos: tok,pos }
 	  }
 	} else {
-	  attr[id] = true
+	  attr[id] = { type: 'bool', value: true }
 	}
 	parse_attributes()
       } else if (accept('on')) {
@@ -391,7 +391,7 @@ function parse (tokens) {
       emit('tag_end', node.tagname)
       ops[pos].data.jump = ops.length - pos
     } else {
-      throw new Error('unexpected ' + tok.type)
+      throw { msg: 'unexpected ' + tok.type, pos: tok.pos }
     }
   }
 
@@ -405,7 +405,7 @@ function parse (tokens) {
       let lhs = get_primitive_or_variable()
       let cmp = tok.type
       if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {  
-	throw new Error('expected comparison operator')
+	throw { msg: 'expected comparison operator', pos: tok.pos }
       }
       let rhs = get_primitive_or_variable()
       let _if = { lhs: lhs, rhs: rhs, cmp: cmp }
@@ -453,8 +453,9 @@ function parse (tokens) {
   function parse_custom_tag () {
     expect('tag')
     let name = tok.data
+    let p = tok.pos
     expect('ident')
-    emit('custom_tag', { name: name })
+    emit('custom_tag', { name: name, pos: p })
     let pos = ops.length - 1
     expect('[')
     current_tag = name
@@ -470,13 +471,15 @@ function parse (tokens) {
       return
     } else if (accept('import')) {
       let f = tok.data
+      let p = tok.pos
       expect('string')
-      emit('import', f)
+      emit('import', { file: f, pos: p })
       parse_file()
     } else if (accept('export')) {
       let s = tok.data
+      let p = tok.pos
       expect('ident')
-      emit('export', s)
+      emit('export', { name: s, pos: p })
       parse_file()
     } else if (tok.type === 'ident' || tok.type === 'doctype') {
       parse_tag_list()
@@ -506,7 +509,7 @@ function parse (tokens) {
       emit('module', { name: name, body: body, pos: p })
       parse_file()
     } else {
-      throw new Error('unexpected: ' + tok.type)
+      throw { msg: 'unexpected: ' + tok.type, pos: tok.pos }
     }
   }
   
@@ -555,16 +558,21 @@ function execute (ops, _app_state) {
     }
   }
 
-  function get_value(v) {
-    if (!Array.isArray(v)) return v
+  function get_value(v, pos) {
     let idx = _app_state.length - 1
     let check = v[0]
     while (_app_state[idx][check] == null && idx > 0) {
       idx--
     }
     v1 = _app_state[idx]
+    let prev = check
     v.forEach(function (i) {
-      v1 = v1[i]
+      if (v1[i] != null) {
+	v1 = v1[i]
+      } else {
+	throw { msg: i + ' is not a property', pos: pos }
+      }
+      prev = i
     })
     return v1
   }
@@ -577,7 +585,7 @@ function execute (ops, _app_state) {
 	return v.value
       break
       case 'variable':
-	return get_value(v.value)
+	return get_value(v.value, v.pos)
       break
       case 'array':
 	return v.value.map(resolve_value)
@@ -739,10 +747,13 @@ function resolve_imports_and_exports (ops) {
     switch (op.op) {
       case 'import':
 	let new_ops = []
-	let f = op.data
-	let file = fs.readFileSync(f).toString()
-	let output = compile(file)
-
+	let file, data = op.data
+	try {
+	  file = fs.readFileSync(data.file).toString()
+	} catch (e) {
+	  throw { msg: 'error loading file', pos: data.pos }
+	}
+	let output = compile_to_ir(file)
 	output.exports.forEach(function (e) {
 	  if (e.type === 'custom_tag') {
 	    for (let i = e.data.start; i <= e.data.end; i++) {
@@ -775,11 +786,11 @@ function resolve_imports_and_exports (ops) {
 	break
       case 'export':
 	let e = op.data
-	let tag = custom_tags[e]
-	let mod = modules[e]
+	let tag = custom_tags[e.name]
+	let mod = modules[e.name]
 
-	if (tag && mod) throw new Error(e + ' is ambiguous.')
-	if (!tag && !mod) throw new Error(e + ' is not defined.')
+	if (tag && mod) throw { msg: e.name + ' is ambiguous.', pos: e.pos }
+	if (!tag && !mod) throw { msg: e.name + ' is not defined.', pos: e.pos }
 
 	if (tag) exp.push(tag)
 	if (mod) exp.push({ type: 'module', data: mod })
@@ -810,18 +821,47 @@ function get_error_text (prog, c) {
   return buf
 }
 
-function compile (prog) {
+function compile_to_ir (prog) {
   let tokens = tokenize(prog, 0, prog.length - 1)
   let ops = parse(tokens)
 
   return resolve_imports_and_exports(ops)
 }
 
-module.exports = function (prog, input_state) {
-  let state = [input_state]
-  let { opcodes } = compile(prog)
-  let output = execute(opcodes, state)
-  
-  return output
+function compile_string (prog, input_state) {
+  opcodes = compile_to_ir(prog).opcodes
+  return execute(opcodes, [state])
 }
+
+function Adom (config) {
+  this.cache = config.cache
+  this.dirname = config.root
+  this._cache = {}
+}
+
+Adom.prototype.compile_file = function (file, input_state) {
+  let str, fs = require('fs')
+  try {
+    if (this.cache) {
+      if (this._cache[file]) {
+	str = this._cache[file].contents
+	return execute(this._cache[file].opcodes, [input_state])
+      } else {
+	str = fs.readFileSync(file).toString()
+	opcodes = compile_to_ir(str).opcodes
+	this._cache[file] = { opcodes: opcodes, contents: str }
+	return execute(opcodes, [input_state])
+      }
+    } else {
+      str = fs.readFileSync(file).toString()
+      return compile_string(str, input_state)
+    }
+  } catch (e) {
+    console.log(e.msg)
+    console.log(get_error_text(str, e.pos))
+    return ''
+  }
+}
+
+module.exports = Adom
 
