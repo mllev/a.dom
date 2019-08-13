@@ -26,25 +26,25 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
     let pos = cursor
     while (i < max) {
       if (text[i] === '{' && in_expr === false) {
-	in_expr = true
-	chunks.push({ type: 'chunk', data: chunk, pos: pos })
-	chunk = '{'
-	i++
-	pos = cursor + i
+      	in_expr = true
+      	chunks.push({ type: 'chunk', data: chunk, pos: pos })
+      	chunk = '{'
+      	i++
+      	pos = cursor + i
       } else if (text[i] === '}' && in_expr === true) {
-	in_expr = false
-	chunk += '}'
-	let toks = this.tokenize(chunk, 0, chunk.length - 1)
-	toks.pop() //eof
-	toks.forEach(function (t) {
-	  t.pos += pos
-	  chunks.push(t)
-	})
-	chunk = ''
-	i++
-	pos = cursor + i + 1
+      	in_expr = false
+      	chunk += '}'
+      	let toks = this.tokenize(chunk, 0, chunk.length - 1)
+      	toks.pop() //eof
+      	toks.forEach(function (t) {
+      	  t.pos += pos
+      	  chunks.push(t)
+      	})
+      	chunk = ''
+      	i++
+      	pos = cursor + i + 1
       } else {
-	chunk += text[i++]
+	      chunk += text[i++]
       }
     }
     chunks.push({ type: 'chunk', data: chunk, pos: pos })
@@ -63,14 +63,14 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
     } else if (c === ' ' || c === '\n' || c === '\t') {
       let i = cursor
       while (i <= end_pos && (prog[i] === ' ' || prog[i] === '\t' || prog[i] === '\n')) {
-	i++
+        i++
       }
       cursor = i
       continue
     } else if (c === '/' && prog[cursor+1] === '/') {
       let i = cursor
       while (c !== '\n' && i <= end_pos)
-	c = prog[++i]
+        c = prog[++i]
       cursor = i
       continue
     } else if (c >= '0' && c <= '9') {
@@ -78,12 +78,12 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
       let i = cursor
       let dot = false
       while ((c >= '0' && c <= '9') || c === '.') {
-	if (c === '.') {
-	  if (dot) break
-	  else dot = true
-	}
-	num += c
-	c = prog[++i]
+        if (c === '.') {
+          if (dot) break
+          else dot = true
+        }
+        num += c
+        c = prog[++i]
       }
       cursor = i
       tok.type = 'number'
@@ -92,37 +92,37 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
       let i = cursor
       tok.data = ''
       while ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '-') {
-	tok.data += c
-	c = prog[++i]
+        tok.data += c
+        c = prog[++i]
       }
       cursor = i
       let idx = keywords.indexOf(tok.data)
       if (idx !== -1) {
-	tok.type = keywords[idx]
+	      tok.type = keywords[idx]
       } else {
-	tok.type = 'ident'
+	      tok.type = 'ident'
       }
       if (tok.data === 'true' || tok.data === 'false') {
-	tok.type = 'bool'
-	tok.data = (tok.data === 'true')
+	      tok.type = 'bool'
+        tok.data = (tok.data === 'true')
       }
     } else if (c === '|') {
       let i = cursor + 1
       let text = ''
       while (true) {
-	if (i > end_pos) {
-	  throw { msg: 'unterminated text node', pos: cursor }
-	}
-	
-	if (prog[i] === '|') {
-	  i++
-	  break
-	}
-	text += prog[i++]
+        if (i > end_pos) {
+          throw { msg: 'unterminated text node', pos: cursor }
+        }
+    
+        if (prog[i] === '|') {
+          i++
+          break
+        }
+        text += prog[i++]
       }
       let chunks = break_into_chunks.call(this, text, cursor)
       chunks.forEach(function (c) {
-	tokens.push(c)
+	      tokens.push(c)
       })
       cursor = i
       continue
@@ -150,13 +150,13 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
       let str = ''
       let i = cursor + 3
       while (true) {
-	if (i > end_pos) {
-	  throw { msg: 'unterminated long string', pos: cursor }
-	} else if (prog[i] === '"' && prog[i+1] === '"' && prog[i+2] === '"') {
-	  i += 3
-	  break
-	}
-	str += prog[i++]
+        if (i > end_pos) {
+          throw { msg: 'unterminated long string', pos: cursor }
+        } else if (prog[i] === '"' && prog[i+1] === '"' && prog[i+2] === '"') {
+          i += 3
+          break
+        }
+        str += prog[i++]
       }
       tok.data = str
       tok.type = 'string'
@@ -166,18 +166,18 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
       let i = cursor + 1
 
       while (true) {
-	if (i > end_pos || prog[i] === '\n') {
-	  throw { msg: 'unterminated string', pos: cursor }
-	}
-	if (prog[i] === del) {
-	  i++
-	  break
-	}
-	if (prog[i] === '\\' && prog[i+1] === del) {
-	  tok.data += prog[i+1]
-	  i += 2   
-	}
-	tok.data += prog[i++]
+        if (i > end_pos || prog[i] === '\n') {
+          throw { msg: 'unterminated string', pos: cursor }
+        }
+        if (prog[i] === del) {
+          i++
+          break
+        }
+        if (prog[i] === '\\' && prog[i+1] === del) {
+          tok.data += prog[i+1]
+          i += 2   
+        }
+        tok.data += prog[i++]
       }
 
       tok.type = 'string'
@@ -185,14 +185,14 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
     } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
       let i = cursor + 3
       while (i <= end_pos) {
-	if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
-	  i += 4
-	  break
-	}
-	tok.data += prog[i++]
+        if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
+          i += 4
+          break
+        }
+        tok.data += prog[i++]
       }
       if (i > end_pos) {
-	throw { msg: 'expected closing <--', pos: cursor }
+        throw { msg: 'expected closing <--', pos: cursor }
       }
       cursor = i
       tok.type = 'module_body'
@@ -242,11 +242,11 @@ Adom.prototype.parse = function (tokens) {
     if (accept('[')) {
       let arr = []
       if (tok.type !== ']') {
-	arr.push(get_right_hand_side())
-	while (tok.type === ',') {
-	  next()
-	  arr.push(get_right_hand_side())
-	}
+        arr.push(get_right_hand_side())
+        while (tok.type === ',') {
+          next()
+          arr.push(get_right_hand_side())
+        }
       }
       expect(']')
       return { type: 'array', value: arr, pos: pos }
@@ -265,25 +265,25 @@ Adom.prototype.parse = function (tokens) {
     tok = tokens[++cursor]
     function next () {
       if (tok && tok.type === '.') {
-	tok = tokens[++cursor]
-	if (tok.type !== 'ident') {
-	  throw { msg: 'expected identifier', pos: tok.pos }
-	}
-	access_list.push(tok.data)
-	tok = tokens[++cursor]
-	next()
+        tok = tokens[++cursor]
+        if (tok.type !== 'ident') {
+          throw { msg: 'expected identifier', pos: tok.pos }
+        }
+        access_list.push(tok.data)
+        tok = tokens[++cursor]
+        next()
       } else if (tok && tok.type === '[') {
-	tok = tokens[++cursor]
-	if (tok.type !== 'number' && tok.type !== 'string') {
-	  throw { msg: 'cannot be used to index array', pos: tok.pos }
-	}
-	access_list.push(tok.data)
-	tok = tokens[++cursor]
-	if (tok.type !== ']') {
-	  throw { msg: 'expected ]', pos: tok.pos }
-	}
-	tok = tokens[++cursor]
-	next() 
+        tok = tokens[++cursor]
+        if (tok.type !== 'number' && tok.type !== 'string') {
+          throw { msg: 'cannot be used to index array', pos: tok.pos }
+        }
+        access_list.push(tok.data)
+        tok = tokens[++cursor]
+        if (tok.type !== ']') {
+          throw { msg: 'expected ]', pos: tok.pos }
+        }
+        tok = tokens[++cursor]
+        next() 
       }
     }
     next()
@@ -315,9 +315,9 @@ Adom.prototype.parse = function (tokens) {
     let class_list = []
     function parse_classes () {
       if (accept('.')) {
-	class_list.push(tok.data)
-	expect('ident')
-	parse_classes()
+        class_list.push(tok.data)
+        expect('ident')
+        parse_classes()
       }
     }
     parse_classes()
@@ -330,30 +330,30 @@ Adom.prototype.parse = function (tokens) {
     function parse_attributes () {
       let id = tok.data
       if (accept('ident')) {
-	if (accept('=')) {
-	  if (accept('{')) {
-	    attr[id] = get_primitive_or_variable()
-	    expect('}')
-	  } else if (tok.type === 'string') {
-	    attr[id] = { type: 'string', value: tok.data, pos: tok.pos }
-	    next()
-	  } else {
-	    throw { msg: 'unexpected ' + tok.type, pos: tok.pos }
-	  }
-	} else {
-	  attr[id] = { type: 'bool', value: true }
-	}
-	parse_attributes()
+        if (accept('=')) {
+          if (accept('{')) {
+            attr[id] = get_primitive_or_variable()
+            expect('}')
+          } else if (tok.type === 'string') {
+            attr[id] = { type: 'string', value: tok.data, pos: tok.pos }
+            next()
+          } else {
+            throw { msg: 'unexpected ' + tok.type, pos: tok.pos }
+          }
+        } else {
+          attr[id] = { type: 'bool', value: true }
+        }
+        parse_attributes()
       } else if (accept('on')) {
-	expect(':')
-	let evt = tok.data
-	expect('ident')
-	expect('(')
-	let handler = tok.data
-	expect('ident')
-	expect(')')
-	events.push({ type: evt, handler, handler })
-	parse_attributes()
+        expect(':')
+        let evt = tok.data
+        expect('ident')
+        expect('(')
+        let handler = tok.data
+        expect('ident')
+        expect(')')
+        events.push({ type: evt, handler, handler })
+        parse_attributes()
       }
     }
     parse_attributes()
@@ -366,9 +366,9 @@ Adom.prototype.parse = function (tokens) {
       t.push({ type: 'chunk', value: tok.data, pos: tok.pos })
       expect('chunk')
       if (accept('{')) {
-	t.push(get_variable_access_list())
-	expect('}')
-	parse_textnode()
+        t.push(get_variable_access_list())
+        expect('}')
+        parse_textnode()
       }
     }
     parse_textnode()
@@ -413,7 +413,7 @@ Adom.prototype.parse = function (tokens) {
       let lhs = get_primitive_or_variable()
       let cmp = tok.type
       if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {  
-	throw { msg: 'expected comparison operator', pos: tok.pos }
+	      throw { msg: 'expected comparison operator', pos: tok.pos }
       }
       let rhs = get_primitive_or_variable()
       let _if = { lhs: lhs, rhs: rhs, cmp: cmp }
@@ -430,8 +430,8 @@ Adom.prototype.parse = function (tokens) {
       let it = [tok.data]
       expect('ident')
       if (accept(',')) {
-	it.push(tok.data)
-	expect('ident')
+        it.push(tok.data)
+        expect('ident')
       }
       expect('in')
       let data = get_variable_access_list()
@@ -497,14 +497,14 @@ Adom.prototype.parse = function (tokens) {
       let variable = get_variable_access_list()
       expect('=')
       if (accept('file')) {
-	let f = tok.data
-	let p = tok.pos
-	expect('string')
-	emit('set', { key: variable, value: { type: 'file', value: f, pos: p }})
-	parse_file()
+        let f = tok.data
+        let p = tok.pos
+        expect('string')
+        emit('set', { key: variable, value: { type: 'file', value: f, pos: p }})
+        parse_file()
       } else {
-	emit('set', { key: variable, value: get_right_hand_side() })
-	parse_file()
+        emit('set', { key: variable, value: get_right_hand_side() })
+        parse_file()
       }
     } else if (accept('module')) {
       let name = tok.data
@@ -539,24 +539,24 @@ Adom.prototype.execute = function (ops, _app_state) {
       let t = typeof ptr[a]
 
       if (Array.isArray(ptr) && typeof a === 'string') {
-	throw { msg: prev + ' is an array' }
+	      throw { msg: prev + ' is an array' }
       }
 
       if (i === max - 1) {
-	ptr[a] = val
-	return
+        ptr[a] = val
+        return
       }
 
       if (t === 'string' || t === 'number') {
-	throw { msg: a + ' is a ' + t + ' and cannot be accessed like an array or object' }
+	      throw { msg: a + ' is a ' + t + ' and cannot be accessed like an array or object' }
       }
 
       if (ptr[a] == null) {
-	if (typeof accessor[i+1] === 'number') {
-	  ptr[a] = []
-	} else {
-	  ptr[a] = {}
-	}
+        if (typeof accessor[i+1] === 'number') {
+          ptr[a] = []
+        } else {
+          ptr[a] = {}
+        }
       }
   
       ptr = ptr[a]
@@ -574,9 +574,9 @@ Adom.prototype.execute = function (ops, _app_state) {
     let prev = check
     v.forEach(function (i) {
       if (v1[i] != null) {
-	v1 = v1[i]
+	      v1 = v1[i]
       } else {
-	throw { msg: i + ' is not a property' }
+	      throw { msg: i + ' is not a property' }
       }
       prev = i
     })
@@ -588,14 +588,14 @@ Adom.prototype.execute = function (ops, _app_state) {
       case 'string':
       case 'number':
       case 'bool':
-	return v.value
-      break
+	      return v.value
+        break
       case 'variable':
-	return get_value(v.value, v.pos)
-      break
+	      return get_value(v.value, v.pos)
+        break
       case 'array':
-	return v.value.map(resolve_value)
-      break
+	      return v.value.map(resolve_value)
+        break
     }
   }
 
@@ -652,85 +652,85 @@ Adom.prototype.execute = function (ops, _app_state) {
       let op = ops[ptr++]
   
       switch (op.op) {
-	case 'yield':
-	  let tmp = tags[op.data].jump1
-	  if (tmp != null) {
-	    tags[op.data].jump2 = ptr
-	    ptr = tmp
-	  }
-	  break
-	case 'custom_tag':
-	  tags[op.data.name] = { jump0: ptr }
-	  ptr += op.data.jump - 1
-	  break
-	case 'custom_tag_return':
-	  ptr = tags[op.data].jump3
-	  break
-	case 'set':
-	  let acc = op.data.key.value
-	  let val = resolve_value(op.data.value)
-	  update_app_state(acc, val)
-	  break
-	case 'tag_begin':
-	  let name = op.data.tagname
-	  if (tags[name]) {
-	    let a = get_attribute_data(op.data.attributes)
-	    _app_state.push({ props: a })
-	    if (op.data.self_close) {
-	      tags[name].jump3 = ptr
-	    } else {
-	      tags[name].jump1 = ptr
-	      tags[name].jump3 = ptr + op.data.jump - 1
-	    }
-	    ptr = tags[name].jump0
-	  } else {
-	    let a = get_attribute_string(op.data.attributes)
-	    output += '<' + name + ' ' + a
-	    if (op.data.self_close) output += ' />'
-	    else output += '>'
-	  }
-	  break
-	case 'tag_end':
-	  if (tags[op.data]) {
-	    ptr = tags[op.data].jump2 
-	  } else {
-	    output += '</' + op.data + '>'
-	  }
-	  break
-	case 'textnode':
-	  output += get_textnode_string(op.data)
-	  break
-	case 'jump_if':
-	  let jmp = !evaluate_condition(op.data.condition)
-	  if (jmp) ptr += op.data.jump - 1
-	  break
-	case 'begin_each':
-	  let iter0 = op.data.condition.iterator[0]
-	  let iter1 = op.data.condition.iterator[1]
-	  let list = resolve_value(op.data.condition.list)
-	  loops.push({
-	    i: 0,
-	    iterator: op.data.condition.iterator,
-	    list: list,
-	    start: ptr
-	  })
-	  _app_state.push({ [iter0]: list[0], [iter1]: 0 })
-	  break
-	case 'iterate':
-	  let max = _app_state.length - 1
-	  let loop = loops[loops.length-1]
-	  if (loop.i < loop.list.length - 1) {
-	    loop.i++
-	    _app_state[max][loop.iterator[0]] = loop.list[loop.i]
-	    _app_state[max][loop.iterator[1]] = loop.i
-	    ptr = loop.start
-	  } else {
-	    loops.pop()
-	    _app_state.pop()
-	  }
-	  break
-	default:
-	  break
+        case 'yield':
+          let tmp = tags[op.data].jump1
+          if (tmp != null) {
+            tags[op.data].jump2 = ptr
+            ptr = tmp
+          }
+          break
+        case 'custom_tag':
+          tags[op.data.name] = { jump0: ptr }
+          ptr += op.data.jump - 1
+          break
+        case 'custom_tag_return':
+          ptr = tags[op.data].jump3
+          break
+        case 'set':
+          let acc = op.data.key.value
+          let val = resolve_value(op.data.value)
+          update_app_state(acc, val)
+          break
+        case 'tag_begin':
+          let name = op.data.tagname
+          if (tags[name]) {
+            let a = get_attribute_data(op.data.attributes)
+            _app_state.push({ props: a })
+            if (op.data.self_close) {
+              tags[name].jump3 = ptr
+            } else {
+              tags[name].jump1 = ptr
+              tags[name].jump3 = ptr + op.data.jump - 1
+            }
+            ptr = tags[name].jump0
+          } else {
+            let a = get_attribute_string(op.data.attributes)
+            output += '<' + name + ' ' + a
+            if (op.data.self_close) output += ' />'
+            else output += '>'
+          }
+          break
+        case 'tag_end':
+          if (tags[op.data]) {
+            ptr = tags[op.data].jump2 
+          } else {
+            output += '</' + op.data + '>'
+          }
+          break
+        case 'textnode':
+          output += get_textnode_string(op.data)
+          break
+        case 'jump_if':
+          let jmp = !evaluate_condition(op.data.condition)
+          if (jmp) ptr += op.data.jump - 1
+          break
+        case 'begin_each':
+          let iter0 = op.data.condition.iterator[0]
+          let iter1 = op.data.condition.iterator[1]
+          let list = resolve_value(op.data.condition.list)
+          loops.push({
+            i: 0,
+            iterator: op.data.condition.iterator,
+            list: list,
+            start: ptr
+          })
+          _app_state.push({ [iter0]: list[0], [iter1]: 0 })
+          break
+        case 'iterate':
+          let max = _app_state.length - 1
+          let loop = loops[loops.length-1]
+          if (loop.i < loop.list.length - 1) {
+            loop.i++
+            _app_state[max][loop.iterator[0]] = loop.list[loop.i]
+            _app_state[max][loop.iterator[1]] = loop.i
+            ptr = loop.start
+          } else {
+            loops.pop()
+            _app_state.pop()
+          }
+          break
+        default:
+          break
       }
     }
 
@@ -751,66 +751,66 @@ Adom.prototype.resolve_imports_and_exports = function (ops) {
     let op = ops[ptr++]
     switch (op.op) {
       case 'import':
-	let new_ops = []
-	let file, data = op.data
-	try {
-	  this.current_file = this.loadFile(data.file)
-	  file = this.files[this.current_file]
-	} catch (e) {
-	  e.pos = data.pos
-	  throw e
-	}
-	let output = this.compile_to_ir(file)
-	output.exports.forEach(function (e) {
-	  if (e.type === 'custom_tag') {
-	    for (let i = e.data.start; i <= e.data.end; i++) {
-	      new_ops.push(output.opcodes[i])
-	    }
-	  } else if (e.type === 'module') {
-	    new_ops.push({ op: 'module', data: e.data })
-	  }
-	})
-	ops.splice(ptr, 0, ...new_ops)
-	break
+        let new_ops = []
+        let file, data = op.data
+        try {
+          this.current_file = this.loadFile(data.file)
+          file = this.files[this.current_file]
+        } catch (e) {
+          e.pos = data.pos
+          throw e
+        }
+        let output = this.compile_to_ir(file)
+        output.exports.forEach(function (e) {
+          if (e.type === 'custom_tag') {
+            for (let i = e.data.start; i <= e.data.end; i++) {
+              new_ops.push(output.opcodes[i])
+            }
+          } else if (e.type === 'module') {
+            new_ops.push({ op: 'module', data: e.data })
+          }
+        })
+        ops.splice(ptr, 0, ...new_ops)
+        break
       case 'set':
-	if (op.data.value.type === 'file') {
-	  let f = this.loadFile(op.data.value.value)
-	  op.data.value.type = 'string'
-	  op.data.value.value = this.files[f]
-	}
-	break
+        if (op.data.value.type === 'file') {
+          let f = this.loadFile(op.data.value.value)
+          op.data.value.type = 'string'
+          op.data.value.value = this.files[f]
+        }
+        break
       case 'module':
-	modules[op.data.name] = {
-	  type: 'module',
-	  data: {
-	    name: op.data.name,
-	    body: op.data.body,
-	    pos: op.data.pos
-	  }
-	}
-	break
+        modules[op.data.name] = {
+          type: 'module',
+          data: {
+            name: op.data.name,
+            body: op.data.body,
+            pos: op.data.pos
+          }
+        }
+        break
       case 'custom_tag':
-	current = custom_tags[op.data.name] = {
-	  type: 'custom_tag',
-	  data: { start: ptr - 1 }
-	}
-	break
+        current = custom_tags[op.data.name] = {
+          type: 'custom_tag',
+          data: { start: ptr - 1 }
+        }
+        break
       case 'custom_tag_return':
-	current.data.end = ptr - 1
-	break
+	      current.data.end = ptr - 1
+	      break
       case 'export':
-	let e = op.data
-	let tag = custom_tags[e.name]
-	let mod = modules[e.name]
+        let e = op.data
+        let tag = custom_tags[e.name]
+        let mod = modules[e.name]
 
-	if (tag && mod) throw { msg: e.name + ' is ambiguous.', pos: e.pos }
-	if (!tag && !mod) throw { msg: e.name + ' is not defined.', pos: e.pos }
+        if (tag && mod) throw { msg: e.name + ' is ambiguous.', pos: e.pos }
+        if (!tag && !mod) throw { msg: e.name + ' is not defined.', pos: e.pos }
 
-	if (tag) exp.push(tag)
-	if (mod) exp.push({ type: 'module', data: mod })
-	break
+        if (tag) exp.push(tag)
+        if (mod) exp.push({ type: 'module', data: mod })
+        break
       default:
-	break
+	      break
     }
   }
 
@@ -875,8 +875,8 @@ Adom.prototype.compile_file = function (file, input_state) {
     if (this.cache) {
       let ops = this._cache[c]
       if (!ops) {
-	ops = this.compile_to_ir(this.files[c]).opcodes
-	this._cache[c] = ops
+        ops = this.compile_to_ir(this.files[c]).opcodes
+        this._cache[c] = ops
       }
       return this.execute(ops, [input_state])
     } else {
