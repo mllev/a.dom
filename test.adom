@@ -2,6 +2,8 @@ import 'test2.adom'
 
 $testClass = 'classsss'
 
+$styles = file 'styles.css'
+
 $items0 = [
   'buy milk',
   'walk cat',
@@ -14,7 +16,9 @@ $items = items0
 $random = [items[1]]
 
 html lang='en' [
-  head []
+  head [
+    style |{styles} |
+  ]
   body on:load(main) [
     div class={testClass} [
       a href="/page1" data-route='/page1' | Page 1 |

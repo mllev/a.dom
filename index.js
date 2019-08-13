@@ -338,7 +338,7 @@ Adom.prototype.parse = function (tokens) {
 	    attr[id] = { type: 'string', value: tok.data, pos: tok.pos }
 	    next()
 	  } else {
-	    throw { msg: 'unexpected ' + tok.type, pos: tok,pos }
+	    throw { msg: 'unexpected ' + tok.type, pos: tok.pos }
 	  }
 	} else {
 	  attr[id] = { type: 'bool', value: true }
@@ -771,6 +771,13 @@ Adom.prototype.resolve_imports_and_exports = function (ops) {
 	  }
 	})
 	ops.splice(ptr, 0, ...new_ops)
+	break
+      case 'set':
+	if (op.data.value.type === 'file') {
+	  let f = this.loadFile(op.data.value.value)
+	  op.data.value.type = 'string'
+	  op.data.value.value = this.files[f]
+	}
 	break
       case 'module':
 	modules[op.data.name] = {
