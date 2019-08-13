@@ -1,12 +1,20 @@
-function tokenize (prog, start_pos, end_pos) {
+function Adom (config) {
+  this.cache = config.cache || false
+  this.dirname = config.root || ''
+  this._cache = {}
+  this.files = {}
+  this.current_file = undefined
+}
+
+Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
   let cursor = start_pos
   let tokens = []
 
-  const keywords = [
+  let keywords = [
     'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'on', 'null', 'export', 'file'
   ]
 
-  const symbols = [
+  let symbols = [
     '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ',', '>', '<'
   ]
 
@@ -26,7 +34,7 @@ function tokenize (prog, start_pos, end_pos) {
       } else if (text[i] === '}' && in_expr === true) {
 	in_expr = false
 	chunk += '}'
-	let toks = tokenize(chunk, 0, chunk.length - 1)
+	let toks = this.tokenize(chunk, 0, chunk.length - 1)
 	toks.pop() //eof
 	toks.forEach(function (t) {
 	  t.pos += pos
@@ -112,7 +120,7 @@ function tokenize (prog, start_pos, end_pos) {
 	}
 	text += prog[i++]
       }
-      let chunks = break_into_chunks(text, cursor)
+      let chunks = break_into_chunks.call(this, text, cursor)
       chunks.forEach(function (c) {
 	tokens.push(c)
       })
@@ -154,7 +162,7 @@ function tokenize (prog, start_pos, end_pos) {
       tok.type = 'string'
       cursor = i
     } else if (c === '"' || c === '\'') {
-      const del = c
+      let del = c
       let i = cursor + 1
 
       while (true) {
@@ -197,7 +205,7 @@ function tokenize (prog, start_pos, end_pos) {
   return tokens
 }
 
-function parse (tokens) {
+Adom.prototype.parse = function (tokens) {
   let tok = tokens[0]
   let cursor = 0
   let ops = []
@@ -283,17 +291,17 @@ function parse (tokens) {
   }
 
   function get_variable_access_list () {
-    const pos = tok.pos
-    const data = __get_variable_access_list(tokens, cursor)
+    let pos = tok.pos
+    let data = __get_variable_access_list(tokens, cursor)
     cursor = data[1]
     tok = tokens[cursor]
     return { type: 'variable', value: data[0], pos: pos }
   }
 
   function get_primitive_or_variable () {
-    const val = tok.data
-    const pos = tok.pos
-    const type = tok.type
+    let val = tok.data
+    let pos = tok.pos
+    let type = tok.type
     if (accept('number') || accept('bool') || accept('string')) {
       return { type: type, value: val, pos: pos }
     } else if (tok.type === 'ident') {
@@ -518,8 +526,8 @@ function parse (tokens) {
   return ops
 }
 
-function execute (ops, _app_state) {
-  const doctype_map = {
+Adom.prototype.execute = function (ops, _app_state) {
+  let doctype_map = {
     'html5': '<!DOCTYPE html>'
   }
 
@@ -661,14 +669,14 @@ function execute (ops, _app_state) {
 	  ptr = tags[op.data].jump3
 	  break
 	case 'set':
-	  const acc = op.data.key.value
-	  const val = resolve_value(op.data.value)
+	  let acc = op.data.key.value
+	  let val = resolve_value(op.data.value)
 	  update_app_state(acc, val)
 	  break
 	case 'tag_begin':
-	  const name = op.data.tagname
+	  let name = op.data.tagname
 	  if (tags[name]) {
-	    const a = get_attribute_data(op.data.attributes)
+	    let a = get_attribute_data(op.data.attributes)
 	    _app_state.push({ props: a })
 	    if (op.data.self_close) {
 	      tags[name].jump3 = ptr
@@ -678,7 +686,7 @@ function execute (ops, _app_state) {
 	    }
 	    ptr = tags[name].jump0
 	  } else {
-	    const a = get_attribute_string(op.data.attributes)
+	    let a = get_attribute_string(op.data.attributes)
 	    output += '<' + name + ' ' + a
 	    if (op.data.self_close) output += ' />'
 	    else output += '>'
@@ -734,8 +742,9 @@ function execute (ops, _app_state) {
   return exec()
 }
 
-function resolve_imports_and_exports (ops) {
+Adom.prototype.resolve_imports_and_exports = function (ops) {
   let fs = require('fs')
+  let path = require('path')
   let ptr = 0
   let custom_tags = {}
   let modules = {}
@@ -749,11 +758,14 @@ function resolve_imports_and_exports (ops) {
 	let new_ops = []
 	let file, data = op.data
 	try {
-	  file = fs.readFileSync(data.file).toString()
+	  let p = path.resolve(this.dirname, data.file) 
+	  file = fs.readFileSync(p).toString()
+	  this.files[p] = file
+	  this.current_file = p
 	} catch (e) {
 	  throw { msg: 'error loading file', pos: data.pos }
 	}
-	let output = compile_to_ir(file)
+	let output = this.compile_to_ir(file)
 	output.exports.forEach(function (e) {
 	  if (e.type === 'custom_tag') {
 	    for (let i = e.data.start; i <= e.data.end; i++) {
@@ -806,7 +818,7 @@ function resolve_imports_and_exports (ops) {
   }
 }
 
-function get_error_text (prog, c) {
+Adom.prototype.get_error_text = function (prog, c) {
   let i = c
   let buf = '', pad = ''
   while (prog[i-1] !== '\n' && i > 0) i--
@@ -821,44 +833,47 @@ function get_error_text (prog, c) {
   return buf
 }
 
-function compile_to_ir (prog) {
-  let tokens = tokenize(prog, 0, prog.length - 1)
-  let ops = parse(tokens)
+Adom.prototype.compile_to_ir = function (prog) {
+  let tokens = this.tokenize(prog, 0, prog.length - 1)
+  let ops = this.parse(tokens)
 
-  return resolve_imports_and_exports(ops)
+  return this.resolve_imports_and_exports(ops)
 }
 
-function compile_string (prog, input_state) {
-  opcodes = compile_to_ir(prog).opcodes
-  return execute(opcodes, [state])
+Adom.prototype.compile_string = function (prog, input_state) {
+  let opcodes = this.compile_to_ir(prog).opcodes
+  return this.execute(opcodes, [input_state])
 }
 
-function Adom (config) {
-  this.cache = config.cache
-  this.dirname = config.root
-  this._cache = {}
-}
 
 Adom.prototype.compile_file = function (file, input_state) {
-  let str, fs = require('fs')
+  let str
+  let fs = require('fs')
+  let path = require('path')
+  let p = path.resolve(this.dirname, file)
+  this.current_file = path
+
   try {
     if (this.cache) {
       if (this._cache[file]) {
 	str = this._cache[file].contents
-	return execute(this._cache[file].opcodes, [input_state])
+	return this.execute(this._cache[file].opcodes, [input_state])
       } else {
-	str = fs.readFileSync(file).toString()
-	opcodes = compile_to_ir(str).opcodes
+	str = fs.readFileSync(p).toString()
+	opcodes = this.compile_to_ir(str).opcodes
 	this._cache[file] = { opcodes: opcodes, contents: str }
-	return execute(opcodes, [input_state])
+	this.files[p] = str
+	return this.execute(opcodes, [input_state])
       }
     } else {
-      str = fs.readFileSync(file).toString()
-      return compile_string(str, input_state)
+      str = fs.readFileSync(p).toString()
+      this.files[p] = str
+      return this.compile_string(str, input_state)
     }
   } catch (e) {
+    console.log('Error: ', this.current_file)
     console.log(e.msg)
-    console.log(get_error_text(str, e.pos))
+    console.log(this.get_error_text(this.files[this.current_file], e.pos))
     return ''
   }
 }

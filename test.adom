@@ -31,7 +31,7 @@ html lang='en' [
 	Something title='very inside';
       ]
     ]
-    br
+    br;
     input name='name';
     each (i, idx in items) [
       if (idx == 1) [ b | YOOOO | ]
