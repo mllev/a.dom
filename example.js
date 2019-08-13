@@ -2,7 +2,7 @@ const adom = require('./index')
 const fs = require('fs')
 const http = require('http')
 
-const compiler = new adom({ cache: false })
+const compiler = new adom({ cache: true })
 
 function render (file, data) {
   return compiler.compile_file(file, data)

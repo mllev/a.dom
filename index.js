@@ -448,9 +448,7 @@ Adom.prototype.parse = function (tokens) {
       parse_tag()
       parse_tag_list()
     } else if (tok.type === 'chunk') {
-      emit('tag_begin', node)
       emit('textnode', get_textnode())
-      emit('tag_end', node.tagname)
       parse_tag_list()
     } else if (accept('yield')) {
       emit('yield', current_tag)
@@ -541,7 +539,7 @@ Adom.prototype.execute = function (ops, _app_state) {
       let t = typeof ptr[a]
 
       if (Array.isArray(ptr) && typeof a === 'string') {
-	throw new Error(prev + ' is an array')
+	throw { msg: prev + ' is an array' }
       }
 
       if (i === max - 1) {
@@ -550,7 +548,7 @@ Adom.prototype.execute = function (ops, _app_state) {
       }
 
       if (t === 'string' || t === 'number') {
-	throw new Error(a + ' is a ' + t + ' and cannot be accessed like an array or object')
+	throw { msg: a + ' is a ' + t + ' and cannot be accessed like an array or object' }
       }
 
       if (ptr[a] == null) {
@@ -578,7 +576,7 @@ Adom.prototype.execute = function (ops, _app_state) {
       if (v1[i] != null) {
 	v1 = v1[i]
       } else {
-	throw { msg: i + ' is not a property', pos: pos }
+	throw { msg: i + ' is not a property' }
       }
       prev = i
     })
@@ -743,8 +741,6 @@ Adom.prototype.execute = function (ops, _app_state) {
 }
 
 Adom.prototype.resolve_imports_and_exports = function (ops) {
-  let fs = require('fs')
-  let path = require('path')
   let ptr = 0
   let custom_tags = {}
   let modules = {}
@@ -758,12 +754,11 @@ Adom.prototype.resolve_imports_and_exports = function (ops) {
 	let new_ops = []
 	let file, data = op.data
 	try {
-	  let p = path.resolve(this.dirname, data.file) 
-	  file = fs.readFileSync(p).toString()
-	  this.files[p] = file
-	  this.current_file = p
+	  this.current_file = this.loadFile(data.file)
+	  file = this.files[this.current_file]
 	} catch (e) {
-	  throw { msg: 'error loading file', pos: data.pos }
+	  e.pos = data.pos
+	  throw e
 	}
 	let output = this.compile_to_ir(file)
 	output.exports.forEach(function (e) {
@@ -820,7 +815,13 @@ Adom.prototype.resolve_imports_and_exports = function (ops) {
 
 Adom.prototype.get_error_text = function (prog, c) {
   let i = c
-  let buf = '', pad = ''
+  let buf = '', pad = '    '
+  let pos = c
+  let line = 1
+  while (pos >= 0) if (prog[pos--] === '\n') line++
+  buf += line + '| '
+  let np = line.toString().length + 2
+  for (let k = 0; k < np; k++) pad += ' '
   while (prog[i-1] !== '\n' && i > 0) i--
   while (prog[i] !== '\n' && i < prog.length) {
     if (i < c) {
@@ -845,35 +846,46 @@ Adom.prototype.compile_string = function (prog, input_state) {
   return this.execute(opcodes, [input_state])
 }
 
-
-Adom.prototype.compile_file = function (file, input_state) {
-  let str
+Adom.prototype.loadFile = function (file) {
   let fs = require('fs')
   let path = require('path')
-  let p = path.resolve(this.dirname, file)
-  this.current_file = path
-
+  let f = path.resolve(this.dirname, file)
+  if (this.files[f]) {
+    return f
+  }
   try {
+    this.files[f] = fs.readFileSync(f).toString()
+  } catch (e) {
+    throw { msg: 'error opening file ' + f }
+  }
+  return f
+}
+
+Adom.prototype.compile_file = function (file, input_state) {
+  let c
+  try {
+    c = this.current_file = this.loadFile(file)
     if (this.cache) {
-      if (this._cache[file]) {
-	str = this._cache[file].contents
-	return this.execute(this._cache[file].opcodes, [input_state])
-      } else {
-	str = fs.readFileSync(p).toString()
-	opcodes = this.compile_to_ir(str).opcodes
-	this._cache[file] = { opcodes: opcodes, contents: str }
-	this.files[p] = str
-	return this.execute(opcodes, [input_state])
+      let ops = this._cache[c]
+      if (!ops) {
+	ops = this.compile_to_ir(this.files[c]).opcodes
+	this._cache[c] = ops
       }
+      return this.execute(ops, [input_state])
     } else {
-      str = fs.readFileSync(p).toString()
-      this.files[p] = str
-      return this.compile_string(str, input_state)
+      return this.compile_string(this.files[c], input_state)
     }
   } catch (e) {
-    console.log('Error: ', this.current_file)
-    console.log(e.msg)
-    console.log(this.get_error_text(this.files[this.current_file], e.pos))
+    if (e.pos) {
+      console.log('Error: ', this.current_file)
+      console.log('  ' + e.msg)
+      console.log('    ' + this.get_error_text(this.files[this.current_file], e.pos))
+    } else {
+      console.log(e.msg)
+    }
+    this.current_file = undefined
+    this.files = {}
+    this._cache = {}
     return ''
   }
 }
