@@ -389,6 +389,7 @@ Adom.prototype.parse = function (tokens) {
     let attr_data = get_attributes()
     node.attributes = attr_data[0]
     node.events = attr_data[1]
+    node.controller = attr_data[2]
     if (accept(';')) {
       node.self_close = true
       emit('tag_begin', node)
@@ -397,13 +398,13 @@ Adom.prototype.parse = function (tokens) {
       let pos = ops.length - 1
       parse_tag_list()
       expect(']')
-      emit('tag_end', { name: node.tagname, controller: attr_data[2] })
+      emit('tag_end', node.tagname)
       ops[pos].data.jump = ops.length - pos
     } else if (tok.type === 'chunk') {
       emit('tag_begin', node)
       let pos = ops.length - 1
       emit('textnode', get_textnode())
-      emit('tag_end', { name: node.tagname, controller: attr_data[2]})
+      emit('tag_end', node.tagname)
       ops[pos].data.jump = ops.length - pos
     } else {
       throw { msg: 'unexpected ' + tok.type, pos: tok.pos }
@@ -708,7 +709,7 @@ Adom.prototype.execute = function (ops, _app_state) {
       let op = ops[ptr++]
       switch (op.op) {
         case 'push_props':
-          _app_state.push({ props: op.data })
+          _app_state.push({ props: get_attribute_data(op.data) })
           break
         case 'pop_props':
           _app_state.pop()
@@ -729,7 +730,7 @@ Adom.prototype.execute = function (ops, _app_state) {
           else output += '>'
           break
         case 'tag_end':
-          output += '</' + op.data.name + '>'
+          output += '</' + op.data + '>'
           break
         case 'textnode':
           output += get_textnode_string(op.data)
@@ -881,9 +882,10 @@ Adom.prototype.resolve_modules = function (ops) {
   while (ptr < ops.length) {
     let op = ops[ptr++]
     switch (op.op) {
-      case 'tag_end':
+      case 'tag_begin':
         if (modules[op.data.controller]) {
-          ops.splice(ptr, 0, { op: 'script', data: modules[op.data.controller] })
+          ops.splice(ptr - 1, 0, { op: 'script', data: modules[op.data.controller] })
+          ptr++
         }
         break
       case 'module':
