@@ -11,7 +11,7 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
   let tokens = []
 
   let keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'on', 'null', 'export', 'file'
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'on', 'null', 'export', 'file', 'controller'
   ]
 
   let symbols = [
@@ -327,6 +327,7 @@ Adom.prototype.parse = function (tokens) {
   function get_attributes () {
     let events = []
     let attr = {}
+    let controller = undefined
     function parse_attributes () {
       let id = tok.data
       if (accept('ident')) {
@@ -354,10 +355,16 @@ Adom.prototype.parse = function (tokens) {
         expect(')')
         events.push({ type: evt, handler, handler })
         parse_attributes()
+      } else if (accept('controller')) {
+        expect('(')
+        controller = tok.data
+        expect('ident')
+        expect(')')
+        parse_attributes()
       }
     }
     parse_attributes()
-    return [attr, events]
+    return [attr, events, controller]
   }
 
   function get_textnode () {
@@ -390,13 +397,13 @@ Adom.prototype.parse = function (tokens) {
       let pos = ops.length - 1
       parse_tag_list()
       expect(']')
-      emit('tag_end', node.tagname)
+      emit('tag_end', { name: node.tagname, controller: attr_data[2] })
       ops[pos].data.jump = ops.length - pos
     } else if (tok.type === 'chunk') {
       emit('tag_begin', node)
       let pos = ops.length - 1
       emit('textnode', get_textnode())
-      emit('tag_end', node.tagname)
+      emit('tag_end', { name: node.tagname, controller: attr_data[2]})
       ops[pos].data.jump = ops.length - pos
     } else {
       throw { msg: 'unexpected ' + tok.type, pos: tok.pos }
@@ -524,6 +531,57 @@ Adom.prototype.parse = function (tokens) {
   return ops
 }
 
+Adom.prototype.expand_custom_tags = function (ops) {
+  let ptr = 0
+  let tags = {}
+  let new_ops = []
+
+  while (ptr < ops.length) {
+    let op = ops[ptr++]
+    // relies on switch fallthrough
+    switch (op.op) {
+      case 'yield':
+        let tmp = tags[op.data].jump1
+        if (tmp != null) {
+          tags[op.data].jump2 = ptr
+          ptr = tmp
+        }
+        break
+      case 'custom_tag':
+        tags[op.data.name] = { jump0: ptr }
+        ptr += op.data.jump - 1
+        break
+      case 'custom_tag_return':
+        ptr = tags[op.data].jump3
+        new_ops.push({ op: 'pop_props' })
+        break
+      case 'tag_begin':
+        let name = op.data.tagname
+        if (tags[name]) {
+          new_ops.push({ op: 'push_props', data: op.data.attributes })
+          if (op.data.self_close) {
+            tags[name].jump3 = ptr
+          } else {
+            tags[name].jump1 = ptr
+            tags[name].jump3 = ptr + op.data.jump - 1
+          }
+          ptr = tags[name].jump0
+          break
+        }
+      case 'tag_end':
+        if (tags[op.data.name]) {
+          ptr = tags[op.data.name].jump2
+          break
+        }
+      default:
+        new_ops.push(op)
+        break
+    }
+  }
+
+  return new_ops
+}
+
 Adom.prototype.execute = function (ops, _app_state) {
   let doctype_map = {
     'html5': '<!DOCTYPE html>'
@@ -645,26 +703,18 @@ Adom.prototype.execute = function (ops, _app_state) {
     let output = ''
     let ptr = 0
     let loops = []
-    let tags = {}
-    let current_tag = undefined
 
     while (ptr < ops.length) {
       let op = ops[ptr++]
-  
       switch (op.op) {
-        case 'yield':
-          let tmp = tags[op.data].jump1
-          if (tmp != null) {
-            tags[op.data].jump2 = ptr
-            ptr = tmp
-          }
+        case 'push_props':
+          _app_state.push({ props: op.data })
           break
-        case 'custom_tag':
-          tags[op.data.name] = { jump0: ptr }
-          ptr += op.data.jump - 1
+        case 'pop_props':
+          _app_state.pop()
           break
-        case 'custom_tag_return':
-          ptr = tags[op.data].jump3
+        case 'script':
+          output += ('<script>' + op.data + '</script>')
           break
         case 'set':
           let acc = op.data.key.value
@@ -673,29 +723,13 @@ Adom.prototype.execute = function (ops, _app_state) {
           break
         case 'tag_begin':
           let name = op.data.tagname
-          if (tags[name]) {
-            let a = get_attribute_data(op.data.attributes)
-            _app_state.push({ props: a })
-            if (op.data.self_close) {
-              tags[name].jump3 = ptr
-            } else {
-              tags[name].jump1 = ptr
-              tags[name].jump3 = ptr + op.data.jump - 1
-            }
-            ptr = tags[name].jump0
-          } else {
-            let a = get_attribute_string(op.data.attributes)
-            output += '<' + name + ' ' + a
-            if (op.data.self_close) output += ' />'
-            else output += '>'
-          }
+          let a = get_attribute_string(op.data.attributes)
+          output += '<' + name + ' ' + a
+          if (op.data.self_close) output += ' />'
+          else output += '>'
           break
         case 'tag_end':
-          if (tags[op.data]) {
-            ptr = tags[op.data].jump2 
-          } else {
-            output += '</' + op.data + '>'
-          }
+          output += '</' + op.data.name + '>'
           break
         case 'textnode':
           output += get_textnode_string(op.data)
@@ -770,7 +804,8 @@ Adom.prototype.resolve_imports_and_exports = function (ops) {
             new_ops.push({ op: 'module', data: e.data })
           }
         })
-        ops.splice(ptr, 0, ...new_ops)
+        ptr--
+        ops.splice(ptr, 1, ...new_ops)
         break
       case 'set':
         if (op.data.value.type === 'file') {
@@ -806,8 +841,7 @@ Adom.prototype.resolve_imports_and_exports = function (ops) {
         if (tag && mod) throw { msg: e.name + ' is ambiguous.', pos: e.pos }
         if (!tag && !mod) throw { msg: e.name + ' is not defined.', pos: e.pos }
 
-        if (tag) exp.push(tag)
-        if (mod) exp.push({ type: 'module', data: mod })
+        exp.push(tag || mod)
         break
       default:
 	      break
@@ -841,15 +875,38 @@ Adom.prototype.get_error_text = function (prog, c) {
   return buf
 }
 
+Adom.prototype.resolve_modules = function (ops) {
+  let ptr = 0
+  let modules = {}
+  while (ptr < ops.length) {
+    let op = ops[ptr++]
+    switch (op.op) {
+      case 'tag_end':
+        if (modules[op.data.controller]) {
+          ops.splice(ptr, 0, { op: 'script', data: modules[op.data.controller] })
+        }
+        break
+      case 'module':
+        modules[op.data.name] = op.data.body
+        break
+      default:
+        break
+    }
+  }
+
+  return ops
+}
+
 Adom.prototype.compile_to_ir = function (prog) {
   let tokens = this.tokenize(prog, 0, prog.length - 1)
   let ops = this.parse(tokens)
-
   return this.resolve_imports_and_exports(ops)
 }
 
 Adom.prototype.compile_string = function (prog, input_state) {
   let opcodes = this.compile_to_ir(prog).opcodes
+  opcodes = this.expand_custom_tags(opcodes)
+  opcodes = this.resolve_modules(opcodes)
   return this.execute(opcodes, [input_state])
 }
 
@@ -869,14 +926,14 @@ Adom.prototype.loadFile = function (file) {
 }
 
 Adom.prototype.compile_file = function (file, input_state) {
-  let c
   try {
-    c = this.current_file = this.loadFile(file)
+    let c = this.current_file = this.loadFile(file)
     if (this.cache) {
       let ops = this._cache[c]
       if (!ops) {
         ops = this.compile_to_ir(this.files[c]).opcodes
-        this._cache[c] = ops
+        ops = this.expand_custom_tags(ops)
+        this._cache[c] = this.resolve_modules(ops)
       }
       return this.execute(ops, [input_state])
     } else {
@@ -887,8 +944,10 @@ Adom.prototype.compile_file = function (file, input_state) {
       console.log('Error: ', this.current_file)
       console.log('  ' + e.msg)
       console.log('    ' + this.get_error_text(this.files[this.current_file], e.pos))
-    } else {
+    } else if (e.msg) {
       console.log(e.msg)
+    } else {
+      console.log(e)
     }
     this.current_file = undefined
     this.files = {}

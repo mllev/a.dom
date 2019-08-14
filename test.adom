@@ -19,8 +19,8 @@ html lang='en' [
   head [
     style |{styles} |
   ]
-  body on:load(main) [
-    div class={testClass} [
+  body controller(Main) [
+    div controller(Main) class={testClass} [
       a href="/page1" data-route='/page1' | Page 1 |
       a href='/page2' data-route='/page2' | Page 2 |
     ]
@@ -31,8 +31,8 @@ html lang='en' [
     Component1 [ 
       span | Hello {random} from component 1 |
       Component2 [
-	p | inside component 2 |
-	Something title='very inside';
+        p | inside component 2 |
+        Something title='very inside';
       ]
     ]
     br;
