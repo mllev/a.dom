@@ -1,46 +1,47 @@
-import 'test2.adom'
-
-$testClass = 'classsss'
-
-$styles = file 'styles.css'
-
-$items0 = [
-  'buy milk',
-  'walk cat',
-  'throw dinner in garbage',
-  testClass
+tag Page [
+  html lang='en' [
+    head []
+    body [
+      yield
+    ]
+  ]
 ]
 
-$items = items0
+module Main -->
 
-$random = [items[1]]
+function addItem () {
+  let v = document.getElementById('item').value
+  $.items.push(v)
+  $update()
+}
 
-html lang='en' [
-  head [
-    style |{styles} |
-  ]
-  body controller(Main) [
-    div controller(Main) class={testClass} [
-      a href="/page1" data-route='/page1' | Page 1 |
-      a href='/page2' data-route='/page2' | Page 2 |
+<--
+
+tag ListItem [
+  li [
+    if (props.index > 1) [
+      | {props.index} : {props.item} |
     ]
-    if (page == '/page1') [ div | Page 1 {items[2]} | ]
-    if (page == '/page2') [ div | Page 2 | ]
-    if (10 <= 11) [ p | Sad | ]
-    Something title='PLEASE SHOW UP';
-    Component1 [ 
-      span | Hello {random} from component 1 |
-      Component2 [
-        p | inside component 2 |
-        Something title='very inside';
+    if (props.index <= 1) [
+      span [
+        b | {props.index} : |
+        | &nbsp;{props.item} |
       ]
     ]
-    br;
-    input name='name';
-    each (i, idx in items) [
-      if (idx == 1) [ b | YOOOO | ]
-      div | {idx}: {i} |
-    ]
   ]
 ]
 
+doctype html5
+
+Page [
+  div controller(Main) [
+    h1 | TODO APP |
+    input id='item';
+    button on:click(addItem) | ADD ITEM |
+    ul [
+      each (item, i in items) [
+        ListItem index={i} item={item};
+      ]
+    ]
+  ]
+]

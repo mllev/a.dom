@@ -1,8 +1,0 @@
-tag Something [
-  div [
-    div | {props.title} |
-  ]
-]
-
-
-export Something
