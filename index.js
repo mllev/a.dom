@@ -542,18 +542,18 @@ Adom.prototype.expand_custom_tags = function (ops) {
     // relies on switch fallthrough
     switch (op.op) {
       case 'yield':
-        let tmp = tags[op.data].jump1
+        let tmp = tags[op.data][1]
         if (tmp != null) {
-          tags[op.data].jump2 = ptr
+          tags[op.data][2] = ptr
           ptr = tmp
         }
         break
       case 'custom_tag':
-        tags[op.data.name] = { jump0: ptr }
+        tags[op.data.name] = [ptr]
         ptr += op.data.jump - 1
         break
       case 'custom_tag_return':
-        ptr = tags[op.data].jump3
+        ptr = tags[op.data][3]
         new_ops.push({ op: 'pop_props' })
         break
       case 'tag_begin':
@@ -561,17 +561,17 @@ Adom.prototype.expand_custom_tags = function (ops) {
         if (tags[name]) {
           new_ops.push({ op: 'push_props', data: op.data.attributes })
           if (op.data.self_close) {
-            tags[name].jump3 = ptr
+            tags[name][3] = ptr
           } else {
-            tags[name].jump1 = ptr
-            tags[name].jump3 = ptr + op.data.jump - 1
+            tags[name][1] = ptr
+            tags[name][3] = ptr + op.data.jump - 1
           }
-          ptr = tags[name].jump0
+          ptr = tags[name][0]
           break
         }
       case 'tag_end':
         if (tags[op.data.name]) {
-          ptr = tags[op.data.name].jump2
+          ptr = tags[op.data.name][2]
           break
         }
       default:
@@ -714,9 +714,6 @@ Adom.prototype.execute = function (ops, _app_state) {
         case 'pop_props':
           _app_state.pop()
           break
-        case 'script':
-          output += ('<script>' + op.data + '</script>')
-          break
         case 'set':
           let acc = op.data.key.value
           let val = resolve_value(op.data.value)
@@ -725,6 +722,9 @@ Adom.prototype.execute = function (ops, _app_state) {
         case 'tag_begin':
           let name = op.data.tagname
           let a = get_attribute_string(op.data.attributes)
+          if (op.data.module) {
+            output += ('<script>' + op.data.module + '</script>')
+          }
           output += '<' + name + ' ' + a
           if (op.data.self_close) output += ' />'
           else output += '>'
@@ -876,16 +876,164 @@ Adom.prototype.get_error_text = function (prog, c) {
   return buf
 }
 
+Adom.prototype.runtime = function () {
+  return `
+// name, state, rootNode, nodeTree, events, module
+function Main () {
+  // create node tree from state
+  $$adom_state = {
+    items: ['item1', 'item2', 'item3']
+  }
+  $$adom_props = []
+  $$adom_events = undefined
+
+  function $$adom_flatten (arr) {
+    let nodes = []
+    arr.forEach(function (c) {
+      if (Array.isArray(c)) {
+        c.forEach(function (i) {
+          nodes.push(i)
+        })
+      } else if (c) {
+        nodes.push(c)
+      }
+    })
+    return nodes
+  }
+
+  function $$adom_push_props (obj) {
+    $$adom_props.push(obj)
+    return null
+  }
+
+  function $$adom_pop_props () {
+    $$adom_props.pop()
+    return null
+  }
+
+  function $$adom_element (type, attr, children) {
+    if (type === 'textnode') {
+      return { type: type, content: attr }
+    }
+    let c = children ? $$adom_flatten(children) : undefined
+    return { type: type, attributes: attr, children: c } 
+  }
+
+  function $$adom_select (sel) {
+    return document.querySelectorAll(sel)
+  }
+
+  function $$adom_attach_event (e) {
+    $$adom_select(e.sel).forEach(function (el) {
+      el.addEventListener(e.event, e.handler)
+    })
+  }
+
+  function $$adom_each (list, children) {
+    let nodes = []
+
+    list.forEach(function (item, i) {
+      nodes = nodes.concat($$adom_flatten(children(item, i)))
+    })
+
+    return nodes
+  }
+
+  function $$adom_set_event_listeners (events) {
+    if ($$adom_events) {
+      $$adom_events.forEach($$adom_attach_event)
+    } else {
+      $$adom_events = events            
+      $$adom_events.forEach($$adom_attach_event)
+    }
+  }
+
+  function $$adom_create_node (node) {
+    if (node.type === 'textnode') {
+      return document.createTextNode(node.content)
+    }
+    let el = document.createElement(node.type)
+    Object.keys(node.attributes).forEach(function (attr) {
+      el.setAttribute(attr, node.attributes[attr]) 
+    })
+    return el
+  }
+
+  function $$adom_create_dom_tree (nodes) {
+    let rootNode = document.createDocumentFragment()
+    function walk (children) {
+      let prev
+      children.forEach(function (node) {
+        let el = $$adom_create_node(node)
+        if (node.children) {
+          prev = rootNode
+          rootNode = el
+          walk(node.children)
+          rootNode = prev
+        }
+        rootNode.appendChild(el)
+      })
+    }
+    walk(nodes)
+    return rootNode
+  }
+
+  function $$adom_update (state) {
+    let root_node = $$adom_select('[data-adom-id="123"]')[0]
+    let nodes = $$adom_create_node_tree()
+    root_node.innerHTML = ''
+    root_node.appendChild($$adom_create_dom_tree(nodes))
+    $$adom_set_event_listeners()
+  }
+
+  function $$adom_create_node_tree () {
+    return [
+      $$adom_element('div', {}, [
+        $$adom_element('h1', {}, [ $$adom_element('textnode', 'TODO LIST') ]),
+        $$adom_element('input', { id: 'item' }),
+        $$adom_element('button', { id: 'button' }, [
+          $$adom_element('textnode', 'ADD ITEM')
+        ]),
+        $$adom_element('ul', {}, [
+          $$adom_each($$adom_state.items, function (item, i) {
+            return [
+              $$adom_push_props({ item: item }),
+              $$adom_element('li', {}, [
+                $$adom_element('textnode', $$adom_props[0].item)
+              ]),
+              $$adom_pop_props()
+            ]
+          })
+        ])
+      ])
+    ]
+  }
+
+  (function ($, $update) {
+    $$adom_set_event_listeners([
+      { sel: '#button', event: 'click', handler: addItem }
+    ])
+    function addItem () {
+      let v = document.querySelector('#item').value
+      $.items.push(v)
+      $update()
+    }
+    $update()
+  })($$adom_state, $$adom_update)
+}
+  `
+}
+
 Adom.prototype.resolve_modules = function (ops) {
   let ptr = 0
   let modules = {}
+  
   while (ptr < ops.length) {
     let op = ops[ptr++]
     switch (op.op) {
       case 'tag_begin':
         if (modules[op.data.controller]) {
-          ops.splice(ptr - 1, 0, { op: 'script', data: modules[op.data.controller] })
-          ptr++
+          op.data.module = modules[op.data.controller]
         }
         break
       case 'module':
