@@ -1,12 +1,3 @@
-tag Page [
-  html lang='en' [
-    head []
-    body [
-      yield
-    ]
-  ]
-]
-
 module Main -->
 
 function addItem () {
@@ -27,6 +18,15 @@ tag ListItem [
         b | {props.index} : |
         | &nbsp;{props.item} |
       ]
+    ]
+  ]
+]
+
+tag Page [
+  html lang='en' [
+    head []
+    body [
+      yield
     ]
   ]
 ]

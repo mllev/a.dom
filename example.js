@@ -10,7 +10,7 @@ function render (file, data) {
 
 http.createServer(function (req, res) {
   res.writeHead(200, { 'Content-Type': 'text/html' })
-  res.end(render('test.adom', { items: [
+  res.end(render('example.adom', { items: [
     'walk dog',
     'buy cat',
     'walk cat'
