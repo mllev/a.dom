@@ -450,12 +450,13 @@ Adom.prototype.parse = function (tokens) {
       let data = get_variable_access_list()
       let _each = { iterator: it, list: data }
       emit('begin_each', { condition: _each })
-      let ins = ops.length - 1
+      let pos = ops.length - 1
       expect(')')
       expect('[')
       parse_tag_list()
       expect(']')
       emit('iterate')
+      ops[pos].data.jump = ops.length
       parse_tag_list()
     } else if (tok.type === 'ident') {
       parse_tag()
@@ -748,6 +749,10 @@ Adom.prototype.execute = function (ops, _app_state) {
           let iter0 = op.data.condition.iterator[0]
           let iter1 = op.data.condition.iterator[1]
           let list = resolve_value(op.data.condition.list)
+          if (list.length === 0) {
+            ptr = op.data.jump
+            break
+          }
           loops.push({
             i: 0,
             iterator: op.data.condition.iterator,
