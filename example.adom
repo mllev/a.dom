@@ -1,3 +1,6 @@
+$items[0] = 'walk the dog'
+$items[1] = 'buy a cat'
+$items[2] = 'walk the cat'
 $items[3] = 'eat a sandwich'
 
 module Main -->
