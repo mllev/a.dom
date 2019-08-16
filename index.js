@@ -390,6 +390,10 @@ Adom.prototype.parse = function (tokens) {
     node.attributes = attr_data[0]
     node.events = attr_data[1]
     node.controller = attr_data[2]
+    if (class_list.length > 0) {
+      if (!node.attributes.class)
+         node.attributes.class = { type: 'string', value: class_list.join(' ') }
+    }
     if (accept(';')) {
       node.self_close = true
       emit('tag_begin', node)
@@ -912,7 +916,6 @@ window.addEventListener('load', function ${config.name} () {
 
   function $$adom_element (type, attr, children) {
     if (type === 'textnode') {
-      console.log('HERE', attr)
       return { type: type, content: attr }
     }
     let c = children ? $$adom_flatten(children) : undefined

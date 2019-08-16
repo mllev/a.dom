@@ -37,7 +37,7 @@ Page [
   div controller(Main) [
     h1 | TODO APP |
     input id='item';
-    button on:click(addItem) | ADD ITEM |
+    button.class1.class2 on:click(addItem) | ADD ITEM |
     ul [
       each (item, i in items) [
         ListItem index={i} item={item};
