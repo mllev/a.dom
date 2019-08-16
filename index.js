@@ -456,7 +456,7 @@ Adom.prototype.parse = function (tokens) {
       parse_tag_list()
       expect(']')
       emit('iterate')
-      ops[pos].data.jump = ops.length
+      ops[pos].data.jump = ops.length - pos
       parse_tag_list()
     } else if (tok.type === 'ident') {
       parse_tag()
@@ -542,11 +542,30 @@ Adom.prototype.expand_custom_tags = function (ops) {
   let ptr = 0
   let tags = {}
   let new_ops = []
+  let jumps = []
 
   while (ptr < ops.length) {
     let op = ops[ptr++]
     // relies on switch fallthrough
     switch (op.op) {
+      case 'begin_each':
+        new_ops.push(op)
+        jumps.push({ op: new_ops.length - 1 })
+        break
+      case 'iterate':
+        new_ops.push(op)
+        let j = jumps.pop()
+        new_ops[j.op].data.jump = new_ops.length - j.op
+        break
+      case 'jump_if':
+        new_ops.push(op)
+        jumps.push({ op: new_ops.length - 1 })
+        break
+      case 'end_if': {
+        new_ops.push(op)
+        let j = jumps.pop()
+        new_ops[j.op].data.jump = new_ops.length - j.op
+      } break
       case 'yield':
         let tmp = tags[op.data][1]
         if (tmp != null) {
@@ -750,7 +769,7 @@ Adom.prototype.execute = function (ops, _app_state) {
           let iter1 = op.data.condition.iterator[1]
           let list = resolve_value(op.data.condition.list)
           if (list.length === 0) {
-            ptr = op.data.jump
+            ptr += op.data.jump
             break
           }
           loops.push({
