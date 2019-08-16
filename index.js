@@ -954,16 +954,20 @@ window.addEventListener('load', function ${config.name} () {
     if ($$adom_events) {
       $$adom_events.forEach($$adom_attach_event)
     } else {
-      $$adom_events = events            
+      $$adom_events = events
       $$adom_events.forEach($$adom_attach_event)
     }
   }
 
   function $$adom_create_node (node) {
     if (node.type === 'textnode') {
-      let t = document.createElement('div')
-      t.innerHTML = node.content.trim()
-      return t.childNodes[0]
+      let c = node.content.trim()
+      if (c) {
+        let t = document.createElement('div')
+        t.innerHTML = c
+        return t.childNodes[0]
+      }
+      return document.createTextNode('')
     }
     let el = document.createElement(node.type)
     Object.keys(node.attributes).forEach(function (attr) {

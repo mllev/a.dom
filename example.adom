@@ -17,6 +17,7 @@ tag ListItem [
       span [
         b | {props.index} : |
         | &nbsp;{props.item} |
+        span |  |
       ]
     ]
   ]
