@@ -728,7 +728,7 @@ Adom.prototype.execute = function (ops, _app_state) {
           let name = op.data.tagname
           let a = get_attribute_string(op.data.attributes)
           if (op.data.module) {
-            output += ('<script>' + op.data.module + '</script>')
+            output += ('<script>' + op.data.module[0] + JSON.stringify(_app_state[0]) + op.data.module[1] + '</script>')
           }
           output += '<' + name + ' ' + a
           if (op.data.self_close) output += ' />'
@@ -882,11 +882,11 @@ Adom.prototype.get_error_text = function (prog, c) {
 }
 
 Adom.prototype.runtime = function (config) {
-  return `
+  return [`
 // name, state, rootNode, nodeTree, events, module
 window.addEventListener('load', function ${config.name} () {
   // create node tree from state
-  $$adom_state = ${config.state} 
+  $$adom_state = `,` 
   $$adom_props = []
   $$adom_events = undefined
 
@@ -1014,10 +1014,10 @@ window.addEventListener('load', function ${config.name} () {
     ${config.module}
   })($$adom_state, $$adom_update)
 })
-  `
+  `]
 }
 
-Adom.prototype.resolve_modules = function (ops, input_state) {
+Adom.prototype.resolve_modules = function (ops) {
   let ptr = 0
   let controllers = {}
   let ids = 0
@@ -1145,7 +1145,6 @@ Adom.prototype.resolve_modules = function (ops, input_state) {
             })
             o.data.attributes['data-adom-id'] = { type: 'number', value: controller.root }
             o.data.module = this.runtime({
-              state: JSON.stringify(input_state),
               nodes: node_tree,
               name: controller.name,
               root: controller.root,
@@ -1205,7 +1204,7 @@ Adom.prototype.compile_to_ir = function (prog) {
 Adom.prototype.compile_string = function (prog, input_state) {
   let opcodes = this.compile_to_ir(prog).opcodes
   opcodes = this.expand_custom_tags(opcodes)
-  opcodes = this.resolve_modules(opcodes, input_state)
+  opcodes = this.resolve_modules(opcodes)
   return this.execute(opcodes, [input_state])
 }
 
@@ -1232,7 +1231,7 @@ Adom.prototype.compile_file = function (file, input_state) {
       if (!ops) {
         ops = this.compile_to_ir(this.files[c]).opcodes
         ops = this.expand_custom_tags(ops)
-        this._cache[c] = this.resolve_modules(ops, input_state)
+        this._cache[c] = this.resolve_modules(ops)
       }
       return this.execute(ops, [input_state])
     } else {

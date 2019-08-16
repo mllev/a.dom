@@ -1,3 +1,5 @@
+$items[3] = 'eat a sandwich'
+
 module Main -->
 
 function addItem () {
