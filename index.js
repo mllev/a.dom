@@ -730,7 +730,7 @@ Adom.prototype.execute = function (ops, _app_state) {
           if (op.data.module) {
             output += ('<script>' + op.data.module[0] + JSON.stringify(_app_state[0]) + op.data.module[1] + '</script>')
           }
-          output += '<' + name + ' ' + a
+          output += '<' + name + (a ? (' ' + a) : '')
           if (op.data.self_close) output += ' />'
           else output += '>'
           break
@@ -1236,8 +1236,9 @@ Adom.prototype.compile_file = function (file, input_state) {
       return this.execute(ops, [input_state])
     } else {
       let f = this.files[c]
+      let html = this.compile_string(f, input_state)
       this.files[c] = undefined
-      return this.compile_string(f, input_state)
+      return html
     }
   } catch (e) {
     if (e.pos) {

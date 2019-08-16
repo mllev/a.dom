@@ -2,8 +2,10 @@
 
 let Adom = require('./index')
 let fs = require('fs')
-let c = new Adom({ root: __dirname })
+let path = require('path')
 let config = {}
+let dir = process.cwd()
+let c = new Adom({ root: dir })
 
 for (let i = 0; i < process.argv.length; i++) {
   let opt
@@ -20,5 +22,5 @@ for (let i = 0; i < process.argv.length; i++) {
 if (!config.file || !config.out) {
   console.log('usage: -i <input> -o <output>')
 } else {
-  fs.writeFileSync(config.out, c.compile_file(config.file, {}))
+  fs.writeFileSync(path.resolve(dir, config.out), c.compile_file(config.file, {}))
 }
