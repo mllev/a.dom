@@ -1010,7 +1010,7 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   (function ($, $update) {
-    $$adom_set_event_listeners(${config.events})
+    $$adom_set_event_listeners(${config.events});
     ${config.module}
   })($$adom_state, $$adom_update)
 })
