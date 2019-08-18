@@ -1261,7 +1261,7 @@ Adom.prototype.compile_file = function (file, input_state) {
     } else {
       let f = this.files[c]
       let html = this.compile_string(f, input_state)
-      this.files[c] = undefined
+      this.files = {}
       return html
     }
   } catch (e) {
