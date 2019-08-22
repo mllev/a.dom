@@ -74,6 +74,7 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
       cursor = i
       continue
     } else if (c >= '0' && c <= '9') {
+      let neg = tokens[tokens.length - 1].type === '-'
       let num = ''
       let i = cursor
       let dot = false
@@ -88,6 +89,10 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos) {
       cursor = i
       tok.type = 'number'
       tok.data = parseFloat(num)
+      if (neg) {
+        tok.data *= -1
+        tokens.pop()
+      }
     } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
       let i = cursor
       tok.data = ''

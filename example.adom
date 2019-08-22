@@ -3,8 +3,6 @@ $items[1] = 'buy a cat'
 $items[2] = 'walk the cat'
 $items[3] = 'eat a sandwich'
 
-$items = []
-
 module Main -->
 
 function addItem () {
