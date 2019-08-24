@@ -1033,9 +1033,9 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   function $$adom_create_node_tree () {
-    return [
+    return $$adom_flatten([
       ${config.nodes}
-    ]
+    ])
   }
 
   (function ($, $update) {
