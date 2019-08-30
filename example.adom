@@ -39,9 +39,20 @@ tag Page [
 
 doctype html5
 
+tag testTag [
+  p [
+    span | {props.txt} |
+  ]
+]
+
 Page [
   div controller(Main) [
     h1 | TODO APP |
+    if (10 > 11) [
+      testTag txt='1';
+    ] else if (10 > 11) testTag txt='2';
+    else span name='test' | 3 |
+    br;
     input id='item';
     button.class1.class2 on:click(addItem) | ADD ITEM |
     ul [

@@ -10,7 +10,8 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos, file) {
   let tokens = []
 
   let keywords = [
-    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'import', 'data', 'yield', 'on', 'null', 'export', 'file', 'controller'
+    'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'else',
+    'import', 'yield', 'on', 'null', 'export', 'file', 'controller', 'and', 'or'
   ]
 
   let symbols = [
@@ -26,7 +27,7 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos, file) {
     while (i < max) {
       if (text[i] === '{' && in_expr === false) {
       	in_expr = true
-      	chunks.push({ type: 'chunk', data: chunk, pos: pos })
+      	chunks.push({ type: 'chunk', data: chunk, pos: pos, file: file })
       	chunk = '{'
       	i++
       	pos = cursor + i
@@ -46,7 +47,7 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos, file) {
 	      chunk += text[i++]
       }
     }
-    chunks.push({ type: 'chunk', data: chunk, pos: pos })
+    chunks.push({ type: 'chunk', data: chunk, pos: pos, file: file })
     return chunks
   }
 
@@ -117,7 +118,7 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos, file) {
         if (i > end_pos) {
           throw { msg: 'unterminated text node', pos: cursor, file: file }
         }
-    
+
         if (prog[i] === '|') {
           i++
           break
@@ -179,7 +180,7 @@ Adom.prototype.tokenize = function (prog, start_pos, end_pos, file) {
         }
         if (prog[i] === '\\' && prog[i+1] === del) {
           tok.data += prog[i+1]
-          i += 2   
+          i += 2
         }
         tok.data += prog[i++]
       }
@@ -219,6 +220,7 @@ Adom.prototype.parse = function (tokens) {
     let i = { op: op }
     if (data) i.data = data
     ops.push(i)
+    return ops.length - 1
   }
 
   function next() {
@@ -288,7 +290,7 @@ Adom.prototype.parse = function (tokens) {
           throw { msg: 'expected ]', pos: tok.pos, file: tok.file }
         }
         tok = tokens[++cursor]
-        next() 
+        next()
       }
     }
     next()
@@ -386,7 +388,7 @@ Adom.prototype.parse = function (tokens) {
       }
     }
     parse_textnode()
-    return t 
+    return t
   }
 
   function parse_tag () {
@@ -398,8 +400,9 @@ Adom.prototype.parse = function (tokens) {
     node.events = attr_data[1]
     node.controller = attr_data[2]
     if (class_list.length > 0) {
-      if (!node.attributes.class)
-         node.attributes.class = { type: 'string', value: class_list.join(' ') }
+      if (!node.attributes.class) {
+        node.attributes.class = { type: 'string', value: class_list.join(' ') }
+      }
     }
     if (accept(';')) {
       node.self_close = true
@@ -422,28 +425,47 @@ Adom.prototype.parse = function (tokens) {
     }
   }
 
+  function parse_if_statement () {
+    expect('(')
+    let lhs = get_primitive_or_variable()
+    let cmp = tok.type
+    if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {
+      throw { msg: 'expected comparison operator', pos: tok.pos, file: tok.file }
+    }
+    let rhs = get_primitive_or_variable()
+    let _if = { lhs: lhs, rhs: rhs, cmp: cmp }
+    expect(')')
+    let ifpos = emit('jump_if', { condition: _if })
+    if (accept('[')) {
+      parse_tag_list()
+      expect(']')
+    } else {
+      parse_tag()
+    }
+    let jmppos = emit('jump')
+    emit('end_if')
+    ops[ifpos].data.jump = ops.length - ifpos
+    if (accept('else')) {
+      if (accept('[')) {
+        parse_tag_list()
+        expect(']')
+      } else if (accept('if')) {
+        parse_if_statement()
+      } else {
+        parse_tag()
+      }
+    }
+    emit('end_else')
+    ops[jmppos].data = ops.length - jmppos
+  }
+
   function parse_tag_list () {
     if (accept('doctype')) {
       emit('doctype', tok.data)
       expect('ident')
       parse_tag_list()
     } else if (accept('if')) {
-      expect('(')
-      let lhs = get_primitive_or_variable()
-      let cmp = tok.type
-      if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {  
-	      throw { msg: 'expected comparison operator', pos: tok.pos, file: tok.file }
-      }
-      let rhs = get_primitive_or_variable()
-      let _if = { lhs: lhs, rhs: rhs, cmp: cmp }
-      expect(')')
-      emit('jump_if', { condition: _if })
-      let pos = ops.length - 1
-      expect('[')
-      parse_tag_list()
-      expect(']')
-      emit('end_if')
-      ops[pos].data.jump = ops.length - pos
+      parse_if_statement()
       parse_tag_list()
     } else if (accept('each')) {
       expect('(')
@@ -540,7 +562,7 @@ Adom.prototype.parse = function (tokens) {
       throw { msg: 'unexpected: ' + tok.type, pos: tok.pos, file: tok.file }
     }
   }
-  
+
   parse_file()
 
   return ops
@@ -569,10 +591,19 @@ Adom.prototype.expand_custom_tags = function (ops) {
         new_ops.push(op)
         jumps.push({ op: new_ops.length - 1 })
         break
+      case 'jump':
+        new_ops.push(op)
+        jumps.push({ op: new_ops.length - 1 })
+        break
       case 'end_if': {
         new_ops.push(op)
         let j = jumps.pop()
         new_ops[j.op].data.jump = new_ops.length - j.op
+      } break
+      case 'end_else': {
+        new_ops.push(op)
+        let j = jumps.pop()
+        new_ops[j.op].data = new_ops.length - j.op
       } break
       case 'yield':
         let tmp = tags[op.data][1]
@@ -650,7 +681,7 @@ Adom.prototype.execute = function (ops, _app_state) {
           ptr[a] = {}
         }
       }
-  
+
       ptr = ptr[a]
       prev = a
     }
@@ -706,7 +737,7 @@ Adom.prototype.execute = function (ops, _app_state) {
     if (cmp === '>=' && lhs >= rhs) return true
     if (cmp === '<'  && lhs <  rhs) return true
     if (cmp === '>'  && lhs >  rhs) return true
-    
+
     return false
   }
 
@@ -723,7 +754,7 @@ Adom.prototype.execute = function (ops, _app_state) {
   function get_attribute_data (attr) {
     let a = {}
     Object.keys(attr).forEach(function (k) {
-      a[k] = resolve_value(attr[k]) 
+      a[k] = resolve_value(attr[k])
     })
     return a
   }
@@ -771,6 +802,9 @@ Adom.prototype.execute = function (ops, _app_state) {
           break
         case 'textnode':
           output += get_textnode_string(op.data)
+          break
+        case 'jump':
+          ptr += op.data - 1
           break
         case 'jump_if':
           let jmp = !evaluate_condition(op.data.condition)
@@ -921,9 +955,10 @@ Adom.prototype.runtime = function (config) {
 // name, state, rootNode, nodeTree, events, module
 window.addEventListener('load', function ${config.name} () {
   // create node tree from state
-  $$adom_state = `,` 
-  $$adom_props = []
-  $$adom_events = undefined
+  var $$adom_state = `,`
+  var $$adom_props = []
+  var $$adom_events = undefined
+  var $$adom_prev_tree = undefined
 
   function $$adom_flatten (arr) {
     let nodes = []
@@ -954,7 +989,7 @@ window.addEventListener('load', function ${config.name} () {
       return { type: type, content: attr }
     }
     let c = children ? $$adom_flatten(children) : undefined
-    return { type: type, attributes: attr, children: c } 
+    return { type: type, attributes: attr, children: c }
   }
 
   function $$adom_select (sel) {
@@ -1006,7 +1041,7 @@ window.addEventListener('load', function ${config.name} () {
     }
     let el = document.createElement(node.type)
     Object.keys(node.attributes).forEach(function (attr) {
-      el.setAttribute(attr, node.attributes[attr]) 
+      el.setAttribute(attr, node.attributes[attr])
     })
     return el
   }
@@ -1033,8 +1068,10 @@ window.addEventListener('load', function ${config.name} () {
   function $$adom_update (state) {
     let root_node = $$adom_select('[data-adom-id="${config.root}"]')[0]
     let nodes = $$adom_create_node_tree()
+    console.log($$adom_prev_tree)
     root_node.innerHTML = ''
     root_node.appendChild($$adom_create_dom_tree(nodes))
+    $$adom_prev_tree = nodes
     $$adom_set_event_listeners()
   }
 
@@ -1045,6 +1082,7 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   (function ($, $update) {
+    $$adom_prev_tree = $$adom_create_node_tree()
     $$adom_set_event_listeners(${config.events});
     ${config.module}
   })($$adom_state, $$adom_update)
@@ -1120,13 +1158,13 @@ Adom.prototype.resolve_modules = function (ops) {
     })
     return '{' + o + '}'
   }
-  
+
   while (ptr < ops.length) {
     let op = ops[ptr++]
     switch (op.op) {
       case 'push_props':
         if (in_controller) {
-          node_tree += '$$adom_push_props(' + stringify_object(op.data) + '),' 
+          node_tree += '$$adom_push_props(' + stringify_object(op.data) + '),'
           prop_depth++
         }
         break
@@ -1238,7 +1276,9 @@ Adom.prototype.compile_to_ir = function (prog, file) {
 
 Adom.prototype.compile_string = function (prog, file, input_state) {
   let opcodes = this.compile_to_ir(prog, file).opcodes
+  console.log(opcodes)
   opcodes = this.expand_custom_tags(opcodes)
+  console.log(opcodes)
   opcodes = this.resolve_modules(opcodes)
   return this.execute(opcodes, [input_state])
 }
