@@ -1,0 +1,7 @@
+tag Button [
+  a href={props.link} [
+    button | {props.text} |
+  ]
+]
+
+export Button

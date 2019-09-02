@@ -1,64 +1,11 @@
-$items[0] = 'walk the dog'
-$items[1] = 'buy a cat'
-$items[2] = 'walk the cat'
-$items[3] = 'eat a sandwich'
-
-module Main -->
-
-function addItem () {
-  let v = document.getElementById('item').value
-  $.items.push(v)
-  $update()
-}
-
-<--
-
-tag ListItem [
-  li [
-    if (props.index > 1) [
-      | {props.index} : {props.item} |
-    ]
-    if (props.index <= 1) [
-      span [
-        b | {props.index} : |
-        | &nbsp;{props.item} |
-        span |  |
-      ]
-    ]
-  ]
-]
-
-tag Page [
-  html lang='en' [
-    head []
-    body [
-      yield
-    ]
-  ]
-]
+import 'button.adom'
 
 doctype html5
 
-tag testTag [
-  p [
-    span | {props.txt} |
-  ]
-]
-
-Page [
-  div controller(Main) [
-    h1 | TODO APP |
-    if (10 > 11) [
-      testTag txt='1';
-    ] else if (10 > 11) testTag txt='2';
-    else span name='test' | 3 |
-    br;
-    input id='item';
-    button.class1.class2 on:click(addItem) | ADD ITEM |
-    ul [
-      each (item, i in items) [
-        ListItem index={i} item={item};
-      ]
-    ]
+html [
+  head []
+  body [
+    div | Hello |
+    Button text='click' link='/';
   ]
 ]

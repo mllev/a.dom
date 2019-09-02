@@ -1,8 +1,8 @@
-const adom = require('./index')
+const Adom = require('./index')
 const fs = require('fs')
 const http = require('http')
 
-const compiler = new adom({ cache: false })
+const compiler = new Adom({ cache: false })
 
 function render (file, data) {
   return compiler.compile_file(file, data)
@@ -16,4 +16,3 @@ http.createServer(function (req, res) {
     'walk cat'
   ] }))
 }).listen(8000, function () { console.log('Listening on port:8000...') })
-
