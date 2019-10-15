@@ -5,24 +5,24 @@ function Adom (config) {
 }
 
 Adom.prototype.tokenize = function (prog, file) {
-  let cursor = 0, end_pos = prog.length - 1
-  let tokens = [{ type: 'file_begin', data: file, pos: 0, file: file }]
+  var cursor = 0, end_pos = prog.length - 1
+  var tokens = [{ type: 'file_begin', data: file, pos: 0, file: file }]
 
-  let keywords = [
+  var keywords = [
     'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'else',
     'import', 'yield', 'on', 'null', 'export', 'file', 'controller', 'and', 'or'
   ]
 
-  let symbols = [
+  var symbols = [
     '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ',', '>', '<'
   ]
 
   function break_into_chunks (text, cursor) {
-    let chunks = []
-    let chunk = ''
-    let i = 0, max = text.length
-    let in_expr = false
-    let pos = cursor
+    var chunks = []
+    var chunk = ''
+    var i = 0, max = text.length
+    var in_expr = false
+    var pos = cursor
     while (i < max) {
       if (text[i] === '{' && in_expr === false) {
       	in_expr = true
@@ -33,7 +33,7 @@ Adom.prototype.tokenize = function (prog, file) {
       } else if (text[i] === '}' && in_expr === true) {
       	in_expr = false
       	chunk += '}'
-      	let toks = this.tokenize(chunk, file)
+      	var toks = this.tokenize(chunk, file)
         toks.shift() //file_beging
       	toks.pop() //eof
       	toks.forEach(function (t) {
@@ -52,31 +52,31 @@ Adom.prototype.tokenize = function (prog, file) {
   }
 
   while (true) {
-    let c = prog[cursor]
-    let tok = { type: '', data: '', pos: cursor, file: file }
+    var c = prog[cursor]
+    var tok = { type: '', data: '', pos: cursor, file: file }
 
     if (cursor > end_pos) {
       tok.type = 'eof'
       tokens.push(tok)
       break
     } else if (c === ' ' || c === '\n' || c === '\t') {
-      let i = cursor
+      var i = cursor
       while (i <= end_pos && (prog[i] === ' ' || prog[i] === '\t' || prog[i] === '\n')) {
         i++
       }
       cursor = i
       continue
     } else if (c === '/' && prog[cursor+1] === '/') {
-      let i = cursor
+      var i = cursor
       while (c !== '\n' && i <= end_pos)
         c = prog[++i]
       cursor = i
       continue
     } else if (c >= '0' && c <= '9') {
-      let neg = tokens[tokens.length - 1].type === '-'
-      let num = ''
-      let i = cursor
-      let dot = false
+      var neg = tokens[tokens.length - 1].type === '-'
+      var num = ''
+      var i = cursor
+      var dot = false
       while ((c >= '0' && c <= '9') || c === '.') {
         if (c === '.') {
           if (dot) break
@@ -93,14 +93,14 @@ Adom.prototype.tokenize = function (prog, file) {
         tokens.pop()
       }
     } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-      let i = cursor
+      var i = cursor
       tok.data = ''
       while ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '-') {
         tok.data += c
         c = prog[++i]
       }
       cursor = i
-      let idx = keywords.indexOf(tok.data)
+      var idx = keywords.indexOf(tok.data)
       if (idx !== -1) {
 	      tok.type = keywords[idx]
       } else {
@@ -111,8 +111,8 @@ Adom.prototype.tokenize = function (prog, file) {
         tok.data = (tok.data === 'true')
       }
     } else if (c === '|') {
-      let i = cursor + 1
-      let text = ''
+      var i = cursor + 1
+      var text = ''
       while (true) {
         if (i > end_pos) {
           throw { msg: 'unterminated text node', pos: cursor, file: file }
@@ -124,7 +124,7 @@ Adom.prototype.tokenize = function (prog, file) {
         }
         text += prog[i++]
       }
-      let chunks = break_into_chunks.call(this, text, cursor)
+      var chunks = break_into_chunks.call(this, text, cursor)
       chunks.forEach(function (c) {
 	      tokens.push(c)
       })
@@ -151,8 +151,8 @@ Adom.prototype.tokenize = function (prog, file) {
       tok.data = c
       cursor++
     } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2] === '"') {
-      let str = ''
-      let i = cursor + 3
+      var str = ''
+      var i = cursor + 3
       while (true) {
         if (i > end_pos) {
           throw { msg: 'unterminated long string', pos: cursor, file: file }
@@ -166,8 +166,8 @@ Adom.prototype.tokenize = function (prog, file) {
       tok.type = 'string'
       cursor = i
     } else if (c === '"' || c === '\'') {
-      let del = c
-      let i = cursor + 1
+      var del = c
+      var i = cursor + 1
 
       while (true) {
         if (i > end_pos || prog[i] === '\n') {
@@ -187,7 +187,7 @@ Adom.prototype.tokenize = function (prog, file) {
       tok.type = 'string'
       cursor = i
     } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
-      let i = cursor + 3
+      var i = cursor + 3
       while (i <= end_pos) {
         if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
           i += 4
@@ -211,19 +211,19 @@ Adom.prototype.tokenize = function (prog, file) {
 }
 
 Adom.prototype.parse = function (tokens) {
-  let tok = tokens[0]
-  let cursor = 0
-  let files = []
-  let ops = []
+  var tok = tokens[0]
+  var cursor = 0
+  var files = []
+  var ops = []
 
   function new_context () {
     files.push({
-      ops: [], tags: {}, modules: {}, exports: []
+      tags: {}, modules: {}, exports: []
     })
   }
 
   function emit (op, data) {
-    let i = { op: op }
+    var i = { op: op }
     if (data) i.data = data
     ops.push(i)
     return ops.length - 1
@@ -249,55 +249,60 @@ Adom.prototype.parse = function (tokens) {
     return false
   }
 
-  function get_class_list () {
-    function parse_classes () {
-      if (accept('.')) {
-        expect('ident')
-        parse_classes()
-      }
-    }
-    parse_classes()
+  function parse_primitive () {
+    return accept('string') || accept('number') || accept('bool')
   }
 
-  function parse_target () {
-    expect('ident')
-    while (true) {
-      if (accept('[')) {
-        parse_value()
-        // parse error if value is empty
-        expect(']')
-      } else if (accept('.')) {
-        expect('ident')
-      } else {
-        break
-      }
-    }
-  }
-
-  function parse_value () {
-    if (tok.type === 'ident') {
-      parse_target()
+  function parse_modifier () {
+    if (accept('.')) {
+      expect('ident')
+      parse_modifier()
     } else if (accept('[')) {
-      // array
-      // if value is empty expect ]
-      parse_value()
-      if (accept(',')) {
-        parse_value()
+      if (!parse_primitive()) {
+	parse_variable()
       }
       expect(']')
-    } else if (tok.type === 'string') {
-      next()
-    } else if (tok.type === 'number') {
-      next()
+      parse_modifier()
     }
   }
 
-  function get_attributes () {
-    function parse_attributes () {
+  function parse_variable () {
+    expect('ident')
+    parse_modifier()
+  }
+
+  function parse_textnode () {
+    var chunks = []
+    while (true) {
+      expect('chunk')
+      if (!accept('{')) break
+      if (!parse_primitive()) {
+	parse_variable()
+      } 
+      expect('}')
+    }
+    return chunks
+  }
+
+  function parse_class_list () {
+    var classes = []
+    while (true) {
+      if (!accept('.')) break
+      classes.push(tok.data)
+      expect('ident')
+    }
+    return classes
+  }
+
+  function parse_attributes () {
+    var attr = {}
+    while (true) {
       if (accept('ident')) {
         if (accept('=')) {
           if (accept('{')) {
-            parse_value()
+	    if (!parse_primitive()) {
+	      parse_variable()
+	    } 
             expect('}')
           } else if (tok.type === 'string') {
             next()
@@ -306,40 +311,28 @@ Adom.prototype.parse = function (tokens) {
           }
         } else {
         }
-        parse_attributes()
       } else if (accept('on')) {
         expect(':')
         expect('ident')
         expect('(')
         expect('ident')
         expect(')')
-        parse_attributes()
       } else if (accept('controller')) {
         expect('(')
         expect('ident')
         expect(')')
-        parse_attributes()
+      } else {
+        break
       }
     }
-    parse_attributes()
-  }
-
-  function get_textnode () {
-    function parse_textnode () {
-      expect('chunk')
-      if (accept('{')) {
-        parse_value()
-        expect('}')
-        parse_textnode()
-      }
-    }
-    parse_textnode()
+    return attr
   }
 
   function parse_tag () {
+    var name = tok.data
     expect('ident')
-    get_class_list()
-    get_attributes()
+    var classlist = parse_class_list()
+    var attr = parse_attributes()
     if (accept(';')) {
     } else if (accept('[')) {
       parse_tag_list()
@@ -351,16 +344,17 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_conditional () {
-    parse_value()
-    if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {
-      throw { msg: 'expected comparison operator', pos: tok.pos, file: tok.file }
-    }
-    parse_value()
+    var cond = {}
     while (true) {
+      parse_value()
+      if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {
+	throw { msg: 'expected comparison operator', pos: tok.pos, file: tok.file }
+      }
+      parse_value()
       if (accept('or')) {
-        parse_conditional()
+	continue
       } else if (accept('and')) {
-        parse_conditional()
+	continue
       } else {
         break
       }
@@ -391,7 +385,9 @@ Adom.prototype.parse = function (tokens) {
 
   function parse_tag_list () {
     if (accept('doctype')) {
+      var type = tok.data
       expect('ident')
+      emit('doctype', type)
       parse_tag_list()
     } else if (accept('if')) {
       parse_if_statement()
@@ -403,7 +399,7 @@ Adom.prototype.parse = function (tokens) {
         expect('ident')
       }
       expect('in')
-      parse_target()
+      parse_variable()
       expect(')')
       expect('[')
       parse_tag_list()
@@ -413,7 +409,7 @@ Adom.prototype.parse = function (tokens) {
       parse_tag()
       parse_tag_list()
     } else if (tok.type === 'chunk') {
-      get_textnode()
+      parse_textnode()
       parse_tag_list()
     } else if (accept('yield')) {
       parse_tag_list()
@@ -422,19 +418,23 @@ Adom.prototype.parse = function (tokens) {
 
   function parse_custom_tag () {
     expect('tag')
+    var tag = tok.data
     expect('ident')
+    var start = cursor
     expect('[')
     parse_tag_list()
+    var end = cursor
     expect(']')
+    files[files.length - 1].tags[tag] = { start: start, end: end }
   }
 
   function parse_file () {
     if (tok.type === 'file_begin') {
-      files.push({})
+      new_context()
       next()
       parse_file()
     } if (tok.type === 'eof') {
-      files.pop()
+      console.log(files.pop())
       if (files.length === 0) {
         return
       } else {
@@ -442,7 +442,9 @@ Adom.prototype.parse = function (tokens) {
         parse_file()
       }
     } else if (accept('export')) {
+      var exp = tok.data
       expect('ident')
+      files[files.length-1].exports.push(exp)
       parse_file()
     } else if (tok.type === 'ident' || tok.type === 'doctype') {
       parse_tag_list()
@@ -451,18 +453,23 @@ Adom.prototype.parse = function (tokens) {
       parse_custom_tag()
       parse_file()
     } else if (accept('$')) {
-      parse_target()
+      parse_variable()
       expect('=')
       if (accept('file')) {
         expect('string')
         parse_file()
       } else {
-        parse_value()
+	if (!parse_primitive()) {
+	  parse_variable()
+	}
         parse_file()
       }
     } else if (accept('module')) {
+      var module = tok.data
       expect('ident')
+      var module_body = tok.data
       expect('module_body')
+      files[files.length - 1].modules[module] = module_body 
       parse_file()
     } else {
       throw { msg: 'unexpected: ' + tok.type, pos: tok.pos, file: tok.file }
@@ -475,14 +482,14 @@ Adom.prototype.parse = function (tokens) {
 }
 
 Adom.prototype.get_error_text = function (prog, c) {
-  let i = c
-  let buf = '', pad = ''
-  let pos = c
-  let line = 1
+  var i = c
+  var buf = '', pad = ''
+  var pos = c
+  var line = 1
   while (pos >= 0) if (prog[pos--] === '\n') line++
   buf += line + '| '
-  let np = line.toString().length + 2
-  for (let k = 0; k < np; k++) pad += ' '
+  var np = line.toString().length + 2
+  for (var k = 0; k < np; k++) pad += ' '
   while (prog[i-1] !== '\n' && i > 0) i--
   while (prog[i] !== '\n' && i < prog.length) {
     if (i < c) {
@@ -509,7 +516,7 @@ window.addEventListener('load', function ${config.name} () {
   var $$adom_prev_tree = undefined
 
   function $$adom_flatten (arr) {
-    let nodes = []
+    var nodes = []
     arr.forEach(function (c) {
       if (Array.isArray(c)) {
         c.forEach(function (i) {
@@ -536,7 +543,7 @@ window.addEventListener('load', function ${config.name} () {
     if (type === 'textnode') {
       return { type: type, content: attr }
     }
-    let c = children ? $$adom_flatten(children) : undefined
+    var c = children ? $$adom_flatten(children) : undefined
     return { type: type, attributes: attr, children: c }
   }
 
@@ -551,7 +558,7 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   function $$adom_each (list, children) {
-    let nodes = []
+    var nodes = []
 
     list.forEach(function (item, i) {
       nodes = nodes.concat($$adom_flatten(children(item, i)))
@@ -579,15 +586,15 @@ window.addEventListener('load', function ${config.name} () {
 
   function $$adom_create_node (node) {
     if (node.type === 'textnode') {
-      let c = node.content.trim()
+      var c = node.content.trim()
       if (c) {
-        let t = document.createElement('div')
+        var t = document.createElement('div')
         t.innerHTML = c
         return t.childNodes[0]
       }
       return document.createTextNode('')
     }
-    let el = document.createElement(node.type)
+    var el = document.createElement(node.type)
     Object.keys(node.attributes).forEach(function (attr) {
       el.setAttribute(attr, node.attributes[attr])
     })
@@ -595,11 +602,11 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   function $$adom_create_dom_tree (nodes) {
-    let rootNode = document.createDocumentFragment()
+    var rootNode = document.createDocumentFragment()
     function walk (children) {
-      let prev
+      var prev
       children.forEach(function (node) {
-        let el = $$adom_create_node(node)
+        var el = $$adom_create_node(node)
         if (node.children) {
           prev = rootNode
           rootNode = el
@@ -614,8 +621,8 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   function $$adom_update (state) {
-    let root_node = $$adom_select('[data-adom-id="${config.root}"]')[0]
-    let nodes = $$adom_create_node_tree()
+    var root_node = $$adom_select('[data-adom-id="${config.root}"]')[0]
+    var nodes = $$adom_create_node_tree()
     console.log($$adom_prev_tree)
     root_node.innerHTML = ''
     root_node.appendChild($$adom_create_dom_tree(nodes))
@@ -639,24 +646,24 @@ window.addEventListener('load', function ${config.name} () {
 }
 
 Adom.prototype.openFile = function (p) {
-  let fs = require('fs')
-  let path = require('path')
-  let f = path.resolve(this.dirname, p)
-  let prog = fs.readFileSync(f).toString()
+  var fs = require('fs')
+  var path = require('path')
+  var f = path.resolve(this.dirname, p)
+  var prog = fs.readFileSync(f).toString()
   this.files[f] = prog
   return [prog, f]
 }
 
 Adom.prototype.resolve_imports = function (tokens, file) {
-  let out_toks = []
-  let ptr = 0
+  var out_toks = []
+  var ptr = 0
 
   while (ptr < tokens.length) {
     switch (tokens[ptr].type) {
       case 'import': {
-        let path = tokens[++ptr].data
-        let fileData = this.openFile(path)
-        let toks = this.tokenize(fileData[0], fileData[1])
+        var path = tokens[++ptr].data
+        var fileData = this.openFile(path)
+        var toks = this.tokenize(fileData[0], fileData[1])
         toks = this.resolve_imports(toks, fileData[1])
         toks.forEach(function (t) {
           out_toks.push(t)
@@ -674,12 +681,18 @@ Adom.prototype.resolve_imports = function (tokens, file) {
 
 Adom.prototype.compile_file = function (file, input_state) {
   try {
-    let fileData = this.openFile(file)
-    let tokens = this.tokenize(fileData[0], fileData[1])
+    var fileData = this.openFile(file)
+    var tokens = this.tokenize(fileData[0], fileData[1])
     tokens = this.resolve_imports(tokens, fileData[1])
-    let ops = this.parse(tokens)
-    console.log(JSON.stringify(tokens, null, 2))
-    console.log(ops)
+    console.log(tokens)
+    var ops = this.parse(tokens)
+    var files = this.files
+    var err = this.get_error_text
+    tokens.forEach(function (tok) {
+      console.log(tok)
+      console.log(err(files[tok.file], tok.pos))
+      console.log('')
+    })	
   } catch (e) {
     if (e.pos) {
       console.log('Error: ', e.file)

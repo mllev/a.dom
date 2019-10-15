@@ -1,7 +1,13 @@
 tag Button [
   a href={props.link} [
-    button | {props.text} |
+    button | {props.link} |
   ]
 ]
+
+module test -->
+  function javascrdjlgkasjdf () {
+    console.log('yo')
+  }
+<--
 
 export Button

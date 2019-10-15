@@ -1,11 +1,11 @@
-import 'button.adom'
-
 doctype html5
+
+import 'button.adom'
 
 html [
   head []
   body [
-    div | Hello |
+    div.test1.test2.test3 | Hello {name.name} |
     Button text='click' link='/';
   ]
 ]
