@@ -512,54 +512,49 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_file () {
-    if (tok.type === 'file_begin') {
-      new_context()
-      next()
-      parse_file()
-    } if (tok.type === 'eof') {
-      console.log(files.pop())
-      if (files.length === 0) {
-        return
-      } else {
-        next()
-        parse_file()
-      }
-    } else if (accept('export')) {
-      var exp = tok.data
-      expect('ident')
-      files[files.length-1].exports.push(exp)
-      parse_file()
-    } else if (tok.type === 'ident' || tok.type === 'doctype') {
-      parse_tag_list()
-      parse_file()
-    } else if (tok.type === 'tag') {
-      parse_custom_tag()
-      parse_file()
-    } else if (accept('$')) {
-      parse_variable()
-      expect('=')
-      if (accept('file')) {
-        expect('string')
-        parse_file()
-      } else {
-	if (peek('[')) {
-	  parse_array()
-	} else if (peek('{')) {
-	  parse_object()
+    while (true) {
+      if (tok.type === 'file_begin') {
+	new_context()
+	next()
+      } if (tok.type === 'eof') {
+	files.pop() // take file context and merge exports
+	if (files.length === 0) {
+	  break
 	} else {
-	  parse_variable_or_primitive()
+	  next()
 	}
-        parse_file()
+      } else if (accept('export')) {
+	var exp = tok.data
+	expect('ident')
+	files[files.length-1].exports.push(exp)
+      } else if (tok.type === 'ident' || tok.type === 'doctype') {
+	parse_tag_list()
+      } else if (tok.type === 'tag') {
+	parse_custom_tag()
+      } else if (accept('$')) {
+	parse_variable()
+	expect('=')
+	if (accept('file')) {
+	  expect('string')
+	  parse_file()
+	} else {
+	  if (peek('[')) {
+	    parse_array()
+	  } else if (peek('{')) {
+	    parse_object()
+	  } else {
+	    parse_variable_or_primitive()
+	  }
+	}
+      } else if (accept('module')) {
+	var module = tok.data
+	expect('ident')
+	var module_body = tok.data
+	expect('module_body')
+	files[files.length - 1].modules[module] = module_body 
+      } else {
+	throw { msg: 'unexpected: ' + tok.type, pos: tok.pos, file: tok.file }
       }
-    } else if (accept('module')) {
-      var module = tok.data
-      expect('ident')
-      var module_body = tok.data
-      expect('module_body')
-      files[files.length - 1].modules[module] = module_body 
-      parse_file()
-    } else {
-      throw { msg: 'unexpected: ' + tok.type, pos: tok.pos, file: tok.file }
     }
   }
 
@@ -771,8 +766,9 @@ Adom.prototype.compile_file = function (file, input_state) {
     var fileData = this.openFile(file)
     var tokens = this.tokenize(fileData[0], fileData[1])
     tokens = this.resolve_imports(tokens, fileData[1])
-    console.log(tokens)
+    console.log(JSON.stringify(tokens, null, 2))
     var ops = this.parse(tokens)
+    //console.log(ops)
     var files = this.files
     var err = this.get_error_text
   } catch (e) {
