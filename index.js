@@ -14,7 +14,7 @@ Adom.prototype.tokenize = function (prog, file) {
   ]
 
   var symbols = [
-    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ',', '>', '<'
+    '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ',', '>', '<', '?'
   ]
 
   function break_into_chunks (text, cursor) {
@@ -34,7 +34,7 @@ Adom.prototype.tokenize = function (prog, file) {
       	in_expr = false
       	chunk += '}'
       	var toks = this.tokenize(chunk, file)
-        toks.shift() //file_beging
+        toks.shift() //file_begin
       	toks.pop() //eof
       	toks.forEach(function (t) {
       	  t.pos += pos
@@ -233,6 +233,10 @@ Adom.prototype.parse = function (tokens) {
     tok = tokens[++cursor]
   }
 
+  function unexpected () {
+    throw { msg: 'unexpected ' + tok.type, pos: tok.pos, file: tok.file }
+  }    
+
   function expect(t) {
     if (tok.type === t) {
       next()
@@ -249,8 +253,21 @@ Adom.prototype.parse = function (tokens) {
     return false
   }
 
+  function peek(t) {
+    if (tok.type === t) {
+      return true
+    }
+    return false
+  }
+
+  function is_primitive () {
+    return peek('string') || peek('number') || peek('bool')
+  }
+
   function parse_primitive () {
-    return accept('string') || accept('number') || accept('bool')
+    if (!accept('string') && !accept('number') && !accept('bool')) {
+      unexpected()
+    }
   }
 
   function parse_modifier () {
@@ -270,9 +287,67 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_variable_or_primitive () {
-    if (!parse_primitive()) {
+    if (is_primitive()) {
+      parse_primitive()
+    } else if (peek('ident')) {
       parse_variable()
-    } 
+    } else {
+      unexpected()
+    }
+  }
+
+  function parse_comparison () {
+    return (
+      accept('==') ||
+      accept('!=') ||
+      accept('<=') ||
+      accept('>=') ||
+      accept('>') ||
+      accept('<')
+    )
+  }
+
+  function parse_variable_primitive_or_ternary () {
+    parse_variable_or_primitive()
+    if (parse_comparison()) {
+      parse_variable_or_primitive()
+      expect('?')
+      parse_variable_or_primitive()
+      expect(':')
+      parse_variable_or_primitive()
+    }
+  }
+
+  function parse_object () {
+    expect('{')
+    while (true) {
+      expect('ident')
+      expect(':')
+      if (peek('[')) {
+	parse_array() 
+      } else if (peek('{')) {
+	parse_object()
+      } else {
+	parse_variable_or_primitive()
+      }
+      if (!accept(',')) break
+    }
+    expect('}')
+  }
+
+  function parse_array () {
+    expect('[')
+    while (true) {
+      if (peek('[')) {
+	parse_array() 
+      } else if (peek('{')) {
+	parse_object()
+      } else {
+	parse_variable_or_primitive()
+      }
+      if (!accept(',')) break
+    }
+    expect(']')
   }
 
   function parse_textnode () {
@@ -302,7 +377,11 @@ Adom.prototype.parse = function (tokens) {
       if (accept('ident')) {
         if (accept('=')) {
           if (accept('{')) {
-	    parse_variable_or_primitive()
+	    if (peek('[')) {
+	      parse_array()
+	    } else {
+	      parse_variable_primitive_or_ternary()
+	    }
             expect('}')
           } else if (tok.type === 'string') {
             next()
@@ -347,7 +426,7 @@ Adom.prototype.parse = function (tokens) {
     var cond = {}
     while (true) {
       parse_variable_or_primitive()
-      if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {
+      if (!parse_comparison()) {
 	throw { msg: 'expected comparison operator', pos: tok.pos, file: tok.file }
       }
       parse_variable_or_primitive()
@@ -399,7 +478,11 @@ Adom.prototype.parse = function (tokens) {
         expect('ident')
       }
       expect('in')
-      parse_variable()
+      if (peek('[')) {
+	parse_array()
+      } else {
+	parse_variable()
+      }
       expect(')')
       expect('[')
       parse_tag_list()
@@ -459,7 +542,13 @@ Adom.prototype.parse = function (tokens) {
         expect('string')
         parse_file()
       } else {
-	parse_variable_or_primitive()
+	if (peek('[')) {
+	  parse_array()
+	} else if (peek('{')) {
+	  parse_object()
+	} else {
+	  parse_variable_or_primitive()
+	}
         parse_file()
       }
     } else if (accept('module')) {

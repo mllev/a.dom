@@ -7,6 +7,10 @@ tag Button [
     a href='/' [
       button | {props.text} |
     ]
+    span class={[
+      'class1',
+      'class2'
+    ]} | hi |
   ]
 ]
 

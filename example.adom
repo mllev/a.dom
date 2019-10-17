@@ -1,15 +1,33 @@
 doctype html5
 
-$ person = {
-  name: 'Matt'
+$person = {
+  name: 'matt',
+  age: 29,
+  wife: {
+    name: 'josephine'
+  }
 }
+
+$people = [
+  { name: 'matt' },
+  'matt',
+  'josephine',
+  var1,
+  var2,
+  [ var3, var4, 'matt2', 'josephine2' ]
+]
 
 import 'button.adom'
 
 html [
   head []
-  body [
+  body key={stmt == true ? 'key1' : 'key2'} [
     div.test1.test2.test3 | Hello {person.name} |
     Button text='click' link='/';
+    each (p, i in [
+      { name: 'matt' }
+    ]) [
+      div | {p.name} |
+    ]
   ]
 ]
