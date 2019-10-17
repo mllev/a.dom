@@ -1,12 +1,18 @@
 tag Button [
-  a href={props.link} [
-    button | {props.link} |
+  if (props.link != '#') [
+    a href={props.link} [
+      button | {props.text} |
+    ]
+  ] else [
+    a href='/' [
+      button | {props.text} |
+    ]
   ]
 ]
 
 module test -->
-  function javascrdjlgkasjdf () {
-    console.log('yo')
+  function foo () {
+    console.log('bar')
   }
 <--
 

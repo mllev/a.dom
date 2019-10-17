@@ -1,11 +1,15 @@
 doctype html5
 
+$ person = {
+  name: 'Matt'
+}
+
 import 'button.adom'
 
 html [
   head []
   body [
-    div.test1.test2.test3 | Hello {name.name} |
+    div.test1.test2.test3 | Hello {person.name} |
     Button text='click' link='/';
   ]
 ]

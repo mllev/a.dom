@@ -258,9 +258,7 @@ Adom.prototype.parse = function (tokens) {
       expect('ident')
       parse_modifier()
     } else if (accept('[')) {
-      if (!parse_primitive()) {
-	parse_variable()
-      }
+      parse_variable_or_primitive()
       expect(']')
       parse_modifier()
     }
@@ -271,14 +269,18 @@ Adom.prototype.parse = function (tokens) {
     parse_modifier()
   }
 
+  function parse_variable_or_primitive () {
+    if (!parse_primitive()) {
+      parse_variable()
+    } 
+  }
+
   function parse_textnode () {
     var chunks = []
     while (true) {
       expect('chunk')
       if (!accept('{')) break
-      if (!parse_primitive()) {
-	parse_variable()
-      } 
+      parse_variable_or_primitive()
       expect('}')
     }
     return chunks
@@ -300,9 +302,7 @@ Adom.prototype.parse = function (tokens) {
       if (accept('ident')) {
         if (accept('=')) {
           if (accept('{')) {
-	    if (!parse_primitive()) {
-	      parse_variable()
-	    } 
+	    parse_variable_or_primitive()
             expect('}')
           } else if (tok.type === 'string') {
             next()
@@ -346,11 +346,11 @@ Adom.prototype.parse = function (tokens) {
   function parse_conditional () {
     var cond = {}
     while (true) {
-      parse_value()
+      parse_variable_or_primitive()
       if (!accept('==') && !accept('!=') && !accept('<=') && !accept('>=') && !accept('>') && !accept('<')) {
 	throw { msg: 'expected comparison operator', pos: tok.pos, file: tok.file }
       }
-      parse_value()
+      parse_variable_or_primitive()
       if (accept('or')) {
 	continue
       } else if (accept('and')) {
@@ -459,9 +459,7 @@ Adom.prototype.parse = function (tokens) {
         expect('string')
         parse_file()
       } else {
-	if (!parse_primitive()) {
-	  parse_variable()
-	}
+	parse_variable_or_primitive()
         parse_file()
       }
     } else if (accept('module')) {
@@ -688,11 +686,6 @@ Adom.prototype.compile_file = function (file, input_state) {
     var ops = this.parse(tokens)
     var files = this.files
     var err = this.get_error_text
-    tokens.forEach(function (tok) {
-      console.log(tok)
-      console.log(err(files[tok.file], tok.pos))
-      console.log('')
-    })	
   } catch (e) {
     if (e.pos) {
       console.log('Error: ', e.file)
