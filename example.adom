@@ -1,33 +1,15 @@
 doctype html5
 
-$person = {
-  name: 'matt',
-  age: 29,
-  wife: {
-    name: 'josephine'
-  }
-}
-
-$people = [
-  { name: 'matt' },
-  'matt',
-  'josephine',
-  var1,
-  var2,
-  [ var3, var4, 'matt2', 'josephine2' ]
-]
-
-import 'button.adom'
-
 html [
   head []
-  body key={stmt == true ? 'key1' : 'key2'} [
-    div.test1.test2.test3 | Hello {person.name} |
-    Button text='click' link='/';
-    each (p, i in [
-      { name: 'matt' }
-    ]) [
-      div | {p.name} |
+  body [
+    a href={1 <= 2 ? '/logout' : '/login'} [ | logout | ]
+    h2 attr1='val1' attr2='val2' attr3 [ | Hello {name}! | ]
+    p class={[ 'class1', 'class2', name ]} | Your TODO list: |
+    ul [
+      each (i in items) [
+	li | {i.text} (Due: {i.date}) |
+      ]
     ]
   ]
 ]
