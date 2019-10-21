@@ -215,6 +215,8 @@ Adom.prototype.parse = function (tokens) {
   var cursor = 0
   var files = []
   var ops = []
+  var in_custom_tag = false
+  var return_stack = []
 
   function new_context () {
     files.push({
@@ -222,7 +224,12 @@ Adom.prototype.parse = function (tokens) {
     })
   }
 
+  function get_custom_tag (name) {
+    return files[files.length - 1].tags[name]
+  }
+
   function emit (op, data) {
+    if (in_custom_tag) return
     var i = { type: op }
     if (data) i.data = data
     ops.push(i)
@@ -231,6 +238,11 @@ Adom.prototype.parse = function (tokens) {
 
   function next() {
     tok = tokens[++cursor]
+  }
+
+  function set_tok (i) {
+    cursor = i - 1
+    next()
   }
 
   function unexpected () {
@@ -428,11 +440,7 @@ Adom.prototype.parse = function (tokens) {
     return attr
   }
 
-  function parse_tag () {
-    var name = tok.data
-    expect('ident')
-    var classlist = parse_class_list()
-    var attr = parse_attributes()
+  function end_tag (name, attr) {
     if (accept(';')) {
       emit('begin_tag', { name: name, self_close: true, attributes: attr })
     } else if (accept('[')) {
@@ -446,7 +454,26 @@ Adom.prototype.parse = function (tokens) {
       emit('textnode', textnode)
       emit('end_tag')
     } else {
-      throw { msg: 'unexpected ' + tok.type, pos: tok.pos, file: tok.file }
+      unexpected()
+    }
+  }
+
+  function parse_tag () {
+    var name = tok.data
+    expect('ident')
+    var classlist = parse_class_list()
+    var attr = parse_attributes()
+    var custom = get_custom_tag(name)
+    if (custom) {
+      var ret = cursor
+      set_tok(custom.start)
+      emit('push_props', attr)
+      parse_tag_list()
+      emit('pop_props')
+      set_tok(ret)
+      expect(';')
+    } else {
+      end_tag(name, attr)
     }
   }
 
@@ -516,10 +543,10 @@ Adom.prototype.parse = function (tokens) {
       parse_tag_list()
       expect(']')
       parse_tag_list()
-    } else if (tok.type === 'ident') {
+    } else if (peek('ident')) {
       parse_tag()
       parse_tag_list()
-    } else if (tok.type === 'chunk') {
+    } else if (peek('chunk')) {
       parse_textnode()
       parse_tag_list()
     } else if (accept('yield')) {
@@ -531,10 +558,12 @@ Adom.prototype.parse = function (tokens) {
     expect('tag')
     var tag = tok.data
     expect('ident')
-    var start = cursor
     expect('[')
+    in_custom_tag = true
+    var start = cursor
     parse_tag_list()
     var end = cursor
+    in_custom_tag = false
     expect(']')
     files[files.length - 1].tags[tag] = { start: start, end: end }
   }
@@ -599,12 +628,20 @@ Adom.prototype.execute = function (ops, initial_state) {
   var state = initial_state
   var open_tags = []
   var pretty = true
+  var props = []
 
   function resolve_variable (v) {
     var list = v.value
     var pos = v.pos
     var file = v.file
     var curr = state
+    if (list[0] === 'props') {
+      if (props.length < 1)
+	throw { msg: 'props can only be used inside a custom tag', pos: pos, file: file }
+      curr = props[props.length - 1]
+      list.shift()
+      console.log(curr, list)
+    }
     list.forEach(function (k, i) {
       if (curr[k] != null) {
 	curr = curr[k]
@@ -711,6 +748,17 @@ Adom.prototype.execute = function (ops, initial_state) {
       } break
       case 'textnode': {
 	console.log(op)
+      } break
+      case 'push_props': {
+	var pctx = {}
+	Object.keys(op.data).forEach(function (k) {
+	  pctx[k] = get(op.data[k])
+	})
+	props.push(pctx)
+	
+      } break
+      case 'pop_props': {
+	props.pop()
       } break
       default:
 	break

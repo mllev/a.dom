@@ -1,11 +1,22 @@
 doctype html5
 
+tag Button2 [
+  a href={props.href} [
+    button | click |
+  ]
+]
+
+tag Button [
+  Button2 href={props.link};
+]
+
 html [
   head []
   body [
     a href={1 <= 2 ? '/logout' : '/login'} [ | logout | ]
     h2 attr1='val1' attr2='val2' attr3 [ | Hello {name}! | ]
     p class={[ 'class1', 'class2', name ]} | Your TODO list: |
+    Button link='/';
     ul [
       each (i in items) [
 	li | {i.text} (Due: {i.date}) |
