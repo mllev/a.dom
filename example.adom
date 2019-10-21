@@ -4,10 +4,17 @@ tag Button2 [
   a href={props.href} [
     button | click |
   ]
+  yield
 ]
 
 tag Button [
-  Button2 href={props.link};
+  a href={props.link} [
+    button | click |
+  ]
+  yield
+  Button2 href='/test' [
+    p [ p || ]
+  ]
 ]
 
 html [
@@ -16,7 +23,9 @@ html [
     a href={1 <= 2 ? '/logout' : '/login'} [ | logout | ]
     h2 attr1='val1' attr2='val2' attr3 [ | Hello {name}! | ]
     p class={[ 'class1', 'class2', name ]} | Your TODO list: |
-    Button link='/';
+    Button link='/' [
+      span | HI |
+    ]
     ul [
       each (i in items) [
 	li | {i.text} (Due: {i.date}) |

@@ -215,8 +215,7 @@ Adom.prototype.parse = function (tokens) {
   var cursor = 0
   var files = []
   var ops = []
-  var in_custom_tag = false
-  var return_stack = []
+  var dont_emit = false
 
   function new_context () {
     files.push({
@@ -229,7 +228,7 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function emit (op, data) {
-    if (in_custom_tag) return
+    if (dont_emit) return
     var i = { type: op }
     if (data) i.data = data
     ops.push(i)
@@ -464,14 +463,33 @@ Adom.prototype.parse = function (tokens) {
     var classlist = parse_class_list()
     var attr = parse_attributes()
     var custom = get_custom_tag(name)
-    if (custom) {
-      var ret = cursor
-      set_tok(custom.start)
-      emit('push_props', attr)
-      parse_tag_list()
-      emit('pop_props')
-      set_tok(ret)
-      expect(';')
+    if (custom && !dont_emit) {
+      if (accept('[')) {
+	var ret = cursor
+	dont_emit = true
+	parse_tag_list()
+	dont_emit = false
+	expect(']')
+	var end_ret = cursor
+	set_tok(custom.start)
+	emit('push_props', attr)
+	parse_tag_list(function (y) {
+	  set_tok(ret)
+	  parse_tag_list()
+	  expect(']')
+	  set_tok(y)
+	})
+	emit('pop_props')
+	set_tok(end_ret)
+      } else {
+	expect(';')
+	var ret = cursor
+	set_tok(custom.start)
+	emit('push_props', attr)
+	parse_tag_list()
+	emit('pop_props')
+	set_tok(ret)
+      }
     } else {
       end_tag(name, attr)
     }
@@ -517,15 +535,15 @@ Adom.prototype.parse = function (tokens) {
     }
   }
 
-  function parse_tag_list () {
+  function parse_tag_list (yield_func) {
     if (accept('doctype')) {
       var type = tok.data
       expect('ident')
       emit('doctype', type)
-      parse_tag_list()
+      parse_tag_list(yield_func)
     } else if (accept('if')) {
       parse_if_statement()
-      parse_tag_list()
+      parse_tag_list(yield_func)
     } else if (accept('each')) {
       expect('(')
       expect('ident')
@@ -540,17 +558,18 @@ Adom.prototype.parse = function (tokens) {
       }
       expect(')')
       expect('[')
-      parse_tag_list()
+      parse_tag_list(yield_func)
       expect(']')
-      parse_tag_list()
+      parse_tag_list(yield_func)
     } else if (peek('ident')) {
       parse_tag()
-      parse_tag_list()
+      parse_tag_list(yield_func)
     } else if (peek('chunk')) {
       parse_textnode()
       parse_tag_list()
     } else if (accept('yield')) {
-      parse_tag_list()
+      if (yield_func) yield_func(cursor)
+      parse_tag_list(yield_func)
     }
   }
 
@@ -559,11 +578,11 @@ Adom.prototype.parse = function (tokens) {
     var tag = tok.data
     expect('ident')
     expect('[')
-    in_custom_tag = true
+    dont_emit = true
     var start = cursor
     parse_tag_list()
     var end = cursor
-    in_custom_tag = false
+    dont_emit = false
     expect(']')
     files[files.length - 1].tags[tag] = { start: start, end: end }
   }
