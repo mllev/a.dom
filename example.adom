@@ -26,10 +26,14 @@ html [
     Button link='/' [
       span | HI |
     ]
-    ul [
-      each (i in items) [
-	li | {i.text} (Due: {i.date}) |
+    if (name == 'matt') [
+      if (name != 'matt') [
+	test1 | |
+      ] else if (name != 'matt') [
+	test2 | |
       ]
+    ] else [
+      test2 | |
     ]
   ]
 ]

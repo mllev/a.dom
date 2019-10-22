@@ -445,7 +445,6 @@ Adom.prototype.parse = function (tokens) {
       emit('begin_tag', { name: name, self_close: true, attributes: attr })
     } else if (accept('[')) {
       emit('begin_tag', { name: name, attributes: attr })
-      console.log(name, attr, yield_func) 
       parse_tag_list(yield_func)
       expect(']')
       emit('end_tag')
@@ -475,7 +474,6 @@ Adom.prototype.parse = function (tokens) {
 	var end_ret = cursor
 	set_tok(custom)
 	emit('push_props', attr)
-	console.log('SETTING YIELD FUNC')
 	parse_tag_list(function (y) {
 	  set_tok(ret)
 	  parse_tag_list(yield_func)
@@ -501,11 +499,12 @@ Adom.prototype.parse = function (tokens) {
   function parse_conditional () {
     var cond = {}
     while (true) {
-      parse_variable_or_primitive()
+      cond.lhs = parse_variable_or_primitive()
+      cond.cmp = tok.type
       if (!parse_comparison()) {
 	throw { msg: 'expected comparison operator', pos: tok.pos, file: tok.file }
       }
-      parse_variable_or_primitive()
+      cond.rhs = parse_variable_or_primitive()
       if (accept('or')) {
 	continue
       } else if (accept('and')) {
@@ -514,18 +513,22 @@ Adom.prototype.parse = function (tokens) {
         break
       }
     }
+    return cond
   }
 
   function parse_if_statement () {
     expect('(')
-    parse_conditional()
+    var condition = parse_conditional()
     expect(')')
+    var op = emit('if', { condition: condition, jmp: 0 })
     if (accept('[')) {
       parse_tag_list()
       expect(']')
     } else {
       parse_tag()
     }
+    var jmp = emit('jump', 0)
+    ops[op].data.jmp = (ops.length - 1) - op
     if (accept('else')) {
       if (accept('[')) {
         parse_tag_list()
@@ -536,6 +539,7 @@ Adom.prototype.parse = function (tokens) {
         parse_tag()
       }
     }
+    ops[jmp].data = (ops.length - 1) - jmp
   }
 
   function parse_tag_list (yield_func) {
@@ -650,17 +654,21 @@ Adom.prototype.execute = function (ops, initial_state) {
   var pretty = true
   var props = []
 
+  function get_from_props (list) {
+    if (props.length < 1)
+      throw { msg: 'props can only be used inside a custom tag', pos: pos, file: file }
+    var v = props[props.length - 1]
+    list.shift()
+    return v
+  }
+
   function resolve_variable (v) {
     var list = v.value
     var pos = v.pos
     var file = v.file
     var curr = state
     if (list[0] === 'props') {
-      if (props.length < 1)
-	throw { msg: 'props can only be used inside a custom tag', pos: pos, file: file }
-      curr = props[props.length - 1]
-      list.shift()
-      console.log(curr, list)
+      curr = get_from_props(list)
     }
     list.forEach(function (k, i) {
       if (curr[k] != null) {
@@ -731,6 +739,21 @@ Adom.prototype.execute = function (ops, initial_state) {
     return null
   }
 
+  function evaluate_condition (condition) {
+    let lhs = get(condition.lhs)
+    let rhs = get(condition.rhs)
+    let cmp = condition.cmp
+
+    if (cmp === '==' && lhs == rhs) return true
+    if (cmp === '!=' && lhs != rhs) return true
+    if (cmp === '<=' && lhs <= rhs) return true
+    if (cmp === '>=' && lhs >= rhs) return true
+    if (cmp === '<'  && lhs <  rhs) return true
+    if (cmp === '>'  && lhs >  rhs) return true
+    
+    return false
+  }
+
   function assemble_attributes (attr) {
     let str = ''
     Object.keys(attr).forEach(function (k) {
@@ -779,6 +802,14 @@ Adom.prototype.execute = function (ops, initial_state) {
       } break
       case 'pop_props': {
 	props.pop()
+      } break
+      case 'if': {
+      	if (!evaluate_condition(op.data.condition)) {
+	  ptr += op.data.jmp
+	}
+      } break
+      case 'jump': {
+	ptr += op.data
       } break
       default:
 	break
