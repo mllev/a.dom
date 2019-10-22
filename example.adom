@@ -8,12 +8,12 @@ tag Button2 [
 ]
 
 tag Button [
-  a href={props.link} [
+  a test='test1' href={props.link} [
     button | click |
+    yield
   ]
-  yield
-  Button2 href='/test' [
-    p [ p || ]
+  Button2 href={props.link} [
+    b | YOO |
   ]
 ]
 
