@@ -17,6 +17,14 @@ tag Button [
   ]
 ]
 
+tag IfTest [
+  if (props.name == 'matt') [
+    yield 
+  ] else [
+    testfail | |
+  ]
+]
+
 html [
   head []
   body [
@@ -26,14 +34,20 @@ html [
     Button link='/' [
       span | HI |
     ]
-    if (name == 'matt') [
-      if (name != 'matt') [
-	test1 | |
-      ] else if (name != 'matt') [
-	test2 | |
-      ]
-    ] else [
+    if (name == 'matt') test3 | |
+    else test4 | |
+    if (name != 'matt') [
+      test1 | |
+    ] else if (name == 'jim') [
       test2 | |
+    ] else if (name == 'paul') [
+      test8 | |
+    ] else if (name == 'matt') [
+      test10 | |
+    ]
+    something | |
+    IfTest name='matt' [
+      succeed | |
     ]
   ]
 ]

@@ -516,30 +516,30 @@ Adom.prototype.parse = function (tokens) {
     return cond
   }
 
-  function parse_if_statement () {
+  function parse_if_statement (yield_func) {
     expect('(')
     var condition = parse_conditional()
     expect(')')
     var op = emit('if', { condition: condition, jmp: 0 })
     if (accept('[')) {
-      parse_tag_list()
+      parse_tag_list(yield_func)
       expect(']')
     } else {
-      parse_tag()
+      parse_tag(yield_func)
     }
     var jmp = emit('jump', 0)
-    ops[op].data.jmp = (ops.length - 1) - op
+    if (!dont_emit) ops[op].data.jmp = (ops.length - 1) - op
     if (accept('else')) {
       if (accept('[')) {
-        parse_tag_list()
+        parse_tag_list(yield_func)
         expect(']')
       } else if (accept('if')) {
-        parse_if_statement()
+        parse_if_statement(yield_func)
       } else {
-        parse_tag()
+        parse_tag(yield_func)
       }
     }
-    ops[jmp].data = (ops.length - 1) - jmp
+    if (!dont_emit) ops[jmp].data = (ops.length - 1) - jmp
   }
 
   function parse_tag_list (yield_func) {
@@ -549,7 +549,7 @@ Adom.prototype.parse = function (tokens) {
       emit('doctype', type)
       parse_tag_list(yield_func)
     } else if (accept('if')) {
-      parse_if_statement()
+      parse_if_statement(yield_func)
       parse_tag_list(yield_func)
     } else if (accept('each')) {
       expect('(')
