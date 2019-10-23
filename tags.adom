@@ -1,0 +1,45 @@
+tag Button2 [
+  a href={props.href} [
+    button | click |
+  ]
+  yield
+]
+
+tag Button [
+  a test='test1' href={props.link} [
+    button | click |
+    yield
+  ]
+  Button2 href={props.link} [
+    b | YOO |
+  ]
+]
+
+tag IfTest [
+  if (props.name == 'matt') [
+    yield 
+  ] else [
+    testfail | |
+  ]
+]
+
+tag LoopTest [
+  each (k, v in testObj) [
+    each_el_test | {k}, {v} |
+    yield
+  ]
+]
+
+tag Peeps [
+  ul [
+    each (p, i in people) [
+      li | {i}: {p.name} |
+    ]
+  ]
+]
+
+export Button
+export Button2
+export IfTest
+export LoopTest
+export Peeps

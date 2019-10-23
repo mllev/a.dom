@@ -44,7 +44,7 @@ Adom.prototype.tokenize = function (prog, file) {
       	i++
       	pos = cursor + i + 1
       } else {
-	      chunk += text[i++]
+	chunk += text[i++]
       }
     }
     chunks.push({ type: 'chunk', data: chunk, pos: pos, file: file })
@@ -102,13 +102,13 @@ Adom.prototype.tokenize = function (prog, file) {
       cursor = i
       var idx = keywords.indexOf(tok.data)
       if (idx !== -1) {
-	      tok.type = keywords[idx]
+	tok.type = keywords[idx]
       } else {
-	      tok.type = 'ident'
+	tok.type = 'ident'
       }
       if (tok.data === 'true' || tok.data === 'false') {
-	      tok.type = 'bool'
-        tok.data = (tok.data === 'true')
+	tok.type = 'bool'
+	tok.data = (tok.data === 'true')
       }
     } else if (c === '|') {
       var i = cursor + 1
@@ -606,16 +606,28 @@ Adom.prototype.parse = function (tokens) {
 	new_context()
 	next()
       } if (tok.type === 'eof') {
-	files.pop() // take file context and merge exports
+	var fctx = files.pop()
+	fctx.exports.forEach(function (ex) {
+	  var e = ex.val
+	  if (!fctx.modules[e] && !fctx.tags[e])
+	    throw { msg: 'no such tag or module', pos: ex.pos, file: ex.file }
+	  if (fctx.modules[e] && fctx.tags[e])
+	    throw { msg: 'export is ambiguous', pos: ex.pos, file: ex.file }
+	  if (fctx.modules[e])
+	    files[files.length - 1].modules[e] = fctx.modules[e]
+	  if (fctx.tags[e])
+	    files[files.length - 1].tags[e] = fctx.tags[e]
+	})
 	if (files.length === 0) {
 	  break
 	} else {
 	  next()
 	}
       } else if (accept('export')) {
-	var exp = tok.data
+	files[files.length-1].exports.push({
+	  val: tok.data, pos: tok.pos, file: tok.file
+	})
 	expect('ident')
-	files[files.length-1].exports.push(exp)
       } else if (tok.type === 'ident' || tok.type === 'doctype') {
 	parse_tag_list()
       } else if (tok.type === 'tag') {
@@ -626,7 +638,6 @@ Adom.prototype.parse = function (tokens) {
 	expect('=')
 	if (accept('file')) {
 	  expect('string')
-	  parse_file()
 	} else {
 	  if (peek('[')) {
 	    val = parse_array()
@@ -697,6 +708,9 @@ Adom.prototype.execute = function (ops, initial_state) {
     curr = check_iterators(curr, list)
 
     list.forEach(function (k, i) {
+      if (Array.isArray(k)) {
+	k = resolve_variable({ value: k, pos: pos, file: file })
+      }
       if (curr[k] != null) {
 	curr = curr[k]
       } else {
@@ -710,11 +724,44 @@ Adom.prototype.execute = function (ops, initial_state) {
     return curr
   }
 
-  function set (k, v) {
-    var curr = state
-    k.forEach(function (key) {
+  function set (dst, val) {
+    var accessor = dst.value
+    var pos = dst.pos, file = dst.file
+    var ptr = state
+    var max = accessor.length
+    var prev = undefined
 
-    })
+    for (let i = 0; i < max; i++) {
+      var a = accessor[i]
+      if (Array.isArray(a)) {
+	a = resolve_variable({ value: a, pos: pos, file: file })
+      }
+      var t = typeof ptr[a]
+
+      if (Array.isArray(ptr) && typeof a === 'string') {
+	throw { msg: prev + ' is an array', pos: pos, file: file }
+      }
+
+      if (i === max - 1) {
+        ptr[a] = get(val)
+        return
+      }
+
+      if (t === 'string' || t === 'number') {
+	throw { msg: a + ' is a ' + t + ' and cannot be accessed like an array or object', pos: pos, file: file }
+      }
+
+      if (ptr[a] == null) {
+        if (typeof accessor[i+1] === 'number') {
+          ptr[a] = []
+        } else {
+          ptr[a] = {}
+        }
+      }
+  
+      ptr = ptr[a]
+      prev = a
+    }
   }
 
   function resolve_ternary (v) {
@@ -822,6 +869,8 @@ Adom.prototype.execute = function (ops, initial_state) {
 	  html += fmt() + '</' + tagname + '>'
 	} break
 	case 'set': {
+	  set(op.data.dst, op.data.val)
+	  console.log(state)
 	} break
 	case 'textnode': {
 	  html += fmt() + assemble_textnode(op.data)
@@ -879,7 +928,6 @@ Adom.prototype.execute = function (ops, initial_state) {
 	    iter.data[op.data.iterators[0]] = keys[0]
 	    if (op.data.iterators.length > 1)
 	      iter.data[op.data.iterators[1]] = iter.object[iter.list[0]]
-	    console.log(iter)
 	    iterators.push(iter)
 	  } else {
 	    throw { msg: 'each statements can only operate on arrays or objects', pos: op.data.list.pos, file: op.data.list.file }
@@ -1099,6 +1147,16 @@ Adom.prototype.resolve_imports = function (tokens, file) {
           out_toks.push(t)
         })
       } break
+      case 'file':
+        var path = tokens[++ptr].data
+        var fileData = this.openFile(path)
+	out_toks.push({
+	  type: 'string',
+	  data: fileData[0],
+	  pos: tokens[ptr].pos,
+	  file: tokens[ptr].file
+	})
+	break
       default:
         out_toks.push(tokens[ptr])
       break

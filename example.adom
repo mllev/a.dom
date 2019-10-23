@@ -1,28 +1,14 @@
 doctype html5
 
-tag Button2 [
-  a href={props.href} [
-    button | click |
-  ]
-  yield
-]
+import 'tags.adom'
 
-tag Button [
-  a test='test1' href={props.link} [
-    button | click |
-    yield
-  ]
-  Button2 href={props.link} [
-    b | YOO |
-  ]
-]
+$person.name = name
 
-tag IfTest [
-  if (props.name == 'matt') [
-    yield 
-  ] else [
-    testfail | |
-  ]
+$people = [
+  { name: 'matt' },
+  { name: 'josephine' },
+  { name: 'mike' },
+  { name: 'jon' }
 ]
 
 html [
@@ -51,8 +37,7 @@ html [
     IfTest name='matt' [
       succeed | |
     ]
-    each (k, v in testObj) [
-      each_el_test | {k}, {v} |
-    ]
+    LoopTest [ span | peek | ]
+    Peeps;
   ]
 ]
