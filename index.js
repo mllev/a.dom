@@ -553,20 +553,28 @@ Adom.prototype.parse = function (tokens) {
       parse_tag_list(yield_func)
     } else if (accept('each')) {
       expect('(')
+      var iter1, iter0 = tok.data
       expect('ident')
+      var op = emit('each', {})
       if (accept(',')) {
-        expect('ident')
+        iter1 = tok.data
+	expect('ident')
       }
+      if (!dont_emit) ops[op].data.iterators = [iter0, iter1]
       expect('in')
       if (peek('[')) {
-	parse_array()
+	var list = parse_array()
       } else {
-	parse_variable()
+	var list = parse_variable()
       }
+      if (!dont_emit) ops[op].data.list = list
       expect(')')
       expect('[')
       parse_tag_list(yield_func)
       expect(']')
+      // iterate back to one instruction after the each instruction
+      emit('iterate', (op - ops.length))
+      if (!dont_emit) ops[op].data.jmp = (ops.length - 1) - op
       parse_tag_list(yield_func)
     } else if (peek('ident')) {
       parse_tag(yield_func)
@@ -653,23 +661,41 @@ Adom.prototype.execute = function (ops, initial_state) {
   var open_tags = []
   var pretty = true
   var props = []
+  var iterators = []
 
-  function get_from_props (list) {
-    if (props.length < 1)
-      throw { msg: 'props can only be used inside a custom tag', pos: pos, file: file }
-    var v = props[props.length - 1]
-    list.shift()
-    return v
+  function check_props (list) {
+    if (list[0] === 'props') {
+      if (props.length < 1)
+	throw { msg: 'props can only be used inside a custom tag', pos: pos, file: file }
+      var v = props[props.length - 1]
+      list.shift()
+      return v
+    }
+    return null
+  }
+
+  function check_iterators (ptr, list) {
+    var check = list[0]
+    var i = iterators.length - 1
+    while (i >= 0) {
+      if (iterators[i].data[check] != null) {
+	list.shift()
+	return iterators[i].data[check]
+      }
+      i--
+    }
+    return ptr
   }
 
   function resolve_variable (v) {
-    var list = v.value
+    var list = v.value.slice(0)
     var pos = v.pos
     var file = v.file
     var curr = state
-    if (list[0] === 'props') {
-      curr = get_from_props(list)
-    }
+
+    curr = check_props(list) || curr
+    curr = check_iterators(curr, list)
+
     list.forEach(function (k, i) {
       if (curr[k] != null) {
 	curr = curr[k]
@@ -764,57 +790,123 @@ Adom.prototype.execute = function (ops, initial_state) {
     return str
   }
 
+  function assemble_textnode (chunks) {
+    return chunks.map(function (chunk) {
+      return typeof chunk === 'string' ? chunk : get(chunk)
+    }).join('')
+  }
+
   function fmt () {
     return pretty ? '\n' + open_tags.map(function () {
       return '    '
     }).join('') : ''
   }
+    
+  function exec () {
+    var iter
 
-  while (ptr < ops.length) {
-    var op = ops[ptr++]
-    switch (op.type) {
-      case 'begin_tag': {
-	html += fmt() + '<' + op.data.name + assemble_attributes(op.data.attributes)
-	if (op.data.self_close) {
-	  html += '>' // configure based on doctype
-	} else {
-	  html += '>'
-	  open_tags.push(op.data.name)
-	}
-      } break
-      case 'end_tag': {
-	var tagname = open_tags.pop()
-	html += fmt() + '</' + tagname + '>'
-      } break
-      case 'set': {
-	console.log(get(op.data.val))
-      } break
-      case 'textnode': {
-	console.log(op)
-      } break
-      case 'push_props': {
-	var pctx = {}
-	Object.keys(op.data).forEach(function (k) {
-	  pctx[k] = get(op.data[k])
-	})
-	props.push(pctx)
-	
-      } break
-      case 'pop_props': {
-	props.pop()
-      } break
-      case 'if': {
-      	if (!evaluate_condition(op.data.condition)) {
-	  ptr += op.data.jmp
-	}
-      } break
-      case 'jump': {
-	ptr += op.data
-      } break
-      default:
-	break
+    while (ptr < ops.length) {
+      var op = ops[ptr++]
+      switch (op.type) {
+	case 'begin_tag': {
+	  html += fmt() + '<' + op.data.name + assemble_attributes(op.data.attributes)
+	  if (op.data.self_close) {
+	    html += '>' // configure based on doctype
+	  } else {
+	    html += '>'
+	    open_tags.push(op.data.name)
+	  }
+	} break
+	case 'end_tag': {
+	  var tagname = open_tags.pop()
+	  html += fmt() + '</' + tagname + '>'
+	} break
+	case 'set': {
+	} break
+	case 'textnode': {
+	  html += fmt() + assemble_textnode(op.data)
+	} break
+	case 'push_props': {
+	  var pctx = {}
+	  Object.keys(op.data).forEach(function (k) {
+	    pctx[k] = get(op.data[k])
+	  })
+	  props.push(pctx)
+	} break
+	case 'pop_props': {
+	  props.pop()
+	} break
+	case 'if': {
+	  if (!evaluate_condition(op.data.condition)) {
+	    ptr += op.data.jmp
+	  }
+	} break
+	case 'jump': {
+	  ptr += op.data
+	} break
+	case 'each': {
+	  var list = get(op.data.list)
+	  if (Array.isArray(list)) {
+	    if (list.length === 0) {
+	      ptr += op.data.jmp
+	      break
+	    }
+	    iter = {
+	      type: 'array',
+	      iterators: op.data.iterators,
+	      list: list,
+	      index: 0,
+	      data: {}
+	    }
+	    iter.data[op.data.iterators[0]] = list[0]
+	    if (op.data.iterators[1] != null)
+	      iter.data[op.data.iterators[1]] = 0
+	    iterators.push(iter)
+	  } else if (typeof list === 'object' && list !== null) {
+	    var keys = Object.keys(list)
+	    if (keys.length === 0) {
+	      ptr += op.data.jmp
+	      break
+	    }
+	    iter = {
+	      type: 'object',
+	      list: keys,
+	      iterators: op.data.iterators,
+	      object: list,
+	      index: 0,
+	      data: {}
+	    }
+	    iter.data[op.data.iterators[0]] = keys[0]
+	    if (op.data.iterators.length > 1)
+	      iter.data[op.data.iterators[1]] = iter.object[iter.list[0]]
+	    console.log(iter)
+	    iterators.push(iter)
+	  } else {
+	    throw { msg: 'each statements can only operate on arrays or objects', pos: op.data.list.pos, file: op.data.list.file }
+	  }
+	} break
+	case 'iterate': {
+	  iter = iterators[iterators.length - 1]
+	  if (iter.index < iter.list.length - 1) {
+	    if (iter.type === 'array') {
+	      iter.data[iter.iterators[0]] = iter.list[++iter.index]
+	      if (iter.iterators[1] != null)
+		iter.data[iter.iterators[1]] = iter.index
+	    } else {
+	      iter.data[iter.iterators[0]] = iter.list[++iter.index]
+	      if (iter.iterators[1] != null)
+		iter.data[iter.iterators[1]] = iter.object[iter.data[iter.iterators[0]]]
+	    }
+	    ptr += op.data
+	  }
+	} break
+	default:
+	  break
+      }
     }
   }
+
+  exec()
 
   return html
 }

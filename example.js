@@ -10,7 +10,12 @@ const html = compiler.compile_file('example.adom', {
   items: [
     { text: 'buy a house', date: '01/01/3000' },
     { text: 'sell a house', date: '01/01/4000' }
-  ]
+  ],
+  testObj: {
+    key1: 'val1',
+    key2: 'val2',
+    key3: 'val3',
+  }
 })
 
 console.log(html)

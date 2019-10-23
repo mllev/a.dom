@@ -34,8 +34,10 @@ html [
     Button link='/' [
       span | HI |
     ]
+
     if (name == 'matt') test3 | |
     else test4 | |
+
     if (name != 'matt') [
       test1 | |
     ] else if (name == 'jim') [
@@ -48,6 +50,9 @@ html [
     something | |
     IfTest name='matt' [
       succeed | |
+    ]
+    each (k, v in testObj) [
+      each_el_test | {k}, {v} |
     ]
   ]
 ]
