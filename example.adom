@@ -22,7 +22,7 @@ html [
     h2 attr1='val1' attr2='val2' attr3 [ | Hello {name}! | ]
     p class={[ 'class1', 'class2', name ]} | Your TODO list: |
     Button link='/' [
-      span | HI |
+      span | HI {name} |
     ]
 
     div.class1.class2 controller={main} []

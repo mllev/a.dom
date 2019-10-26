@@ -417,10 +417,19 @@ Adom.prototype.parse = function (tokens) {
       if (accept('controller')) {
 	expect('=')
 	if (accept('{')) {
-	  let ctrlr = tok.data
+	  let pos = tok.pos, file = tok.file
+	  let tname = tok.data
+	  let ctrlr = files[files.length - 1].modules[tname]
 	  expect('ident')
+	  if (!ctrlr) {
+	    throw { msg: 'unknown controller: ' + tname, pos: pos, file: file }
+	  }
 	  expect('}')
-	  attr.controller = files[files.length - 1].modules[ctrlr]
+	  attr.controller = {
+	    body: ctrlr,
+	    pos: pos,
+	    file: file
+	  }
 	} else {
 	  let cfile = tok.data
 	  let pos = tok.pos, file = tok.file
@@ -454,10 +463,6 @@ Adom.prototype.parse = function (tokens) {
         expect('ident')
         expect(')')
 	events[evt] = handler
-      } else if (accept('controller')) {
-        expect('(')
-        expect('ident')
-        expect(')')
       } else {
         break
       }
@@ -1205,6 +1210,7 @@ Adom.prototype.resolve_modules = function (ops) {
 	return '(' + get_value(d[0]) + ')' + v.value.cmp + '(' + get_value(d[1]) + 
 	  ')?(' + get_value(d[1]) + '):(' + get_value(d[2]) + ')'
       default:
+	if (typeof v === 'string') return '"' + v + '"'
         return '""'
     }
   }
@@ -1212,7 +1218,6 @@ Adom.prototype.resolve_modules = function (ops) {
   function get_content (chunks) {
     return '(' + chunks.map(function (chunk) {
       return get_value(chunk)
-      if (i < chunks.length - 1) text += ' + '
     }).join(' + ') + ')'
   }
 
@@ -1227,22 +1232,42 @@ Adom.prototype.resolve_modules = function (ops) {
     let op = ops[ptr++]
     switch (op.type) {
       case 'begin_tag':
-	Object.keys(op.data.attributes).forEach(function (key) {
-	  console.log(get_value(op.data.attributes[key]))
-	})
+	if (op.data.attributes.controller) {
+	  let c = op.data.attributes.controller
+	  if (in_controller) {
+	    throw { msg: 'nested controllers are illegal', pos: c.pos, file: c.file }
+	  }
+	  controller = c.body
+	  in_controller = true
+	  delete op.data.attributes.controller
+	}
+	if (in_controller) {
+
+	}
 	break
       case 'end_tag':
+	if (in_controller) {
+
+	}
 	break
       case 'textnode':
-	console.log('TEXTNODE', get_content(op.data))
+	if (in_controller) {
+          node_tree += '$$adom_element("textnode", ' + get_content(op.data) + '),'
+        }
 	break
       case 'each':
+	
+	console.log(op)
 	break
       case 'iterate':
 	break
       case 'push_props':
+	prop_depth++
+	node_tree += '$$adom_push_props(' + stringify_object(op.data) + '),'
 	break
       case 'pop_props':
+	prop_depth--
+	node_tree += '$$adom_pop_props(),'
 	break
       case 'if':
 	break
