@@ -1,4 +1,5 @@
 function Adom(config) {
+  this.opcode_cache = undefined;
   this.cache = config.cache || false;
   this.dirname = config.root || "";
   this.files = {};
@@ -1612,12 +1613,19 @@ Adom.prototype.resolve_imports = function(tokens, file) {
 
 Adom.prototype.compile_file = function(file, input_state) {
   try {
-    let fileData = this.openFile(file);
-    let f = fileData[1];
-    let tokens = this.resolve_imports(this.tokenize(fileData[0], f), f);
-    let ops = this.resolve_modules(this.parse(tokens));
-    let html = this.execute(ops, input_state || {});
-    return html;
+    if (this.cache && this.opcode_cache) {
+      return this.execute(this.opcode_cache, input_state || {});
+    } else {
+      let fileData = this.openFile(file);
+      let f = fileData[1];
+      let tokens = this.resolve_imports(this.tokenize(fileData[0], f), f);
+      let ops = this.resolve_modules(this.parse(tokens));
+      let html = this.execute(ops, input_state || {});
+      if (this.cache) {
+        this.opcode_cache = ops;
+      }
+      return html;
+    }
   } catch (e) {
     if (e.pos) {
       console.log("Error: ", e.file);
