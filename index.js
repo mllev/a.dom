@@ -224,7 +224,7 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function get_custom_tag (name) {
-    let t = files[files.length - 1].tags[name] 
+    let t = files[files.length - 1].tags[name]
     return t == null ? -1 : t
   }
 
@@ -247,7 +247,7 @@ Adom.prototype.parse = function (tokens) {
 
   function unexpected () {
     throw { msg: 'unexpected ' + tok.type, pos: tok.pos, file: tok.file }
-  }    
+  }
 
   function expect(t) {
     if (tok.type === t) {
@@ -278,7 +278,7 @@ Adom.prototype.parse = function (tokens) {
 
   function parse_primitive () {
     let value = tok.data
-    let type = tok.type  
+    let type = tok.type
     let pos = tok.pos
     let file = tok.file
     if (!accept('string') && !accept('number') && !accept('bool')) {
@@ -411,7 +411,7 @@ Adom.prototype.parse = function (tokens) {
 
   function parse_attributes () {
     let attr = {}
-    let events = {}
+    let events = []
     while (true) {
       let key = tok.data
       if (accept('controller')) {
@@ -426,6 +426,7 @@ Adom.prototype.parse = function (tokens) {
 	  }
 	  expect('}')
 	  attr.controller = {
+      name: tname,
 	    body: ctrlr,
 	    pos: pos,
 	    file: file
@@ -462,7 +463,7 @@ Adom.prototype.parse = function (tokens) {
 	let handler = tok.data
         expect('ident')
         expect(')')
-	events[evt] = handler
+	events.push({ type: evt, handler: handler })
       } else {
         break
       }
@@ -642,7 +643,7 @@ Adom.prototype.parse = function (tokens) {
       if (tok.type === 'file_begin') {
 	new_context()
 	next()
-      } if (tok.type === 'eof') {
+      } else if (tok.type === 'eof') {
 	let fctx = files.pop()
 	fctx.exports.forEach(function (ex) {
 	  let e = ex.val
@@ -690,7 +691,7 @@ Adom.prototype.parse = function (tokens) {
 	expect('ident')
 	let module_body = tok.data
 	expect('module_body')
-	files[files.length - 1].modules[module] = module_body 
+	files[files.length - 1].modules[module] = module_body
       } else {
 	throw { msg: 'unexpected: ' + tok.type, pos: tok.pos, file: tok.file }
       }
@@ -795,7 +796,7 @@ Adom.prototype.execute = function (ops, initial_state) {
           ptr[a] = {}
         }
       }
-  
+
       ptr = ptr[a]
       prev = a
     }
@@ -860,7 +861,7 @@ Adom.prototype.execute = function (ops, initial_state) {
     if (cmp === '>=' && lhs >= rhs) return true
     if (cmp === '<'  && lhs <  rhs) return true
     if (cmp === '>'  && lhs >  rhs) return true
-    
+
     return false
   }
 
@@ -885,7 +886,7 @@ Adom.prototype.execute = function (ops, initial_state) {
       return '    '
     }).join('') : ''
   }
-    
+
   function exec () {
     let iter
 
@@ -893,6 +894,9 @@ Adom.prototype.execute = function (ops, initial_state) {
       let op = ops[ptr++]
       switch (op.type) {
 	case 'begin_tag': {
+	  if (op.data.module) {
+	    html += (fmt() + '<script>' + op.data.module[0] + JSON.stringify(state) + op.data.module[1] + '</script>')
+	  }
 	  html += fmt() + '<' + op.data.name + assemble_attributes(op.data.attributes)
 	  if (op.data.self_close) {
 	    html += '>' // configure based on doctype
@@ -1081,9 +1085,11 @@ window.addEventListener('load', function ${config.name} () {
     return nodes
   }
 
-  function $$adom_if (cond, children) {
+  function $$adom_if (cond, ifChildren, elseChildren) {
     if (cond) {
-      return $$adom_flatten(children)
+      return $$adom_flatten(ifChildren)
+    } else if (elseChildren) {
+      return $$adom_flatten(elseChildren)
     } else {
       return null
     }
@@ -1137,7 +1143,6 @@ window.addEventListener('load', function ${config.name} () {
   function $$adom_update (state) {
     let root_node = $$adom_select('[data-adom-id="${config.root}"]')[0]
     let nodes = $$adom_create_node_tree()
-    console.log($$adom_prev_tree)
     root_node.innerHTML = ''
     root_node.appendChild($$adom_create_dom_tree(nodes))
     $$adom_prev_tree = nodes
@@ -1162,7 +1167,7 @@ window.addEventListener('load', function ${config.name} () {
 Adom.prototype.resolve_modules = function (ops) {
   let ptr = 0
   let ids = 0
-  let tags = []
+  let tag_count = 0
   let in_controller = false
   let controller = undefined
   let node_tree = ''
@@ -1204,13 +1209,13 @@ Adom.prototype.resolve_modules = function (ops) {
         }
         return variable
       case 'array':
-	return '[' + v.value.map(get_value).join(', ') + ']'
+	      return '[' + v.value.map(get_value).join(', ') + ']'
       case 'ternary':
-	let d = v.value.data
-	return '(' + get_value(d[0]) + ')' + v.value.cmp + '(' + get_value(d[1]) + 
-	  ')?(' + get_value(d[1]) + '):(' + get_value(d[2]) + ')'
+        let d = v.value.data
+	      return '(' + get_value(d[0]) + ')' + v.value.cmp + '(' + get_value(d[1]) +
+	      ')?(' + get_value(d[1]) + '):(' + get_value(d[2]) + ')'
       default:
-	if (typeof v === 'string') return '"' + v + '"'
+      	if (typeof v === 'string') return '"' + v + '"'
         return '""'
     }
   }
@@ -1237,17 +1242,55 @@ Adom.prototype.resolve_modules = function (ops) {
 	  if (in_controller) {
 	    throw { msg: 'nested controllers are illegal', pos: c.pos, file: c.file }
 	  }
-	  controller = c.body
+	  let id = ids++
+	  controller = {
+	    body: c.body,
+	    ptr: ptr-1,
+	    root: id,
+	    name: c.name
+	  }
+	  tag_count++
 	  in_controller = true
 	  delete op.data.attributes.controller
-	}
-	if (in_controller) {
-
+	} else if (in_controller) {
+	  if (op.data.events.length > 0) {
+            let id = ids++
+            op.data.attributes['data-adom-id'] = { type: 'number', value: id }
+            op.data.events.forEach(function (e) {
+              events.push({ sel: '[data-adom-id="' + id + '"]', event: e.type, handler: e.handler })
+            })
+          }
+          let attr = stringify_object(op.data.attributes)
+          if (op.data.self_close) {
+            node_tree += '$$adom_element("' + op.data.name + '", ' + attr + '),'
+          } else {
+            node_tree += '$$adom_element("' + op.data.name + '", ' + attr + ', ['
+	    tag_count++
+          }
 	}
 	break
       case 'end_tag':
 	if (in_controller) {
-
+	  tag_count--
+	  if (tag_count === 0) {
+	    let o = ops[controller.ptr]
+	    let eventstr = '[' + events.map(function (e) {
+	      return '{sel: \'' + e.sel + '\', event: \'' + e.event + '\', handler: ' + e.handler + '}'
+	    }).join(',') + ']'
+	    o.data.attributes['data-adom-id'] = { type: 'number', value: controller.root }
+	    o.data.module = this.runtime({
+              nodes: node_tree,
+              name: controller.name,
+              root: controller.root,
+              module: controller.body,
+              events: eventstr
+            })
+	    controller = undefined
+	    in_controller = false
+	    node_tree = ''
+	  } else {
+	    node_tree += ']),'
+	  }
 	}
 	break
       case 'textnode':
@@ -1256,22 +1299,49 @@ Adom.prototype.resolve_modules = function (ops) {
         }
 	break
       case 'each':
-	
-	console.log(op)
+	if (in_controller) {
+	  let c = op.data
+	  if (c.iterators.length > 1) {
+	    node_tree += '$$adom_each(' + get_value(c.list) + ', function(' + c.iterators[0] + ', ' + c.iterators[1] + '){ return ['
+	  } else {
+	    node_tree += '$$adom_each(' + get_value(c.list) + ', function(' + c.iterators[0] + '){ return ['
+	  }
+	  iterators.push(c.iterators)
+	}
 	break
       case 'iterate':
+	if (in_controller) {
+	  node_tree += ']; }),'
+	  iterators.pop()
+	}
 	break
       case 'push_props':
-	prop_depth++
-	node_tree += '$$adom_push_props(' + stringify_object(op.data) + '),'
+	if (in_controller) {
+	  prop_depth++
+	  node_tree += '$$adom_push_props(' + stringify_object(op.data) + '),'
+	}
 	break
       case 'pop_props':
-	prop_depth--
-	node_tree += '$$adom_pop_props(),'
+	if (in_controller) {
+	  prop_depth--
+	  node_tree += '$$adom_pop_props(),'
+	}
 	break
       case 'if':
+	if (in_controller) {
+	  let c = op.data.condition
+	  node_tree += '$$adom_if(' + get_value(c.lhs) + c.cmp + get_value(c.rhs) + ', ['
+	}
+	break
+      case 'else':
+	if (in_controller) {
+	  node_tree += '], ['
+	}
 	break
       case 'end_if':
+	if (in_controller) {
+	  node_tree += ']),'
+	}
 	break
       default:
 	break

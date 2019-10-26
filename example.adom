@@ -1,49 +1,33 @@
-doctype html5
 
 import 'tags.adom'
 
-$person.name = name
-
-$people = [
-  { name: 'matt' },
-  { name: 'josephine' },
-  { name: 'mike' },
-  { name: 'jon' }
-]
-
 module main -->
-  yooooooo
+
+function addItem () {
+  $.items.push({ text: $.item, date: new Date() })
+  $update()
+}
+
+function onChange (e) {
+  $.item = e.target.value
+}
 <--
+
+
+doctype html5
 
 html [
   head []
   body [
-    a href={1 <= 2 ? '/logout' : '/login'} [ | logout | ]
-    h2 attr1='val1' attr2='val2' attr3 [ | Hello {name}! | ]
-    p class={[ 'class1', 'class2', name ]} | Your TODO list: |
-    Button link='/' [
-      span | HI {name} |
+    div controller={main} [
+      h1 | {name}'s todo list |
+      input on:change(onChange); button on:click(addItem) | add |
+      TodoList items={items};
+      if (items.length > 5) [
+        span | lots of items left |
+      ] else [
+        span | keep up the good work |
+      ]
     ]
-
-    div.class1.class2 controller={main} []
-
-    if (name == 'matt') test3 | |
-    else test4 | |
-
-    if (name != 'matt') [
-      test1 | |
-    ] else if (name == 'jim') [
-      test2 | |
-    ] else if (name == 'paul') [
-      test8 | |
-    ] else if (name == 'matt') [
-      test10 | |
-    ]
-    something | |
-    IfTest name='matt' [
-      succeed | |
-    ]
-    LoopTest [ span | peek | ]
-    Peeps;
   ]
 ]
