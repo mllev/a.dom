@@ -11,6 +11,10 @@ $people = [
   { name: 'jon' }
 ]
 
+module main -->
+  yooooooo
+<--
+
 html [
   head []
   body [
@@ -20,6 +24,8 @@ html [
     Button link='/' [
       span | HI |
     ]
+
+    div.class1.class2 controller={main} []
 
     if (name == 'matt') test3 | |
     else test4 | |

@@ -5,24 +5,24 @@ function Adom (config) {
 }
 
 Adom.prototype.tokenize = function (prog, file) {
-  var cursor = 0, end_pos = prog.length - 1
-  var tokens = [{ type: 'file_begin', data: file, pos: 0, file: file }]
+  let cursor = 0, end_pos = prog.length - 1
+  let tokens = [{ type: 'file_begin', data: file, pos: 0, file: file }]
 
-  var keywords = [
+  let keywords = [
     'tag', 'module', 'doctype', 'layout', 'each', 'if', 'in', 'else',
     'import', 'yield', 'on', 'null', 'export', 'file', 'controller', 'and', 'or'
   ]
 
-  var symbols = [
+  let symbols = [
     '.', '#', '=', '[', ']', ';', '{', '}', '(', ')', ':', '$', ',', '>', '<', '?'
   ]
 
   function break_into_chunks (text, cursor) {
-    var chunks = []
-    var chunk = ''
-    var i = 0, max = text.length
-    var in_expr = false
-    var pos = cursor
+    let chunks = []
+    let chunk = ''
+    let i = 0, max = text.length
+    let in_expr = false
+    let pos = cursor
     while (i < max) {
       if (text[i] === '{' && in_expr === false) {
       	in_expr = true
@@ -33,7 +33,7 @@ Adom.prototype.tokenize = function (prog, file) {
       } else if (text[i] === '}' && in_expr === true) {
       	in_expr = false
       	chunk += '}'
-      	var toks = this.tokenize(chunk, file)
+      	let toks = this.tokenize(chunk, file)
         toks.shift() //file_begin
       	toks.pop() //eof
       	toks.forEach(function (t) {
@@ -52,31 +52,31 @@ Adom.prototype.tokenize = function (prog, file) {
   }
 
   while (true) {
-    var c = prog[cursor]
-    var tok = { type: '', data: '', pos: cursor, file: file }
+    let c = prog[cursor]
+    let tok = { type: '', data: '', pos: cursor, file: file }
 
     if (cursor > end_pos) {
       tok.type = 'eof'
       tokens.push(tok)
       break
     } else if (c === ' ' || c === '\n' || c === '\t') {
-      var i = cursor
+      let i = cursor
       while (i <= end_pos && (prog[i] === ' ' || prog[i] === '\t' || prog[i] === '\n')) {
         i++
       }
       cursor = i
       continue
     } else if (c === '/' && prog[cursor+1] === '/') {
-      var i = cursor
+      let i = cursor
       while (c !== '\n' && i <= end_pos)
         c = prog[++i]
       cursor = i
       continue
     } else if (c >= '0' && c <= '9') {
-      var neg = tokens[tokens.length - 1].type === '-'
-      var num = ''
-      var i = cursor
-      var dot = false
+      let neg = tokens[tokens.length - 1].type === '-'
+      let num = ''
+      let i = cursor
+      let dot = false
       while ((c >= '0' && c <= '9') || c === '.') {
         if (c === '.') {
           if (dot) break
@@ -93,14 +93,14 @@ Adom.prototype.tokenize = function (prog, file) {
         tokens.pop()
       }
     } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-      var i = cursor
+      let i = cursor
       tok.data = ''
       while ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '-') {
         tok.data += c
         c = prog[++i]
       }
       cursor = i
-      var idx = keywords.indexOf(tok.data)
+      let idx = keywords.indexOf(tok.data)
       if (idx !== -1) {
 	tok.type = keywords[idx]
       } else {
@@ -111,8 +111,8 @@ Adom.prototype.tokenize = function (prog, file) {
 	tok.data = (tok.data === 'true')
       }
     } else if (c === '|') {
-      var i = cursor + 1
-      var text = ''
+      let i = cursor + 1
+      let text = ''
       while (true) {
         if (i > end_pos) {
           throw { msg: 'unterminated text node', pos: cursor, file: file }
@@ -124,7 +124,7 @@ Adom.prototype.tokenize = function (prog, file) {
         }
         text += prog[i++]
       }
-      var chunks = break_into_chunks.call(this, text, cursor)
+      let chunks = break_into_chunks.call(this, text, cursor)
       chunks.forEach(function (c) {
 	      tokens.push(c)
       })
@@ -151,8 +151,8 @@ Adom.prototype.tokenize = function (prog, file) {
       tok.data = c
       cursor++
     } else if (c === '"' && prog[cursor+1] === '"' && prog[cursor+2] === '"') {
-      var str = ''
-      var i = cursor + 3
+      let str = ''
+      let i = cursor + 3
       while (true) {
         if (i > end_pos) {
           throw { msg: 'unterminated long string', pos: cursor, file: file }
@@ -166,8 +166,8 @@ Adom.prototype.tokenize = function (prog, file) {
       tok.type = 'string'
       cursor = i
     } else if (c === '"' || c === '\'') {
-      var del = c
-      var i = cursor + 1
+      let del = c
+      let i = cursor + 1
 
       while (true) {
         if (i > end_pos || prog[i] === '\n') {
@@ -187,7 +187,7 @@ Adom.prototype.tokenize = function (prog, file) {
       tok.type = 'string'
       cursor = i
     } else if (c === '-' && prog[cursor+1] === '-' && prog[cursor+2] === '>') {
-      var i = cursor + 3
+      let i = cursor + 3
       while (i <= end_pos) {
         if (prog[i] === '\n' && prog[i+1] === '<' && prog[i+2] === '-' && prog[i+3] === '-') {
           i += 4
@@ -211,11 +211,11 @@ Adom.prototype.tokenize = function (prog, file) {
 }
 
 Adom.prototype.parse = function (tokens) {
-  var tok = tokens[0]
-  var cursor = 0
-  var files = []
-  var ops = []
-  var dont_emit = false
+  let tok = tokens[0]
+  let cursor = 0
+  let files = []
+  let ops = []
+  let dont_emit = false
 
   function new_context () {
     files.push({
@@ -224,13 +224,13 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function get_custom_tag (name) {
-    var t = files[files.length - 1].tags[name] 
+    let t = files[files.length - 1].tags[name] 
     return t == null ? -1 : t
   }
 
   function emit (op, data) {
     if (dont_emit) return
-    var i = { type: op }
+    let i = { type: op }
     if (data) i.data = data
     ops.push(i)
     return ops.length - 1
@@ -277,10 +277,10 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_primitive () {
-    var value = tok.data
-    var type = tok.type  
-    var pos = tok.pos
-    var file = tok.file
+    let value = tok.data
+    let type = tok.type  
+    let pos = tok.pos
+    let file = tok.file
     if (!accept('string') && !accept('number') && !accept('bool')) {
       unexpected()
     }
@@ -288,9 +288,9 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_variable () {
-    var value = [tok.data]
-    var pos = tok.pos
-    var file = tok.file
+    let value = [tok.data]
+    let pos = tok.pos
+    let file = tok.file
     expect('ident')
     while (true) {
       if (accept('.')) {
@@ -328,8 +328,8 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_variable_primitive_or_ternary () {
-    var data = [parse_variable_or_primitive()]
-    var cmp = tok.type
+    let data = [parse_variable_or_primitive()]
+    let cmp = tok.type
     if (parse_comparison()) {
       data.push(parse_variable_or_primitive())
       expect('?')
@@ -343,10 +343,10 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_object () {
-    var obj = {}
+    let obj = {}
     expect('{')
     while (true) {
-      var key = tok.data
+      let key = tok.data
       expect('ident')
       expect(':')
       if (peek('[')) {
@@ -363,7 +363,7 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_array () {
-    var arr = []
+    let arr = []
     expect('[')
     while (true) {
       if (peek('[')) {
@@ -380,7 +380,7 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_textnode () {
-    var chunks = []
+    let chunks = []
     while (true) {
       chunks.push(tok.data)
       expect('chunk')
@@ -392,20 +392,42 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_class_list () {
-    var classes = []
+    let classes = []
     while (true) {
       if (!accept('.')) break
-      classes.push(tok.data)
+      classes.push({
+	type: 'string',
+	value: tok.data,
+	pos: tok.pos,
+	file: tok.file
+      })
       expect('ident')
     }
-    return classes
+    return {
+      type: 'array',
+      value: classes
+    }
   }
 
   function parse_attributes () {
-    var attr = {}
+    let attr = {}
+    let events = {}
     while (true) {
-      var key = tok.data
-      if (accept('ident')) {
+      let key = tok.data
+      if (accept('controller')) {
+	expect('=')
+	if (accept('{')) {
+	  let ctrlr = tok.data
+	  expect('ident')
+	  expect('}')
+	  attr.controller = files[files.length - 1].modules[ctrlr]
+	} else {
+	  let cfile = tok.data
+	  let pos = tok.pos, file = tok.file
+	  expect('string')
+	  throw { msg: 'importing controllers is currently unsupported', pos: pos, file: file }
+	}
+      } else if (accept('ident')) {
         if (accept('=')) {
           if (accept('{')) {
 	    if (peek('[')) {
@@ -425,10 +447,13 @@ Adom.prototype.parse = function (tokens) {
         }
       } else if (accept('on')) {
         expect(':')
+	let evt = tok.data
         expect('ident')
         expect('(')
+	let handler = tok.data
         expect('ident')
         expect(')')
+	events[evt] = handler
       } else if (accept('controller')) {
         expect('(')
         expect('ident')
@@ -437,20 +462,20 @@ Adom.prototype.parse = function (tokens) {
         break
       }
     }
-    return attr
+    return [attr, events]
   }
 
-  function end_tag (name, attr, yield_func) {
+  function end_tag (name, attr, events, yield_func) {
     if (accept(';')) {
-      emit('begin_tag', { name: name, self_close: true, attributes: attr })
+      emit('begin_tag', { name: name, self_close: true, attributes: attr, events: events })
     } else if (accept('[')) {
-      emit('begin_tag', { name: name, attributes: attr })
+      emit('begin_tag', { name: name, attributes: attr, events: events })
       parse_tag_list(yield_func)
       expect(']')
       emit('end_tag')
     } else if (peek('chunk')) {
-      var textnode = parse_textnode()
-      emit('begin_tag', { name: name, attributes: attr })
+      let textnode = parse_textnode()
+      emit('begin_tag', { name: name, attributes: attr, events: events })
       emit('textnode', textnode)
       emit('end_tag')
     } else {
@@ -459,19 +484,23 @@ Adom.prototype.parse = function (tokens) {
   }
 
   function parse_tag (yield_func) {
-    var name = tok.data
+    let name = tok.data
     expect('ident')
-    var classlist = parse_class_list()
-    var attr = parse_attributes()
-    var custom = get_custom_tag(name)
+    let classlist = parse_class_list()
+    let attr_data = parse_attributes()
+    let events = attr_data[1]
+    let attr = attr_data[0]
+    let custom = get_custom_tag(name)
+    if (classlist.value.length > 0)
+      attr.class = classlist
     if (custom > -1 && !dont_emit) {
       if (accept('[')) {
-	var ret = cursor
+	let ret = cursor
 	dont_emit = true
 	parse_tag_list()
 	dont_emit = false
 	expect(']')
-	var end_ret = cursor
+	let end_ret = cursor
 	set_tok(custom)
 	emit('push_props', attr)
 	parse_tag_list(function (y) {
@@ -484,7 +513,7 @@ Adom.prototype.parse = function (tokens) {
 	set_tok(end_ret)
       } else {
 	expect(';')
-	var ret = cursor
+	let ret = cursor
 	set_tok(custom)
 	emit('push_props', attr)
 	parse_tag_list(yield_func)
@@ -492,12 +521,12 @@ Adom.prototype.parse = function (tokens) {
 	set_tok(ret)
       }
     } else {
-      end_tag(name, attr, yield_func)
+      end_tag(name, attr, events, yield_func)
     }
   }
 
   function parse_conditional () {
-    var cond = {}
+    let cond = {}
     while (true) {
       cond.lhs = parse_variable_or_primitive()
       cond.cmp = tok.type
@@ -518,17 +547,18 @@ Adom.prototype.parse = function (tokens) {
 
   function parse_if_statement (yield_func) {
     expect('(')
-    var condition = parse_conditional()
+    let condition = parse_conditional()
     expect(')')
-    var op = emit('if', { condition: condition, jmp: 0 })
+    let op = emit('if', { condition: condition, jmp: 0 })
     if (accept('[')) {
       parse_tag_list(yield_func)
       expect(']')
     } else {
       parse_tag(yield_func)
     }
-    var jmp = emit('jump', 0)
+    let jmp = emit('jump', 0)
     if (!dont_emit) ops[op].data.jmp = (ops.length - 1) - op
+    emit('else')
     if (accept('else')) {
       if (accept('[')) {
         parse_tag_list(yield_func)
@@ -540,11 +570,13 @@ Adom.prototype.parse = function (tokens) {
       }
     }
     if (!dont_emit) ops[jmp].data = (ops.length - 1) - jmp
+    emit('end_if')
   }
 
   function parse_tag_list (yield_func) {
+    let list
     if (accept('doctype')) {
-      var type = tok.data
+      let type = tok.data
       expect('ident')
       emit('doctype', type)
       parse_tag_list(yield_func)
@@ -553,9 +585,9 @@ Adom.prototype.parse = function (tokens) {
       parse_tag_list(yield_func)
     } else if (accept('each')) {
       expect('(')
-      var iter1, iter0 = tok.data
+      let iter1, iter0 = tok.data
       expect('ident')
-      var op = emit('each', {})
+      let op = emit('each', {})
       if (accept(',')) {
         iter1 = tok.data
 	expect('ident')
@@ -563,9 +595,9 @@ Adom.prototype.parse = function (tokens) {
       if (!dont_emit) ops[op].data.iterators = [iter0, iter1]
       expect('in')
       if (peek('[')) {
-	var list = parse_array()
+	list = parse_array()
       } else {
-	var list = parse_variable()
+	list = parse_variable()
       }
       if (!dont_emit) ops[op].data.list = list
       expect(')')
@@ -590,7 +622,7 @@ Adom.prototype.parse = function (tokens) {
 
   function parse_custom_tag () {
     expect('tag')
-    var tag = tok.data
+    let tag = tok.data
     expect('ident')
     expect('[')
     dont_emit = true
@@ -606,9 +638,9 @@ Adom.prototype.parse = function (tokens) {
 	new_context()
 	next()
       } if (tok.type === 'eof') {
-	var fctx = files.pop()
+	let fctx = files.pop()
 	fctx.exports.forEach(function (ex) {
-	  var e = ex.val
+	  let e = ex.val
 	  if (!fctx.modules[e] && !fctx.tags[e])
 	    throw { msg: 'no such tag or module', pos: ex.pos, file: ex.file }
 	  if (fctx.modules[e] && fctx.tags[e])
@@ -633,8 +665,8 @@ Adom.prototype.parse = function (tokens) {
       } else if (tok.type === 'tag') {
 	parse_custom_tag()
       } else if (accept('$')) {
-	var dst = parse_variable()
-	var val
+	let dst = parse_variable()
+	let val
 	expect('=')
 	if (accept('file')) {
 	  expect('string')
@@ -649,9 +681,9 @@ Adom.prototype.parse = function (tokens) {
 	}
 	emit('set', { dst: dst, val: val })
       } else if (accept('module')) {
-	var module = tok.data
+	let module = tok.data
 	expect('ident')
-	var module_body = tok.data
+	let module_body = tok.data
 	expect('module_body')
 	files[files.length - 1].modules[module] = module_body 
       } else {
@@ -666,19 +698,19 @@ Adom.prototype.parse = function (tokens) {
 }
 
 Adom.prototype.execute = function (ops, initial_state) {
-  var html = ''
-  var ptr = 0
-  var state = initial_state
-  var open_tags = []
-  var pretty = true
-  var props = []
-  var iterators = []
+  let html = ''
+  let ptr = 0
+  let state = initial_state
+  let open_tags = []
+  let pretty = true
+  let props = []
+  let iterators = []
 
   function check_props (list) {
     if (list[0] === 'props') {
       if (props.length < 1)
 	throw { msg: 'props can only be used inside a custom tag', pos: pos, file: file }
-      var v = props[props.length - 1]
+      let v = props[props.length - 1]
       list.shift()
       return v
     }
@@ -686,8 +718,8 @@ Adom.prototype.execute = function (ops, initial_state) {
   }
 
   function check_iterators (ptr, list) {
-    var check = list[0]
-    var i = iterators.length - 1
+    let check = list[0]
+    let i = iterators.length - 1
     while (i >= 0) {
       if (iterators[i].data[check] != null) {
 	list.shift()
@@ -699,10 +731,10 @@ Adom.prototype.execute = function (ops, initial_state) {
   }
 
   function resolve_variable (v) {
-    var list = v.value.slice(0)
-    var pos = v.pos
-    var file = v.file
-    var curr = state
+    let list = v.value.slice(0)
+    let pos = v.pos
+    let file = v.file
+    let curr = state
 
     curr = check_props(list) || curr
     curr = check_iterators(curr, list)
@@ -725,18 +757,18 @@ Adom.prototype.execute = function (ops, initial_state) {
   }
 
   function set (dst, val) {
-    var accessor = dst.value
-    var pos = dst.pos, file = dst.file
-    var ptr = state
-    var max = accessor.length
-    var prev = undefined
+    let accessor = dst.value
+    let pos = dst.pos, file = dst.file
+    let ptr = state
+    let max = accessor.length
+    let prev = undefined
 
     for (let i = 0; i < max; i++) {
-      var a = accessor[i]
+      let a = accessor[i]
       if (Array.isArray(a)) {
 	a = resolve_variable({ value: a, pos: pos, file: file })
       }
-      var t = typeof ptr[a]
+      let t = typeof ptr[a]
 
       if (Array.isArray(ptr) && typeof a === 'string') {
 	throw { msg: prev + ' is an array', pos: pos, file: file }
@@ -765,10 +797,10 @@ Adom.prototype.execute = function (ops, initial_state) {
   }
 
   function resolve_ternary (v) {
-    var v1 = v.value.data[0]
-    var v2 = v.value.data[1]
-    var v3 = v.value.data[2]
-    var v4 = v.value.data[3]
+    let v1 = v.value.data[0]
+    let v2 = v.value.data[1]
+    let v3 = v.value.data[2]
+    let v4 = v.value.data[3]
     switch (v.value.cmp) {
       case '==':
 	return get(v1) == get(v2) ? get(v3) : get(v4)
@@ -796,7 +828,7 @@ Adom.prototype.execute = function (ops, initial_state) {
       case 'variable':
 	return resolve_variable(v)
       case 'object': {
-	var obj = {}
+	let obj = {}
 	Object.keys(v.value).forEach(function (k) {
 	  obj[k] = get(v.value[k])
 	})
@@ -830,7 +862,7 @@ Adom.prototype.execute = function (ops, initial_state) {
   function assemble_attributes (attr) {
     let str = ''
     Object.keys(attr).forEach(function (k) {
-      var v = get(attr[k])
+      let v = get(attr[k])
       if (Array.isArray(v)) v = v.join(' ')
       str += (' ' + k + '="' + v + '"')
     })
@@ -850,10 +882,10 @@ Adom.prototype.execute = function (ops, initial_state) {
   }
     
   function exec () {
-    var iter
+    let iter
 
     while (ptr < ops.length) {
-      var op = ops[ptr++]
+      let op = ops[ptr++]
       switch (op.type) {
 	case 'begin_tag': {
 	  html += fmt() + '<' + op.data.name + assemble_attributes(op.data.attributes)
@@ -865,18 +897,17 @@ Adom.prototype.execute = function (ops, initial_state) {
 	  }
 	} break
 	case 'end_tag': {
-	  var tagname = open_tags.pop()
+	  let tagname = open_tags.pop()
 	  html += fmt() + '</' + tagname + '>'
 	} break
 	case 'set': {
 	  set(op.data.dst, op.data.val)
-	  console.log(state)
 	} break
 	case 'textnode': {
 	  html += fmt() + assemble_textnode(op.data)
 	} break
 	case 'push_props': {
-	  var pctx = {}
+	  let pctx = {}
 	  Object.keys(op.data).forEach(function (k) {
 	    pctx[k] = get(op.data[k])
 	  })
@@ -894,7 +925,7 @@ Adom.prototype.execute = function (ops, initial_state) {
 	  ptr += op.data
 	} break
 	case 'each': {
-	  var list = get(op.data.list)
+	  let list = get(op.data.list)
 	  if (Array.isArray(list)) {
 	    if (list.length === 0) {
 	      ptr += op.data.jmp
@@ -912,7 +943,7 @@ Adom.prototype.execute = function (ops, initial_state) {
 	      iter.data[op.data.iterators[1]] = 0
 	    iterators.push(iter)
 	  } else if (typeof list === 'object' && list !== null) {
-	    var keys = Object.keys(list)
+	    let keys = Object.keys(list)
 	    if (keys.length === 0) {
 	      ptr += op.data.jmp
 	      break
@@ -960,14 +991,14 @@ Adom.prototype.execute = function (ops, initial_state) {
 }
 
 Adom.prototype.get_error_text = function (prog, c) {
-  var i = c
-  var buf = '', pad = ''
-  var pos = c
-  var line = 1
+  let i = c
+  let buf = '', pad = ''
+  let pos = c
+  let line = 1
   while (pos >= 0) if (prog[pos--] === '\n') line++
   buf += line + '| '
-  var np = line.toString().length + 2
-  for (var k = 0; k < np; k++) pad += ' '
+  let np = line.toString().length + 2
+  for (let k = 0; k < np; k++) pad += ' '
   while (prog[i-1] !== '\n' && i > 0) i--
   while (prog[i] !== '\n' && i < prog.length) {
     if (i < c) {
@@ -985,16 +1016,16 @@ Adom.prototype.runtime = function (config) {
 // name, state, rootNode, nodeTree, events, module
 window.addEventListener('load', function ${config.name} () {
   // create node tree from state
-  var $$adom_state = `,
+  let $$adom_state = `,
 // state will get inserted here during the execution step
 // because it may get modified there
   `
-  var $$adom_props = []
-  var $$adom_events = undefined
-  var $$adom_prev_tree = undefined
+  let $$adom_props = []
+  let $$adom_events = undefined
+  let $$adom_prev_tree = undefined
 
   function $$adom_flatten (arr) {
-    var nodes = []
+    let nodes = []
     arr.forEach(function (c) {
       if (Array.isArray(c)) {
         c.forEach(function (i) {
@@ -1021,7 +1052,7 @@ window.addEventListener('load', function ${config.name} () {
     if (type === 'textnode') {
       return { type: type, content: attr }
     }
-    var c = children ? $$adom_flatten(children) : undefined
+    let c = children ? $$adom_flatten(children) : undefined
     return { type: type, attributes: attr, children: c }
   }
 
@@ -1036,7 +1067,7 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   function $$adom_each (list, children) {
-    var nodes = []
+    let nodes = []
 
     list.forEach(function (item, i) {
       nodes = nodes.concat($$adom_flatten(children(item, i)))
@@ -1064,15 +1095,15 @@ window.addEventListener('load', function ${config.name} () {
 
   function $$adom_create_node (node) {
     if (node.type === 'textnode') {
-      var c = node.content.trim()
+      let c = node.content.trim()
       if (c) {
-        var t = document.createElement('div')
+        let t = document.createElement('div')
         t.innerHTML = c
         return t.childNodes[0]
       }
       return document.createTextNode('')
     }
-    var el = document.createElement(node.type)
+    let el = document.createElement(node.type)
     Object.keys(node.attributes).forEach(function (attr) {
       el.setAttribute(attr, node.attributes[attr])
     })
@@ -1080,11 +1111,11 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   function $$adom_create_dom_tree (nodes) {
-    var rootNode = document.createDocumentFragment()
+    let rootNode = document.createDocumentFragment()
     function walk (children) {
-      var prev
+      let prev
       children.forEach(function (node) {
-        var el = $$adom_create_node(node)
+        let el = $$adom_create_node(node)
         if (node.children) {
           prev = rootNode
           rootNode = el
@@ -1099,8 +1130,8 @@ window.addEventListener('load', function ${config.name} () {
   }
 
   function $$adom_update (state) {
-    var root_node = $$adom_select('[data-adom-id="${config.root}"]')[0]
-    var nodes = $$adom_create_node_tree()
+    let root_node = $$adom_select('[data-adom-id="${config.root}"]')[0]
+    let nodes = $$adom_create_node_tree()
     console.log($$adom_prev_tree)
     root_node.innerHTML = ''
     root_node.appendChild($$adom_create_dom_tree(nodes))
@@ -1123,33 +1154,134 @@ window.addEventListener('load', function ${config.name} () {
   `]
 }
 
+Adom.prototype.resolve_modules = function (ops) {
+  let ptr = 0
+  let ids = 0
+  let tags = []
+  let in_controller = false
+  let controller = undefined
+  let node_tree = ''
+  let events = []
+  let prop_depth = -1
+  let iterators = []
+
+  function is_iterator (v) {
+     for (let i = 0; i < iterators.length; i++) {
+       if (iterators[i].indexOf(v) !== -1) {
+         return true
+       }
+     }
+     return false
+  }
+
+  function get_value (v) {
+    switch (v.type) {
+      case 'chunk':
+      case 'string':
+        return '"' + v.value + '"'
+      case 'number':
+        return v.value
+      case 'variable':
+        let start = 0
+        let val = v.value
+        let variable = '$$adom_state.'
+        if (is_iterator(val[0])) {
+          variable = ''
+        } else if (val[0] === 'props') {
+          variable = '$$adom_props[' + prop_depth + ']'
+          start = 1
+        }
+        for (let i = start; i < val.length; i++) {
+          let part = val[i]
+          if (i === 0) variable += part
+          else if (typeof part === 'number') variable += '[' + part + ']'
+          else variable += '["' + part + '"]'
+        }
+        return variable
+      case 'array':
+	return '[' + v.value.map(get_value).join(', ') + ']'
+      case 'ternary':
+	let d = v.value.data
+	return '(' + get_value(d[0]) + ')' + v.value.cmp + '(' + get_value(d[1]) + 
+	  ')?(' + get_value(d[1]) + '):(' + get_value(d[2]) + ')'
+      default:
+        return '""'
+    }
+  }
+
+  function get_content (chunks) {
+    return '(' + chunks.map(function (chunk) {
+      return get_value(chunk)
+      if (i < chunks.length - 1) text += ' + '
+    }).join(' + ') + ')'
+  }
+
+  function stringify_object (obj) {
+    let keys = Object.keys(obj)
+    return '{' + keys.map(function (k, i) {
+      return ('"' + k + '": ' + get_value(obj[k]))
+    }).join(', ') + '}'
+  }
+
+  while (ptr < ops.length) {
+    let op = ops[ptr++]
+    switch (op.type) {
+      case 'begin_tag':
+	Object.keys(op.data.attributes).forEach(function (key) {
+	  console.log(get_value(op.data.attributes[key]))
+	})
+	break
+      case 'end_tag':
+	break
+      case 'textnode':
+	console.log('TEXTNODE', get_content(op.data))
+	break
+      case 'each':
+	break
+      case 'iterate':
+	break
+      case 'push_props':
+	break
+      case 'pop_props':
+	break
+      case 'if':
+	break
+      case 'end_if':
+	break
+      default:
+	break
+    }
+  }
+  return ops
+}
+
 Adom.prototype.openFile = function (p) {
-  var fs = require('fs')
-  var path = require('path')
-  var f = path.resolve(this.dirname, p)
-  var prog = fs.readFileSync(f).toString()
+  let fs = require('fs')
+  let path = require('path')
+  let f = path.resolve(this.dirname, p)
+  let prog = fs.readFileSync(f).toString()
   this.files[f] = prog
   return [prog, f]
 }
 
 Adom.prototype.resolve_imports = function (tokens, file) {
-  var out_toks = []
-  var ptr = 0
+  let out_toks = []
+  let ptr = 0
 
   while (ptr < tokens.length) {
     switch (tokens[ptr].type) {
       case 'import': {
-        var path = tokens[++ptr].data
-        var fileData = this.openFile(path)
-	var f = fileData[1]
-        var toks = this.resolve_imports(this.tokenize(fileData[0], f), f)
+        let path = tokens[++ptr].data
+        let fileData = this.openFile(path)
+	let f = fileData[1]
+        let toks = this.resolve_imports(this.tokenize(fileData[0], f), f)
         toks.forEach(function (t) {
           out_toks.push(t)
         })
       } break
       case 'file':
-        var path = tokens[++ptr].data
-        var fileData = this.openFile(path)
+        let path = tokens[++ptr].data
+        let fileData = this.openFile(path)
 	out_toks.push({
 	  type: 'string',
 	  data: fileData[0],
@@ -1169,11 +1301,11 @@ Adom.prototype.resolve_imports = function (tokens, file) {
 
 Adom.prototype.compile_file = function (file, input_state) {
   try {
-    var fileData = this.openFile(file)
-    var f = fileData[1]
-    var tokens = this.resolve_imports(this.tokenize(fileData[0], f), f)
-    var ops = this.parse(tokens)
-    var html = this.execute(ops, input_state || {})
+    let fileData = this.openFile(file)
+    let f = fileData[1]
+    let tokens = this.resolve_imports(this.tokenize(fileData[0], f), f)
+    let ops = this.resolve_modules(this.parse(tokens))
+    let html = this.execute(ops, input_state || {})
     return html
   } catch (e) {
     if (e.pos) {
