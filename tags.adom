@@ -1,9 +1,0 @@
-tag TodoList [
-  ul [
-    each (i in props.items) [
-      li | {i.text} (Due: {i.date}) |
-    ]
-  ]
-]
-
-export TodoList
