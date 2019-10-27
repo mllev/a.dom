@@ -1338,6 +1338,8 @@ Adom.prototype.resolve_modules = function(ops) {
 
   function get_value(v) {
     switch (v.type) {
+      case "bool":
+        return !!v.value;
       case "chunk":
       case "string":
         return '"' + v.value + '"';
