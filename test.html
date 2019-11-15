@@ -78,7 +78,6 @@
 				let prevLen = $$lengths[lidx]
 
 				function walk (elements, par, domPtr) {
-					let count = 0
 					elements.forEach(function (el) {
 						let e 
 
@@ -92,24 +91,18 @@
 							}
 						}
 						par.appendChild(e)
-						count++
 					})
-					return count 
 				}
 
-				let count = walk(elements, frag, par.childNodes[index])
+				walk(elements, frag, par.childNodes[index])
 
-				console.log(par.childNodes, index, index + prevLen)
 				for (let i = index; i < (index + prevLen); i++) {
-					console.log(par.childNodes[i])
-					par.removeChild(par.childNodes[i])
+					par.removeChild(par.childNodes[index])
 				}
 
 				$$insertAtIndex(frag, par, index)
 
-				$$lengths[lidx] = count
-
-				return count
+				return ($$lengths[lidx] = elements.length)
 			}
 
 			function $sync () {
@@ -140,7 +133,7 @@
 					]
 				})
 
-				let offs2 = $$insertFrag(frag2, $$id('2'), offs1 + 1, 1)
+				let offs2 = $$insertFrag(frag2, $$id('2'), offs1 + 2, 1)
 			}
 
 			/*
@@ -155,6 +148,7 @@
 								li | {i} |
 							]
 							li | MIDDLE |
+							li | MIDDLE 2 |
 							each (i in items) [
 								li | {i} |
 								each (i in [1, 2, 3]) [
@@ -181,7 +175,7 @@
 				<p data-adom-id='1'>Items reamining: 2</p>
 			</div>
 			<div>
-				<ul data-adom-id='2'><li data-adom-id='3'>walk dog</li><li data-adom-id='3'>eat dog</li><li>MIDDLE</li><li data-adom-id='4'>walk dog</li><li data-adom-id='4'>eat dog</li></ul>
+				<ul data-adom-id='2'><li data-adom-id='3'>walk dog</li><li data-adom-id='3'>eat dog</li><li>MIDDLE</li><li>MIDDLE 2</li><li data-adom-id='4'>walk dog</li><li data-adom-id='4'>eat dog</li></ul>
 			</div>
 		</div>
 		<button id="btn">sync</button>
