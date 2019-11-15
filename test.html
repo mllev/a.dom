@@ -23,13 +23,31 @@
 				})
 			}
 
-			$$lengths = [2, 2]
+			$$lengths = [2, 2, 0]
+
+			function $$if (cond, pass, fail) {
+				let elements = []
+				let children
+				if (cond) {
+					children = pass
+				} else {
+					children = fail
+				}
+				children.forEach(function (child) {
+					if (Array.isArray(child)) {
+						child.forEach(function (c) {
+							elements.push(c)
+						})
+					} else {
+						elements.push(child)
+					}
+				})
+				return elements
+			}
 
 			function $$each (list, fn) {
 				let elements = []
-				// handle objects differently
-				list.forEach(function (item, i) {
-					let children = fn(item, i)
+				function addChildren (children) {
 					children.forEach(function (child) {
 						if (Array.isArray(child)) {
 							child.forEach(function (c) {
@@ -39,7 +57,21 @@
 							elements.push(child)
 						}
 					})
-				})
+				}
+				if (Array.isArray(list)) {
+					list.forEach(function (item, i) {
+						let children = fn(item, i)
+						addChildren(children)
+					})
+				} else if (typeof list === 'object') {
+					let keys = Object.keys(list)
+					keys.forEach(function (key) {
+						let children = fn(key, list[key])
+						addChildren(children)
+					})
+				} else {
+					throw new Error(list + ' is not iterable')
+				}
 				return elements
 			}
 
@@ -108,6 +140,18 @@
 			function $sync () {
 				$$id('1').childNodes[0].nodeValue = 'Items remaining: ' + state.items.length
 
+				let frag0 = $$if(state.items.length === 6, [
+					$$el('p', {}, [
+						$$el('text', 'YESSSSSS')
+					])
+				], [
+					$$el('p', {}, [
+						$$el('text', 'NOOOOOOO')
+					])
+				])
+
+				let offs0 = $$insertFrag(frag0, $$id('10'), 0, 2)
+
 				let frag1 = $$each(state.items, function (i) {
 					return [
 						$$el('li', { 'data-adom-id': '3' }, [
@@ -174,9 +218,7 @@
 				<h1>MATTS TODO LIST</h1>
 				<p data-adom-id='1'>Items reamining: 2</p>
 			</div>
-			<div>
-				<ul data-adom-id='2'><li data-adom-id='3'>walk dog</li><li data-adom-id='3'>eat dog</li><li>MIDDLE</li><li>MIDDLE 2</li><li data-adom-id='4'>walk dog</li><li data-adom-id='4'>eat dog</li></ul>
-			</div>
+			<div data-adom-id='10'><ul data-adom-id='2'><li data-adom-id='3'>walk dog</li><li data-adom-id='3'>eat dog</li><li>MIDDLE</li><li>MIDDLE 2</li><li data-adom-id='4'>walk dog</li><li data-adom-id='4'>eat dog</li></ul></div>
 		</div>
 		<button id="btn">sync</button>
 	</body>
