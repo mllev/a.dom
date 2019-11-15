@@ -577,12 +577,13 @@ Adom.prototype.parse = function(tokens) {
     let attr = attr_data[0];
     let custom = get_custom_tag(name);
     if (classlist.value.length > 0) attr.class = classlist;
-    if (custom > -1 && !dont_emit) {
+    let prev_emit = dont_emit
+    if (custom > -1) {
       if (accept("[")) {
         let ret = cursor;
         dont_emit = true;
         parse_tag_list();
-        dont_emit = false;
+        dont_emit = prev_emit;
         expect("]");
         let end_ret = cursor;
         set_tok(custom);
@@ -1119,6 +1120,7 @@ Adom.prototype.execute = function(ops, initial_state) {
             }
           }
           break;
+        // there may be a bug here since I never pop the iterator stack
         case "iterate":
           {
             iter = iterators[iterators.length - 1];
@@ -1326,6 +1328,8 @@ Adom.prototype.resolve_modules = function(ops) {
   let events = [];
   let prop_depth = -1;
   let iterators = [];
+  let each_depth = 0;
+  let if_depth = 0;
 
   function is_iterator(v) {
     for (let i = 0; i < iterators.length; i++) {
@@ -1434,6 +1438,11 @@ Adom.prototype.resolve_modules = function(ops) {
           in_controller = true;
           delete op.data.attributes.controller;
         } else if (in_controller) {
+          if (each_depth === 0 && if_depth === 0) {
+            console.log('static node: ', op.data)
+          } else if (each_depth === 1 && if_depth === 0) {
+            console.log('static fragment node: ', op.data)
+          }
           if (op.data.events.length > 0) {
             let id = ids++;
             op.data.attributes["data-adom-id"] = { type: "number", value: id };
@@ -1504,6 +1513,7 @@ Adom.prototype.resolve_modules = function(ops) {
         break;
       case "each":
         if (in_controller) {
+          each_depth++
           let c = op.data;
           if (c.iterators.length > 1) {
             node_tree +=
@@ -1527,6 +1537,7 @@ Adom.prototype.resolve_modules = function(ops) {
         break;
       case "iterate":
         if (in_controller) {
+          each_depth--
           node_tree += "]; }),";
           iterators.pop();
         }
@@ -1545,6 +1556,7 @@ Adom.prototype.resolve_modules = function(ops) {
         break;
       case "if":
         if (in_controller) {
+          if_depth++
           let c = op.data.condition;
           node_tree +=
             "$$adom_if(" + get_value(c.lhs) + c.cmp + get_value(c.rhs) + ", [";
@@ -1557,6 +1569,7 @@ Adom.prototype.resolve_modules = function(ops) {
         break;
       case "end_if":
         if (in_controller) {
+          if_depth--
           node_tree += "]),";
         }
         break;
