@@ -9,7 +9,8 @@
 					'walk dog',
 					'eat dog'
 				],
-				nums: [1, 2, 3]
+				nums: [1, 2, 3],
+				test: ''
 			}
 
 			function $$id (id, all) {
@@ -137,8 +138,21 @@
 				return ($$lengths[lidx] = elements.length)
 			}
 
+			function $$setText (id, text, index) {
+				let el = $$id(id)
+				let children = el.childNodes
+				if (index >= children.length) {
+					el.appendChild(document.createTextNode(text))
+				} else if (children[index].nodeType === Node.TEXT_NODE) {
+					children[index].nodeValue = text
+				} else {
+					$$insertAtIndex(document.createTextNode(text), el, index)
+				}
+			}
+
 			function $sync () {
-				$$id('1').childNodes[0].nodeValue = 'Items remaining: ' + state.items.length
+				$$setText('11', state.test, 0)
+				$$setText('1', 'Items remaining: ' + state.items.length, 0)
 
 				let frag0 = $$if(state.items.length === 6, [
 					$$el('p', {}, [
@@ -183,6 +197,7 @@
 			/*
 				div
 					div [
+						h1 |{test}|
 						h1 | MATTS TODO LIST |
 						p | Items remaining: {items.length} |
 					]
@@ -205,6 +220,7 @@
 			*/
 
 			window.btn.addEventListener('click', function () {
+				state.test = 'test'
 				state.nums.push(1)
 				state.items.push('new item')
 				$sync()
@@ -215,6 +231,7 @@
 	<body>
 		<div id='main'>
 			<div>
+				<h1 data-adom-id='11'></h1>
 				<h1>MATTS TODO LIST</h1>
 				<p data-adom-id='1'>Items reamining: 2</p>
 			</div>

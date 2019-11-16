@@ -561,7 +561,8 @@ Adom.prototype.parse = function(tokens) {
     } else if (peek("chunk")) {
       let textnode = parse_textnode();
       emit("begin_tag", { name: name, attributes: attr, events: events });
-      emit("textnode", textnode);
+      if (textnode.length > 1 || textnode[0] !== '')
+        emit("textnode", textnode);
       emit("end_tag");
     } else {
       unexpected();
@@ -702,7 +703,9 @@ Adom.prototype.parse = function(tokens) {
       parse_tag(yield_func);
       parse_tag_list(yield_func);
     } else if (peek("chunk")) {
-      parse_textnode();
+      let textnode = parse_textnode();
+      if (textnode.length > 1 || textnode[0] !== '')
+        emit("textnode", textnode);
       parse_tag_list();
     } else if (accept("yield")) {
       if (yield_func) yield_func(cursor);
@@ -793,7 +796,7 @@ Adom.prototype.execute = function(ops, initial_state) {
   let ptr = 0;
   let state = initial_state;
   let open_tags = [];
-  let pretty = true;
+  let pretty = false;
   let props = [];
   let iterators = [];
 
@@ -1121,6 +1124,7 @@ Adom.prototype.execute = function(ops, initial_state) {
           }
           break;
         // there may be a bug here since I never pop the iterator stack
+        // the solution would be to pop the iterator stack
         case "iterate":
           {
             iter = iterators[iterators.length - 1];
@@ -1172,164 +1176,168 @@ Adom.prototype.get_error_text = function(prog, c) {
   return buf;
 };
 
-Adom.prototype.runtime = function(config) {
-  return [
-    `
-// name, state, rootNode, nodeTree, events, module
-window.addEventListener('load', function ${config.name} () {
-  // create node tree from state
-  let $$adom_state = `,
-    // state will get inserted here during the execution step
-    // because it may get modified there
-    `
-  let $$adom_props = []
-  let $$adom_events = undefined
-  let $$adom_prev_tree = undefined
+Adom.prototype.runtime = function (name, module) {
+  return `
+window.addEventListener('load', function ${name} () {
+function $$id (id, all) {
+  let a = document.querySelectorAll('[data-adom-id="' + id + '"]')
+  return all ? a : a[0]
+}
 
-  function $$adom_flatten (arr) {
-    let nodes = []
-    arr.forEach(function (c) {
-      if (Array.isArray(c)) {
-        c.forEach(function (i) {
-          nodes.push(i)
-        })
-      } else if (c) {
-        nodes.push(c)
-      }
-    })
-    return nodes
+function $$setAttributes(e, attr) {
+  Object.keys(attr).forEach(function (a) {
+    e.setAttribute(a, attr[a])
+  })
+}
+
+$$lengths = [2, 2, 0]
+
+function $$if (cond, pass, fail) {
+  let elements = []
+  let children
+  if (cond) {
+    children = pass
+  } else {
+    children = fail
   }
-
-  function $$adom_push_props (obj) {
-    $$adom_props.push(obj)
-    return null
-  }
-
-  function $$adom_pop_props () {
-    $$adom_props.pop()
-    return null
-  }
-
-  function $$adom_element (type, attr, children) {
-    if (type === 'textnode') {
-      return { type: type, content: attr }
-    }
-    let c = children ? $$adom_flatten(children) : undefined
-    return { type: type, attributes: attr, children: c }
-  }
-
-  function $$adom_select (sel) {
-    return document.querySelectorAll(sel)
-  }
-
-  function $$adom_attach_event (e) {
-    $$adom_select(e.sel).forEach(function (el) {
-      el.addEventListener(e.event, e.handler)
-    })
-  }
-
-  function $$adom_each (list, children) {
-    let nodes = []
-
-    list.forEach(function (item, i) {
-      nodes = nodes.concat($$adom_flatten(children(item, i)))
-    })
-
-    return nodes
-  }
-
-  function $$adom_if (cond, ifChildren, elseChildren) {
-    if (cond) {
-      return $$adom_flatten(ifChildren)
-    } else if (elseChildren) {
-      return $$adom_flatten(elseChildren)
-    } else {
-      return null
-    }
-  }
-
-  function $$adom_set_event_listeners (events) {
-    if ($$adom_events) {
-      $$adom_events.forEach($$adom_attach_event)
-    } else {
-      $$adom_events = events
-      $$adom_events.forEach($$adom_attach_event)
-    }
-  }
-
-  function $$adom_create_node (node) {
-    if (node.type === 'textnode') {
-      let c = node.content.trim()
-      if (c) {
-        let t = document.createElement('div')
-        t.innerHTML = c
-        return t.childNodes[0]
-      }
-      return document.createTextNode('')
-    }
-    let el = document.createElement(node.type)
-    Object.keys(node.attributes).forEach(function (attr) {
-      el.setAttribute(attr, node.attributes[attr])
-    })
-    return el
-  }
-
-  function $$adom_create_dom_tree (nodes) {
-    let rootNode = document.createDocumentFragment()
-    function walk (children) {
-      let prev
-      children.forEach(function (node) {
-        let el = $$adom_create_node(node)
-        if (node.children) {
-          prev = rootNode
-          rootNode = el
-          walk(node.children)
-          rootNode = prev
-        }
-        rootNode.appendChild(el)
+  children.forEach(function (child) {
+    if (Array.isArray(child)) {
+      child.forEach(function (c) {
+        elements.push(c)
       })
+    } else {
+      elements.push(child)
     }
-    walk(nodes)
-    return rootNode
+  })
+  return elements
+}
+
+function $$each (list, fn) {
+  let elements = []
+  function addChildren (children) {
+    children.forEach(function (child) {
+      if (Array.isArray(child)) {
+        child.forEach(function (c) {
+          elements.push(c)
+        })
+      } else {
+        elements.push(child)
+      }
+    })
+  }
+  if (Array.isArray(list)) {
+    list.forEach(function (item, i) {
+      let children = fn(item, i)
+      addChildren(children)
+    })
+  } else if (typeof list === 'object') {
+    let keys = Object.keys(list)
+    keys.forEach(function (key) {
+      let children = fn(key, list[key])
+      addChildren(children)
+    })
+  } else {
+    throw new Error(list + ' is not iterable')
+  }
+  return elements
+}
+
+function $$el (tag, attributes, children) {
+  if (tag === 'text') {
+    return { type: 'text', text: attributes }
+  }
+  let els = []
+  children.forEach(function (child) {
+    if (Array.isArray(child)) {
+      child.forEach(function (c) {
+        els.push(c)
+      })
+    } else {
+      els.push(child)
+    }
+  })
+  return {
+    type: 'node',
+    name: tag,
+    attributes: attributes,
+    children: els
+  }
+}
+
+function $$insertAtIndex (child, par, index) {
+  if (index >= par.childNodes.length) {
+    par.appendChild(child)
+  } else {
+    par.insertBefore(child, par.childNodes[index])
+  }
+}
+
+function $$setText (id, text, index) {
+  let el = $$id(id)
+  let children = el.childNodes
+  if (index >= children.length) {
+    el.appendChild(document.createTextNode(text))
+  } else if (children[index].nodeType === Node.TEXT_NODE) {
+    children[index].nodeValue = text
+  } else {
+    $$insertAtIndex(document.createTextNode(text), el, index)
+  }
+}
+
+function $$insertFrag (elements, par, index, lidx) {
+  let frag = document.createDocumentFragment()
+  let prevLen = $$lengths[lidx]
+
+  function walk (elements, par, domPtr) {
+    elements.forEach(function (el) {
+      let e 
+
+      if (el.type === 'text') {
+        e = document.createTextNode(el.text)
+      } else {
+        e = document.createElement(el.name)
+        $$setAttributes(e, el.attributes)
+        if (el.children.length) {
+          walk(el.children, e)
+        }
+      }
+      par.appendChild(e)
+    })
   }
 
-  function $$adom_update (state) {
-    let root_node = $$adom_select('[data-adom-id="${config.root}"]')[0]
-    let nodes = $$adom_create_node_tree()
-    root_node.innerHTML = ''
-    root_node.appendChild($$adom_create_dom_tree(nodes))
-    $$adom_prev_tree = nodes
-    $$adom_set_event_listeners()
+  walk(elements, frag, par.childNodes[index])
+
+  for (let i = index; i < (index + prevLen); i++) {
+    par.removeChild(par.childNodes[index])
   }
 
-  function $$adom_create_node_tree () {
-    return $$adom_flatten([
-      ${config.nodes}
-    ])
-  }
+  $$insertAtIndex(frag, par, index)
 
-  (function ($, $update) {
-    $$adom_prev_tree = $$adom_create_node_tree()
-    $$adom_set_event_listeners(${config.events});
-    ${config.module}
-  })($$adom_state, $$adom_update)
+  return ($$lengths[lidx] = elements.length)
+}
+
+function $sync () {
+
+}
+
+${module}
+
 })
   `
-  ];
-};
+}
 
 Adom.prototype.resolve_modules = function(ops) {
   let ptr = 0;
-  let ids = 0;
-  let tag_count = 0;
   let in_controller = false;
-  let controller = undefined;
-  let node_tree = "";
-  let events = [];
   let prop_depth = -1;
   let iterators = [];
-  let each_depth = 0;
-  let if_depth = 0;
+  let scope_depth = 0;
+  let ids = 0;
+  let updates = [];
+  let events = [];
+  let tag_info = [];
+  let frag_count = -1;
+  let frag_index = 0;
 
   function is_iterator(v) {
     for (let i = 0; i < iterators.length; i++) {
@@ -1370,19 +1378,7 @@ Adom.prototype.resolve_modules = function(ops) {
         return "[" + v.value.map(get_value).join(", ") + "]";
       case "ternary":
         let d = v.value.data;
-        return (
-          "(" +
-          get_value(d[0]) +
-          ")" +
-          v.value.cmp +
-          "(" +
-          get_value(d[1]) +
-          ")?(" +
-          get_value(d[2]) +
-          "):(" +
-          get_value(d[3]) +
-          ")"
-        );
+        return `(${get_value(d[0])})${v.value.cmp}(${get_value(d[1])})?(${get_value(d[2])}):(${get_value(d[3])})`
       default:
         if (typeof v === "string") return '"' + v + '"';
         return '""';
@@ -1420,6 +1416,7 @@ Adom.prototype.resolve_modules = function(ops) {
       case "begin_tag":
         if (op.data.attributes.controller) {
           let c = op.data.attributes.controller;
+          tag_info.push({ name: op.data.name, ref: op, count: 0 })
           if (in_controller) {
             throw {
               msg: "nested controllers are illegal",
@@ -1427,25 +1424,16 @@ Adom.prototype.resolve_modules = function(ops) {
               file: c.file
             };
           }
-          let id = ids++;
-          controller = {
-            body: c.body,
-            ptr: ptr - 1,
-            root: id,
-            name: c.name
-          };
-          tag_count++;
           in_controller = true;
           delete op.data.attributes.controller;
         } else if (in_controller) {
-          if (each_depth === 0 && if_depth === 0) {
-            console.log('static node: ', op.data)
-          } else if (each_depth === 1 && if_depth === 0) {
-            console.log('static fragment node: ', op.data)
-          }
+          let id = -1
+          tag_info[tag_info.length - 1].count++;
+          tag_info.push({ name: op.data.name, ref: op, count: 0 })
           if (op.data.events.length > 0) {
-            let id = ids++;
-            op.data.attributes["data-adom-id"] = { type: "number", value: id };
+            id = ids++
+            tag_info[tag_info.length - 1].id = id
+            op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
             op.data.events.forEach(function(e) {
               events.push({
                 sel: '[data-adom-id="' + id + '"]',
@@ -1454,129 +1442,148 @@ Adom.prototype.resolve_modules = function(ops) {
               });
             });
           }
-          let attr = stringify_object(op.data.attributes);
-          if (op.data.self_close) {
-            node_tree +=
-              '$$adom_element("' + op.data.name + '", ' + attr + "),";
+          if (scope_depth === 0) {
+            let needsUpdates = false
+            let obj = {}
+            for (let a in op.data.attributes) {
+              let t = op.data.attributes[a].type
+              if (t === 'array' || t === 'variable' || t === 'array') {
+                needsUpdates = true
+                obj[a] = op.data.attributes[a]
+              }
+            }
+            if (needsUpdates) {
+              if (id === -1) id = ids++;
+              tag_info[tag_info.length - 1].id = id;
+              op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
+              updates.push(`$$setAttributes($$id('${id}'),${stringify_object(obj)}));`);
+            }
+            if (op.data.self_close) {
+              tag_info.pop()
+            }
           } else {
-            node_tree +=
-              '$$adom_element("' + op.data.name + '", ' + attr + ", [";
-            tag_count++;
+            updates.push(`$$el("${op.data.name}", ${stringify_object(op.data.attributes)}, [`);
+            if (op.data.self_close) {
+              updates.push(']),')
+              tag_info.pop()
+            }
           }
         }
         break;
       case "end_tag":
         if (in_controller) {
-          tag_count--;
-          if (tag_count === 0) {
-            let o = ops[controller.ptr];
-            let eventstr =
-              "[" +
-              events
-                .map(function(e) {
-                  return (
-                    "{sel: '" +
-                    e.sel +
-                    "', event: '" +
-                    e.event +
-                    "', handler: " +
-                    e.handler +
-                    "}"
-                  );
-                })
-                .join(",") +
-              "]";
-            o.data.attributes["data-adom-id"] = {
-              type: "number",
-              value: controller.root
-            };
-            o.data.module = this.runtime({
-              nodes: node_tree,
-              name: controller.name,
-              root: controller.root,
-              module: controller.body,
-              events: eventstr
-            });
+          tag_info.pop()
+          if (scope_depth > 0) {
+            updates.push(']),')
+          }
+          if (!tag_info.length) {
             controller = undefined;
             in_controller = false;
-            node_tree = "";
-          } else {
-            node_tree += "]),";
           }
         }
         break;
       case "textnode":
         if (in_controller) {
-          node_tree +=
-            '$$adom_element("textnode", ' + get_content(op.data) + "),";
+          let t = tag_info[tag_info.length - 1];
+          let i = t.count++
+          if (scope_depth === 0) {
+            let a = t.ref.data.attributes;
+            let id = t.id;
+
+            if (!id) id = ids++;
+
+            if (a['data-adom-id'] == null) {
+              a['data-adom-id'] = { type: 'string', value: id + '' };
+            }
+
+            let needsUpdates = false
+
+            op.data.forEach(function (c) {
+              if (c.type === 'variable') {
+                needsUpdates = true
+              }
+            })
+            
+            if (needsUpdates) {
+              updates.push(`$$setText("${id}", ${get_content(op.data)}, ${i});`);
+            }
+          } else {
+            updates.push(`$$el("text", ${get_content(op.data)}),`);
+          }
         }
         break;
       case "each":
         if (in_controller) {
-          each_depth++
           let c = op.data;
-          if (c.iterators.length > 1) {
-            node_tree +=
-              "$$adom_each(" +
-              get_value(c.list) +
-              ", function(" +
-              c.iterators[0] +
-              ", " +
-              c.iterators[1] +
-              "){ return [";
+          let i = c.iterators
+          iterators.push(i);
+          if (scope_depth === 0) {
+            let t = tag_info[tag_info.length - 1]
+            if (t.ref.data.attributes['data-adom-id'] == null) {
+              t.id = ids++
+              t.ref.data.attributes['data-adom-id'] = { type: 'string', value: t.id + '' };
+            }
+            updates.push(
+              `var frag1 = $$each(${get_value(op.data.list)}, function(${i[0]}${
+                i[1] ? `, ${i[1]}` : ''
+              }) { return [`
+            )
+            frag_count++;
+            frag_index = t.count
           } else {
-            node_tree +=
-              "$$adom_each(" +
-              get_value(c.list) +
-              ", function(" +
-              c.iterators[0] +
-              "){ return [";
+            updates.push(
+              `$$each(${get_value(op.data.list)}, function(${i[0]}${
+                i[1] ? `, ${i[1]}` : ''
+              }) { return [`
+            )
           }
-          iterators.push(c.iterators);
+          scope_depth++;
         }
         break;
       case "iterate":
         if (in_controller) {
-          each_depth--
-          node_tree += "]; }),";
           iterators.pop();
+          scope_depth--;
+          if (scope_depth === 0) {
+            updates.push(`] });`);
+            let t = tag_info[tag_info.length - 1];
+            let index = frag_index;
+            let id = t.id;
+            updates.push(`var offs1 = $$insertFrag(frag1, $$id('${id}'),${index},${frag_count});`);
+          } else {
+            updates.push(`] }),`);
+          }
         }
         break;
       case "push_props":
         if (in_controller) {
           prop_depth++;
-          node_tree += "$$adom_push_props(" + stringify_object(op.data) + "),";
         }
         break;
       case "pop_props":
         if (in_controller) {
           prop_depth--;
-          node_tree += "$$adom_pop_props(),";
         }
         break;
       case "if":
         if (in_controller) {
-          if_depth++
           let c = op.data.condition;
-          node_tree +=
-            "$$adom_if(" + get_value(c.lhs) + c.cmp + get_value(c.rhs) + ", [";
         }
         break;
       case "else":
         if (in_controller) {
-          node_tree += "], [";
         }
         break;
       case "end_if":
         if (in_controller) {
-          if_depth--
-          node_tree += "]),";
         }
         break;
       default:
         break;
     }
   }
+
+  console.log(updates)
   return ops;
 };
 
