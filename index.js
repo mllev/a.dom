@@ -1336,7 +1336,6 @@ Adom.prototype.resolve_modules = function(ops) {
   let updates = [];
   let events = [];
   let tag_info = [];
-  let frag_count = -1;
   let frag_index = 0;
 
   function is_iterator(v) {
@@ -1416,7 +1415,7 @@ Adom.prototype.resolve_modules = function(ops) {
       case "begin_tag":
         if (op.data.attributes.controller) {
           let c = op.data.attributes.controller;
-          tag_info.push({ name: op.data.name, ref: op, count: 0 })
+          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0 })
           if (in_controller) {
             throw {
               msg: "nested controllers are illegal",
@@ -1428,8 +1427,7 @@ Adom.prototype.resolve_modules = function(ops) {
           delete op.data.attributes.controller;
         } else if (in_controller) {
           let id = -1
-          tag_info[tag_info.length - 1].count++;
-          tag_info.push({ name: op.data.name, ref: op, count: 0 })
+          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0 })
           if (op.data.events.length > 0) {
             id = ids++
             tag_info[tag_info.length - 1].id = id
@@ -1443,6 +1441,7 @@ Adom.prototype.resolve_modules = function(ops) {
             });
           }
           if (scope_depth === 0) {
+            tag_info[tag_info.length - 2].count++;
             let needsUpdates = false
             let obj = {}
             for (let a in op.data.attributes) {
@@ -1485,8 +1484,8 @@ Adom.prototype.resolve_modules = function(ops) {
       case "textnode":
         if (in_controller) {
           let t = tag_info[tag_info.length - 1];
-          let i = t.count++
           if (scope_depth === 0) {
+            let i = t.count++
             let a = t.ref.data.attributes;
             let id = t.id;
 
@@ -1519,17 +1518,19 @@ Adom.prototype.resolve_modules = function(ops) {
           iterators.push(i);
           if (scope_depth === 0) {
             let t = tag_info[tag_info.length - 1]
+            // if the parent doesn't have an id, we need to add one
+            // it may already have one if it has dynamic attributes
             if (t.ref.data.attributes['data-adom-id'] == null) {
               t.id = ids++
               t.ref.data.attributes['data-adom-id'] = { type: 'string', value: t.id + '' };
             }
+            let num = t.frag_count++;
+            frag_index = t.count
             updates.push(
-              `var frag1 = $$each(${get_value(op.data.list)}, function(${i[0]}${
+              `var frag${t.id}${num} = $$each(${get_value(op.data.list)}, function(${i[0]}${
                 i[1] ? `, ${i[1]}` : ''
               }) { return [`
             )
-            frag_count++;
-            frag_index = t.count
           } else {
             updates.push(
               `$$each(${get_value(op.data.list)}, function(${i[0]}${
@@ -1547,9 +1548,13 @@ Adom.prototype.resolve_modules = function(ops) {
           if (scope_depth === 0) {
             updates.push(`] });`);
             let t = tag_info[tag_info.length - 1];
-            let index = frag_index;
             let id = t.id;
-            updates.push(`var offs1 = $$insertFrag(frag1, $$id('${id}'),${index},${frag_count});`);
+            let index = '';
+            for (let i = t.frag_count - 1; i > 0; i--) {
+              index += `offs${t.id}${i} + `
+            }
+            index += frag_index;
+            updates.push(`var offs${t.id}${t.frag_count} = $$insertFrag(frag${t.id}${t.frag_count}, $$id('${id}'),${index},${t.frag_count});`);
           } else {
             updates.push(`] }),`);
           }
