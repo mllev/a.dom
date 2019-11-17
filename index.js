@@ -1123,8 +1123,6 @@ Adom.prototype.execute = function(ops, initial_state) {
             }
           }
           break;
-        // there may be a bug here since I never pop the iterator stack
-        // the solution would be to pop the iterator stack
         case "iterate":
           {
             iter = iterators[iterators.length - 1];
@@ -1140,6 +1138,8 @@ Adom.prototype.execute = function(ops, initial_state) {
                     iter.object[iter.data[iter.iterators[0]]];
               }
               ptr += op.data;
+            } else {
+              iterators.pop();
             }
           }
           break;
@@ -1176,9 +1176,10 @@ Adom.prototype.get_error_text = function(prog, c) {
   return buf;
 };
 
-Adom.prototype.runtime = function (name, module) {
+Adom.prototype.runtime = function () {
   return `
-window.addEventListener('load', function ${name} () {
+$$adom_frag_lengths = []
+
 function $$id (id, all) {
   let a = document.querySelectorAll('[data-adom-id="' + id + '"]')
   return all ? a : a[0]
@@ -1189,8 +1190,6 @@ function $$setAttributes(e, attr) {
     e.setAttribute(a, attr[a])
   })
 }
-
-$$lengths = [2, 2, 0]
 
 function $$if (cond, pass, fail) {
   let elements = []
@@ -1210,6 +1209,14 @@ function $$if (cond, pass, fail) {
     }
   })
   return elements
+}
+
+function $$calculateFragLength (ids) {
+  let len = 0
+  ids.forEach(function (id) {
+    len += $$id(id.toString(), true).length
+  })
+  return len
 }
 
 function $$each (list, fn) {
@@ -1286,7 +1293,7 @@ function $$setText (id, text, index) {
 
 function $$insertFrag (elements, par, index, lidx) {
   let frag = document.createDocumentFragment()
-  let prevLen = $$lengths[lidx]
+  let prevLen = $$adom_frag_lengths[lidx]
 
   function walk (elements, par, domPtr) {
     elements.forEach(function (el) {
@@ -1313,20 +1320,12 @@ function $$insertFrag (elements, par, index, lidx) {
 
   $$insertAtIndex(frag, par, index)
 
-  return ($$lengths[lidx] = elements.length)
+  return ($$adom_frag_lengths[lidx] = elements.length)
+}
+`
 }
 
-function $sync () {
-
-}
-
-${module}
-
-})
-  `
-}
-
-Adom.prototype.resolve_modules = function(ops) {
+Adom.prototype.generate_sync_function = function(ops) {
   let ptr = 0;
   let in_controller = false;
   let prop_depth = -1;
@@ -1337,6 +1336,10 @@ Adom.prototype.resolve_modules = function(ops) {
   let events = [];
   let tag_info = [];
   let frag_index = 0;
+  let frag_id = 0;
+  let lindex = -1;
+  let id_list = [];
+  let init = [];
 
   function is_iterator(v) {
     for (let i = 0; i < iterators.length; i++) {
@@ -1409,13 +1412,28 @@ Adom.prototype.resolve_modules = function(ops) {
     );
   }
 
+  function last_tag (index) {
+    return tag_info[tag_info.length - (index || 1)]
+  }
+
+  function get_frag_index (t) {
+    let index = '';
+    for (let i = 0; i < t.frag_count - 1; i++) {
+      index += `offs${t.id}${i} + `;
+    }
+    index += frag_index;
+    return index;
+  }
+
   while (ptr < ops.length) {
     let op = ops[ptr++];
     switch (op.type) {
       case "begin_tag":
         if (op.data.attributes.controller) {
           let c = op.data.attributes.controller;
-          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0 })
+          let id = ids++;
+          op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
+          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (in_controller) {
             throw {
               msg: "nested controllers are illegal",
@@ -1426,12 +1444,10 @@ Adom.prototype.resolve_modules = function(ops) {
           in_controller = true;
           delete op.data.attributes.controller;
         } else if (in_controller) {
-          let id = -1
-          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0 })
+          let id = ids++
+          op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
+          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (op.data.events.length > 0) {
-            id = ids++
-            tag_info[tag_info.length - 1].id = id
-            op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
             op.data.events.forEach(function(e) {
               events.push({
                 sel: '[data-adom-id="' + id + '"]',
@@ -1441,7 +1457,7 @@ Adom.prototype.resolve_modules = function(ops) {
             });
           }
           if (scope_depth === 0) {
-            tag_info[tag_info.length - 2].count++;
+            last_tag(2).count++;
             let needsUpdates = false
             let obj = {}
             for (let a in op.data.attributes) {
@@ -1452,15 +1468,13 @@ Adom.prototype.resolve_modules = function(ops) {
               }
             }
             if (needsUpdates) {
-              if (id === -1) id = ids++;
-              tag_info[tag_info.length - 1].id = id;
-              op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
               updates.push(`$$setAttributes($$id('${id}'),${stringify_object(obj)}));`);
             }
             if (op.data.self_close) {
               tag_info.pop()
             }
           } else {
+            id_list.push(id);
             updates.push(`$$el("${op.data.name}", ${stringify_object(op.data.attributes)}, [`);
             if (op.data.self_close) {
               updates.push(']),')
@@ -1483,26 +1497,16 @@ Adom.prototype.resolve_modules = function(ops) {
         break;
       case "textnode":
         if (in_controller) {
-          let t = tag_info[tag_info.length - 1];
+          let parent = last_tag();
           if (scope_depth === 0) {
-            let i = t.count++
-            let a = t.ref.data.attributes;
-            let id = t.id;
-
-            if (!id) id = ids++;
-
-            if (a['data-adom-id'] == null) {
-              a['data-adom-id'] = { type: 'string', value: id + '' };
-            }
-
+            let i = parent.count++;
+            let id = parent.id;
             let needsUpdates = false
-
             op.data.forEach(function (c) {
               if (c.type === 'variable') {
                 needsUpdates = true
               }
             })
-            
             if (needsUpdates) {
               updates.push(`$$setText("${id}", ${get_content(op.data)}, ${i});`);
             }
@@ -1514,20 +1518,16 @@ Adom.prototype.resolve_modules = function(ops) {
       case "each":
         if (in_controller) {
           let c = op.data;
-          let i = c.iterators
+          let i = c.iterators;
           iterators.push(i);
           if (scope_depth === 0) {
-            let t = tag_info[tag_info.length - 1]
-            // if the parent doesn't have an id, we need to add one
-            // it may already have one if it has dynamic attributes
-            if (t.ref.data.attributes['data-adom-id'] == null) {
-              t.id = ids++
-              t.ref.data.attributes['data-adom-id'] = { type: 'string', value: t.id + '' };
-            }
-            let num = t.frag_count++;
+            id_list = [];
+            lindex++;
+            let t = last_tag() 
+            frag_id = t.frag_count++;
             frag_index = t.count
             updates.push(
-              `var frag${t.id}${num} = $$each(${get_value(op.data.list)}, function(${i[0]}${
+              `var frag${t.id}${frag_id} = $$each(${get_value(op.data.list)}, function(${i[0]}${
                 i[1] ? `, ${i[1]}` : ''
               }) { return [`
             )
@@ -1546,15 +1546,12 @@ Adom.prototype.resolve_modules = function(ops) {
           iterators.pop();
           scope_depth--;
           if (scope_depth === 0) {
+            init.push(`$$adom_frag_lengths.push($$calculateFragLength(${JSON.stringify(id_list)}));`)
             updates.push(`] });`);
-            let t = tag_info[tag_info.length - 1];
+            let t = last_tag();
             let id = t.id;
-            let index = '';
-            for (let i = t.frag_count - 1; i > 0; i--) {
-              index += `offs${t.id}${i} + `
-            }
-            index += frag_index;
-            updates.push(`var offs${t.id}${t.frag_count} = $$insertFrag(frag${t.id}${t.frag_count}, $$id('${id}'),${index},${t.frag_count});`);
+            let index = get_frag_index(t);
+            updates.push(`var offs${t.id}${frag_id} = $$insertFrag(frag${t.id}${frag_id}, $$id('${id}'),${index},${lindex});`);
           } else {
             updates.push(`] }),`);
           }
@@ -1573,14 +1570,39 @@ Adom.prototype.resolve_modules = function(ops) {
       case "if":
         if (in_controller) {
           let c = op.data.condition;
+          if (scope_depth === 0) {
+            id_list = [];
+            lindex++;
+            let t = last_tag();
+            frag_id = t.frag_count++;
+            frag_index = t.count;
+            let v1 = get_value(c.lhs);
+            let v2 = get_value(c.rhs);
+            updates.push(`var frag${t.id}${frag_id} = $$if((${v1})${c.cmp}(${v2}), [`)
+          } else {
+            updates.push(`$$if((${v1})${c.cmp}(${v2}), [`)
+          }
+          scope_depth++;
         }
         break;
       case "else":
         if (in_controller) {
+          updates.push('],[');
         }
         break;
       case "end_if":
         if (in_controller) {
+          scope_depth--;
+          if (scope_depth === 0) {
+            init.push(`$$adom_frag_lengths.push($$calculateFragLength(${JSON.stringify(id_list)}));`)
+            updates.push(']);')
+            let t = last_tag();
+            let id = t.id;
+            let index = get_frag_index(t);
+            updates.push(`var offs${t.id}${frag_id} = $$insertFrag(frag${t.id}${frag_id}, $$id('${id}'),${index},${lindex});`);
+          } else {
+            updates.push(']),')
+          }
         }
         break;
       default:
@@ -1588,8 +1610,9 @@ Adom.prototype.resolve_modules = function(ops) {
     }
   }
 
-  console.log(updates)
-  return ops;
+  console.log(init)
+
+  return updates;
 };
 
 Adom.prototype.openFile = function(p) {
@@ -1646,7 +1669,9 @@ Adom.prototype.compile_file = function(file, input_state) {
       let fileData = this.openFile(file);
       let f = fileData[1];
       let tokens = this.resolve_imports(this.tokenize(fileData[0], f), f);
-      let ops = this.resolve_modules(this.parse(tokens));
+      let ops = this.parse(tokens);
+      let sync = this.generate_sync_function(ops);
+      console.log(sync)
       let html = this.execute(ops, input_state || {});
       if (this.cache) {
         this.opcode_cache = ops;
