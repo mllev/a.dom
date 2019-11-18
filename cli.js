@@ -8,7 +8,6 @@ let dir = process.cwd()
 let c = new Adom({ root: dir })
 
 for (let i = 0; i < process.argv.length; i++) {
-  let opt
   switch (process.argv[i]) {
     case '-i':
       config.file = process.argv[i+1]
