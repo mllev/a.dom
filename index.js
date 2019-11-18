@@ -1228,6 +1228,17 @@ $adom.prototype.setAttributes = function (e, attr) {
   });
 };
 
+$adom.prototype.addEventListener = function (id, event, handler) {
+  var elements = this.id(id, true);
+  for (var i = 0; i < elements.length; i++) {
+    var e = elements[i];
+    if (!e.dataset['on' + event]) {
+      e.dataset['on' + event] = true;
+      e.addEventListener(event, handler);
+    }
+  }
+};
+
 $adom.prototype.if = function (cond, pass, fail) {
   var elements = [];
   var children;
@@ -1519,7 +1530,7 @@ Adom.prototype.generate_runtime = function(ops) {
           if (op.data.events.length > 0) {
             op.data.events.forEach(function(e) {
               events.push({
-                sel: '[data-adom-id="' + id + '"]',
+                id: id,
                 event: e.type,
                 handler: e.handler
               });
@@ -1559,10 +1570,15 @@ Adom.prototype.generate_runtime = function(ops) {
             updates.push(']),')
           }
           if (!tag_info.length) {
-            controllers[controllers.length - 1].updates = updates;
-            controllers[controllers.length - 1].init = init;
+            let c = controllers[controllers.length - 1];
+            c.updates = updates;
+            c.init = init;
+            c.events = events;
             controller = undefined;
             in_controller = false;
+            events = [];
+            updates = [];
+            init = [];
           }
         }
         break;
@@ -1709,18 +1725,21 @@ $$adom_modules.${m.name} = (function () {
   var adom = new $adom();
   var $ = JSON.parse(JSON.stringify($$adom_input_state));
 
-  function $init () {
   ${c.init.join('\n')}
-  }
-  
-  function $sync () {
-    console.log(adom.frag_lengths)
-  ${c.updates.join('\n')}
-  }
-
-  $init();
 
   (function () {
+    function $addEventListeners () {
+      ${c.events.map(function (e) {
+        return `adom.addEventListener("${e.id}", "${e.event}", ${e.handler});`
+      }).join('\n')}
+    }
+
+    function $sync () {
+      ${c.updates.join('\n')}
+        $addEventListeners();
+    }
+
+    $addEventListeners();
     ${c.body}
   })();
 })(${c.deps.map(function (d) {
