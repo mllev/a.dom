@@ -1745,7 +1745,8 @@ $$adom_modules.${m.name} = (function () {
     `    
   });
 
-  ops[runtime_location].data.runtime = this.runtime(moduleCode, controllerCode);
+  if (runtime_location > -1)
+    ops[runtime_location].data.runtime = this.runtime(moduleCode, controllerCode);
 };
 
 Adom.prototype.openFile = function(p) {
