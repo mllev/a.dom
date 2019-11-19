@@ -1028,15 +1028,6 @@ Adom.prototype.execute = function(ops, initial_state) {
       switch (op.type) {
         case "begin_tag":
           {
-            if (op.data.runtime) {
-              html +=
-                fmt() +
-                "<script>" +
-                op.data.runtime[0] +
-                JSON.stringify(state) +
-                op.data.runtime[1] +
-                "</script>";
-            }
             html +=
               fmt() +
               "<" +
@@ -1053,7 +1044,10 @@ Adom.prototype.execute = function(ops, initial_state) {
         case "end_tag":
           {
             let tagname = open_tags.pop();
-            html += fmt() + "</" + tagname + ">";
+	    html += fmt() + "</" + tagname + ">";
+	    if (op.data) {
+	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}</script><script>${op.data}</script>`;
+	    }
           }
           break;
         case "set":
@@ -1192,7 +1186,7 @@ Adom.prototype.get_error_text = function(prog, c) {
 };
 
 Adom.prototype.runtime = function (modules, controllers) {
-  return [`
+  return `
 function $adom () {
   this.frag_lengths = [];
   this.props = [];
@@ -1368,7 +1362,7 @@ var $$adom_modules = [];
 ${modules}
 
 window.onload = function () {
-  var $$adom_input_state = `,`;
+  var $$adom_input_state = JSON.parse(window['adom-state'].innerHTML);
   var $$adom_events = [];
 
   function $dispatch (event, data) {
@@ -1385,7 +1379,7 @@ window.onload = function () {
 
   ${controllers}
 }
-`]
+`
 }
 
 Adom.prototype.attach_runtime = function(ops, input_state) {
@@ -1503,7 +1497,6 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
       } break;
       case "begin_tag":
         if (op.data.attributes.controller) {
-          if (runtime_location === -1) runtime_location = ptr - 1;
           let c = op.data.attributes.controller;
           let id = ids++;
           op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
@@ -1574,6 +1567,7 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
             events = [];
             updates = [];
             init = [];
+	    runtime_location = ptr - 1;
           }
         }
         break;
@@ -1746,7 +1740,7 @@ $$adom_modules.${m.name} = (function () {
   });
 
   if (runtime_location > -1)
-    ops[runtime_location].data.runtime = this.runtime(moduleCode, controllerCode);
+    ops[runtime_location].data = this.runtime(moduleCode, controllerCode);
 };
 
 Adom.prototype.openFile = function(p) {
