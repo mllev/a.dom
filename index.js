@@ -1429,7 +1429,7 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
       case "variable":
         let start = 0;
         let val = v.value;
-        let variable = "$.";
+        let variable = "";
         if (is_iterator(val[0])) {
           variable = "";
         } else if (val[0] === "props") {
