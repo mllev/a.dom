@@ -27,7 +27,9 @@ Adom.prototype.tokenize = function(prog, file) {
     "file",
     "controller",
     "and",
-    "or"
+    "or",
+    "var",
+    "const"
   ];
 
   let symbols = [
@@ -758,7 +760,7 @@ Adom.prototype.parse = function(tokens) {
         parse_tag_list();
       } else if (tok.type === "tag") {
         parse_custom_tag();
-      } else if (accept("$")) {
+      } else if (accept('var')) {
         let dst = parse_variable();
         let val;
         expect("=");
@@ -895,7 +897,6 @@ Adom.prototype.execute = function(ops, initial_state) {
       if (Array.isArray(a)) {
         a = resolve_variable({ value: a, pos: pos, file: file });
       }
-      let t = typeof ptr[a];
 
       if (Array.isArray(ptr) && typeof a === "string") {
         throw { msg: prev + " is an array", pos: pos, file: file };
@@ -906,24 +907,14 @@ Adom.prototype.execute = function(ops, initial_state) {
         return;
       }
 
-      if (t === "string" || t === "number") {
-        throw {
-          msg:
-            a +
-            " is a " +
-            t +
-            " and cannot be accessed like an array or object",
-          pos: pos,
-          file: file
-        };
-      }
-
       if (ptr[a] == null) {
         if (typeof accessor[i + 1] === "number") {
           ptr[a] = [];
         } else {
           ptr[a] = {};
         }
+      } else {
+        throw { msg: a + " is already declared", pos: pos, file: file }
       }
 
       ptr = ptr[a];
@@ -1397,7 +1388,7 @@ window.onload = function () {
 `]
 }
 
-Adom.prototype.generate_runtime = function(ops) {
+Adom.prototype.attach_runtime = function(ops, input_state) {
   let ptr = 0;
   let in_controller = false;
   let prop_depth = -1;
@@ -1415,6 +1406,7 @@ Adom.prototype.generate_runtime = function(ops) {
   let controllers = [];
   let modules = [];
   let runtime_location = -1;
+  let state_keys = Object.keys(input_state);
 
   function is_iterator(v) {
     for (let i = 0; i < iterators.length; i++) {
@@ -1503,6 +1495,9 @@ Adom.prototype.generate_runtime = function(ops) {
   while (ptr < ops.length) {
     let op = ops[ptr++];
     switch (op.type) {
+      case 'set': {
+        state_keys.push(op.data.dst.value[0]);
+      } break;
       case "declare_module": {
         modules.push(op.data);
       } break;
@@ -1727,7 +1722,7 @@ $$adom_modules.${m.name} = (function () {
 
   ${c.init.join('\n')}
 
-  (function () {
+  (function (${state_keys.join(',')}) {
     function $addEventListeners () {
       ${c.events.map(function (e) {
         return `adom.addEventListener("${e.id}", "${e.event}", ${e.handler});`
@@ -1741,7 +1736,9 @@ $$adom_modules.${m.name} = (function () {
 
     $addEventListeners();
     ${c.body}
-  })();
+  })(${state_keys.map(function (k) {
+    return `$.${k}`; 
+  }).join(',')});
 })(${c.deps.map(function (d) {
   return `$$adom_modules.${d}`;
 }).join(',')});
@@ -1806,7 +1803,7 @@ Adom.prototype.compile_file = function(file, input_state) {
       let f = fileData[1];
       let tokens = this.resolve_imports(this.tokenize(fileData[0], f), f);
       let ops = this.parse(tokens);
-      this.generate_runtime(ops);
+      this.attach_runtime(ops, input_state);
       let html = this.execute(ops, input_state || {});
       if (this.cache) {
         this.opcode_cache = ops;
@@ -1814,7 +1811,7 @@ Adom.prototype.compile_file = function(file, input_state) {
       return html;
     }
   } catch (e) {
-    if (e.pos) {
+    if (e.pos != null) {
       console.log("Error: ", e.file);
       console.log(e.msg);
       console.log(this.get_error_text(this.files[e.file], e.pos));
