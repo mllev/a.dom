@@ -277,6 +277,7 @@ Adom.prototype.parse = function(tokens) {
   let ops = [];
   let dont_emit = false;
   let yield_stack = [];
+  let tag_scopes = [];
 
   function new_context() {
     files.push({
@@ -288,7 +289,10 @@ Adom.prototype.parse = function(tokens) {
 
   function get_custom_tag(name) {
     let t = files[files.length - 1].tags[name];
-    return t == null ? -1 : t;
+    if (!t && tag_scopes.length > 0) {
+      t = tag_scopes[tag_scopes.length - 1].tags[name];
+    }
+    return t;
   }
 
   function emit(op, data) {
@@ -586,7 +590,7 @@ Adom.prototype.parse = function(tokens) {
     let custom = get_custom_tag(name);
     if (classlist.value.length > 0) attr.class = classlist;
     let prev_emit = dont_emit
-    if (custom > -1) {
+    if (custom) {
       if (accept("[")) {
         let ret = cursor;
         dont_emit = true;
@@ -594,8 +598,9 @@ Adom.prototype.parse = function(tokens) {
         dont_emit = prev_emit;
         expect("]");
         let end_ret = cursor;
-        set_tok(custom);
+        set_tok(custom.pos);
         emit("push_props", attr);
+	tag_scopes.push(custom.scope);
 	yield_stack.push(function(y) {
           set_tok(ret);
           parse_tag_list();
@@ -604,12 +609,13 @@ Adom.prototype.parse = function(tokens) {
         });
         parse_tag_list();
 	yield_stack.pop();
+	tag_scopes.pop();
         emit("pop_props");
         set_tok(end_ret);
       } else {
         expect(";");
         let ret = cursor;
-        set_tok(custom);
+        set_tok(custom.pos);
         emit("push_props", attr);
 	yield_stack.push(null);
         parse_tag_list();
@@ -731,7 +737,7 @@ Adom.prototype.parse = function(tokens) {
     expect("ident");
     expect("[");
     dont_emit = true;
-    files[files.length - 1].tags[tag] = cursor;
+    files[files.length - 1].tags[tag] = { pos: cursor, scope: files[files.length - 1] };
     parse_tag_list();
     dont_emit = false;
     expect("]");
