@@ -411,18 +411,20 @@ Adom.prototype.parse = function(tokens) {
   function parse_object() {
     let obj = {};
     expect("{");
-    while (true) {
-      let key = tok.data;
-      expect("ident");
-      expect(":");
-      if (peek("[")) {
-        obj[key] = parse_array();
-      } else if (peek("{")) {
-        obj[key] = parse_object();
-      } else {
-        obj[key] = parse_variable_or_primitive();
+    if (!peek('}')) {
+      while (true) {
+	let key = tok.data;
+	expect("ident");
+	expect(":");
+	if (peek("[")) {
+	  obj[key] = parse_array();
+	} else if (peek("{")) {
+	  obj[key] = parse_object();
+	} else {
+	  obj[key] = parse_variable_or_primitive();
+	}
+	if (!accept(",")) break;
       }
-      if (!accept(",")) break;
     }
     expect("}");
     return { type: "object", value: obj };
@@ -431,15 +433,17 @@ Adom.prototype.parse = function(tokens) {
   function parse_array() {
     let arr = [];
     expect("[");
-    while (true) {
-      if (peek("[")) {
-        arr.push(parse_array());
-      } else if (peek("{")) {
-        arr.push(parse_object());
-      } else {
-        arr.push(parse_variable_or_primitive());
+    if (!peek(']')) {
+      while (true) {
+	if (peek("[")) {
+	  arr.push(parse_array());
+	} else if (peek("{")) {
+	  arr.push(parse_object());
+	} else {
+	  arr.push(parse_variable_or_primitive());
+	}
+	if (!accept(",")) break;
       }
-      if (!accept(",")) break;
     }
     expect("]");
     return { type: "array", value: arr };
@@ -1022,6 +1026,19 @@ Adom.prototype.execute = function(ops, initial_state) {
 
   function exec() {
     let iter;
+    let scope_depth = 0;
+    let fragments = [];
+
+    function current_tag () {
+      return open_tags[open_tags.length - 1];
+    }
+
+    function current_frag () {
+      if (fragments.length > 0) {
+	return fragments[fragments.length - 1];
+      }
+      return null;
+    }
 
     while (ptr < ops.length) {
       let op = ops[ptr++];
@@ -1033,17 +1050,20 @@ Adom.prototype.execute = function(ops, initial_state) {
               "<" +
               op.data.name +
               assemble_attributes(op.data.attributes);
+	    let f = current_frag();
+	    if (f && current_tag().id === f.parent && scope_depth > 0) f.length++;
             if (op.data.self_close) {
               html += ">"; // configure based on doctype
             } else {
+	      let id = op.data.attributes['data-adom-id'];
               html += ">";
-              open_tags.push(op.data.name);
+              open_tags.push({ name: op.data.name, id: id ? id.value : undefined });
             }
           }
           break;
         case "end_tag":
           {
-            let tagname = open_tags.pop();
+            let tagname = open_tags.pop().name;
 	    html += fmt() + "</" + tagname + ">";
 	    if (op.data) {
 	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}</script><script>${op.data}</script>`;
@@ -1057,6 +1077,8 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "textnode":
           {
+	    let f = current_frag();
+	    if (f && current_tag().id === f.parent && scope_depth > 0) f.length++;
             html += fmt() + assemble_textnode(op.data);
           }
           break;
@@ -1076,9 +1098,19 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "if":
           {
+	    scope_depth++;
+	    if (scope_depth === 1) {
+	      let t = current_tag();
+	      fragments.push({ parent: t.id, length: 0 });
+	    }
             if (!evaluate_condition(op.data.condition)) {
               ptr += op.data.jmp;
-            }
+	    }
+          }
+          break;
+        case "end_if":
+          {
+	    scope_depth--;
           }
           break;
         case "jump":
@@ -1088,10 +1120,16 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "each":
           {
+	    scope_depth++;
+	    if (scope_depth === 1) {
+	      let t = current_tag();
+	      fragments.push({ parent: t.id, length: 0 });
+	    }
             let list = get(op.data.list);
             if (Array.isArray(list)) {
               if (list.length === 0) {
                 ptr += op.data.jmp;
+		scope_depth--;
                 break;
               }
               iter = {
@@ -1149,6 +1187,7 @@ Adom.prototype.execute = function(ops, initial_state) {
               ptr += op.data;
             } else {
               iterators.pop();
+	      scope_depth--;
             }
           }
           break;
@@ -1157,6 +1196,7 @@ Adom.prototype.execute = function(ops, initial_state) {
       }
     }
   }
+
 
   exec();
 
