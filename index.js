@@ -599,7 +599,7 @@ Adom.prototype.parse = function(tokens) {
         expect("]");
         let end_ret = cursor;
         set_tok(custom.pos);
-        emit("push_props", attr);
+        emit("push_props", { props: attr, events: events });
 	tag_scopes.push(custom.scope);
 	yield_stack.push(function(y) {
           set_tok(ret);
@@ -616,7 +616,7 @@ Adom.prototype.parse = function(tokens) {
         expect(";");
         let ret = cursor;
         set_tok(custom.pos);
-        emit("push_props", attr);
+        emit("push_props", { props: attr, events: events });
 	yield_stack.push(null);
         parse_tag_list();
 	yield_stack.pop();
@@ -1111,8 +1111,8 @@ Adom.prototype.execute = function(ops, initial_state) {
         case "push_props":
           {
             let pctx = {};
-            Object.keys(op.data).forEach(function(k) {
-              pctx[k] = get(op.data[k]);
+            Object.keys(op.data.props).forEach(function(k) {
+              pctx[k] = get(op.data.props[k]);
             });
             props.push(pctx);
           }
@@ -1467,6 +1467,7 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
   let modules = [];
   let runtime_location = -1;
   let state_keys = Object.keys(input_state);
+  let prop_events = undefined;
 
   function is_iterator(v) {
     for (let i = 0; i < iterators.length; i++) {
@@ -1583,12 +1584,15 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (op.data.events.length > 0) {
             op.data.events.forEach(function(e) {
-              events.push({
-                id: id,
-                event: e.type,
-                handler: e.handler
-              });
+              events.push({ id: id, event: e.type, handler: e.handler });
             });
+          }
+          if (prop_events) {
+	    // events on custom tags are attached to the first child of the tag
+            prop_events.forEach(function(e) {
+              events.push({ id: id, event: e.type, handler: e.handler });
+            });
+	    prop_events = undefined;
           }
           if (scope_depth === 0) {
             last_tag(2).count++;
@@ -1703,10 +1707,11 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
       case "push_props":
         if (in_controller) {
           if (scope_depth === 0) {
-            updates.push(`adom.push_props(${stringify_object(op.data)});`);
+            updates.push(`adom.push_props(${stringify_object(op.data.props)});`);
           } else {
-            updates.push(`adom.push_props(${stringify_object(op.data)}),`);
+            updates.push(`adom.push_props(${stringify_object(op.data.props)}),`);
           }
+	  prop_events = op.data.events;
           prop_depth++;
         }
         break;
