@@ -17,7 +17,7 @@ In just 2k lines of code, with no dependencies, and a single function API, ADOM 
 - no configuration code separation and bundling via simple import/export semantics
 - server side rendering that is simpler, faster, and *far* easier to understand than all modern solutions
 
-#### GUIDE
+#### GETTING STARTED
 
 Getting started with ADOM is very easy.
 
@@ -53,7 +53,7 @@ doctype html5
 html [
     head []
     body [
-        h1 | Hello! |
+        h1 | Welcome back, {name}! |
     ]
 ]
 ```
@@ -67,6 +67,45 @@ const A = new adom({
 
 require('http').createServer((req, res) => {
     res.writeHead(200, { 'Content-type': 'text/html' });
-    res.end(A.render('index.adom', {}));
+    res.end(A.render('index.adom', { name: 'Matt' }));
 }).listen(5000);
+```
+
+#### GUIDE
+##### SYNTAX
+
+Tags in ADOM look like this:
+```
+div attr1='val1' attr2='val2' [
+    div []
+    div []
+]
+```
+ADOM has no whitespace sensitivity at all:
+```
+div
+    attr1='val1'
+    attr2='val2' [ div [] div [] ]
+```
+Attribute syntax is largely the same as HTML. Each attribute takes the form `<attribute> '=' <string>`. ADOM supports both single and double quote strings for attributes.
+```
+div attr1="val1" attr2="val2" []
+```
+You can use the `.` shorthand for classes:
+```
+div.class1.class2 []
+```
+Self-closing tags are ended with semicolons instead of brackets:
+```
+img src="/img.png";
+```
+Pipes are used to denote text nodes:
+```
+h1 [
+    | I AM SOME TEXT! |
+]
+```
+If a textnode is the only child of a tag, the brackets may be omitted:
+```
+h1 | I AM SOME TEXT! |
 ```
