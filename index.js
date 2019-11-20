@@ -776,7 +776,9 @@ Adom.prototype.parse = function(tokens) {
         parse_tag_list();
       } else if (tok.type === "tag") {
         parse_custom_tag();
-      } else if (accept('var')) {
+      } else if (peek('var') || peek('const')) {
+	let isConst = (tok.data === 'const');
+	next();
         let dst = parse_variable();
         let val;
         expect("=");
@@ -791,7 +793,7 @@ Adom.prototype.parse = function(tokens) {
             val = parse_variable_or_primitive();
           }
         }
-        emit("set", { dst: dst, val: val });
+        emit("set", { dst: dst, val: val, isConst: isConst });
       } else if (accept("module")) {
         let mname = tok.data;
         expect("ident");
@@ -841,6 +843,7 @@ Adom.prototype.execute = function(ops, initial_state) {
   let pretty = false;
   let props = [];
   let iterators = [];
+  let constVars = {};
 
   function check_props(list) {
     if (list[0] === "props") {
@@ -876,6 +879,8 @@ Adom.prototype.execute = function(ops, initial_state) {
     let file = v.file;
     let curr = state;
 
+    if (constVars[list[0]]) curr = constVars;
+
     curr = check_props(list) || curr;
     curr = check_iterators(curr, list);
 
@@ -900,11 +905,11 @@ Adom.prototype.execute = function(ops, initial_state) {
     return curr;
   }
 
-  function set(dst, val) {
+  function set(dst, val, isConst) {
     let accessor = dst.value;
     let pos = dst.pos,
       file = dst.file;
-    let ptr = state;
+    let ptr = isConst ? constVars : state;
     let max = accessor.length;
     let prev = undefined;
 
@@ -1097,7 +1102,7 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "set":
           {
-            set(op.data.dst, op.data.val);
+            set(op.data.dst, op.data.val, op.data.isConst);
           }
           break;
         case "textnode":
@@ -1557,7 +1562,8 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
     let op = ops[ptr++];
     switch (op.type) {
       case 'set': {
-        state_keys.push(op.data.dst.value[0]);
+	if (!op.data.isConst)
+	  state_keys.push(op.data.dst.value[0]);
       } break;
       case "declare_module": {
         modules.push(op.data);
