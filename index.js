@@ -1,7 +1,8 @@
 function Adom(config) {
-  this.opcode_cache = undefined;
+  this.opcode_cache = {};
   this.cache = config.cache || false;
-  this.dirname = config.root || "";
+  this.dirname = config.rootDir || "";
+  this.js_transform = config.jsTransform || undefined;
   this.files = {};
 }
 
@@ -1454,7 +1455,7 @@ window.onload = function () {
 `
 }
 
-Adom.prototype.attach_runtime = function(ops, input_state) {
+Adom.prototype.attach_runtime = function(ops, input_state, fn) {
   let ptr = 0;
   let in_controller = false;
   let prop_depth = -1;
@@ -1816,14 +1817,19 @@ $$adom_modules.${m.name} = (function () {
     `    
   });
 
-  if (runtime_location > -1)
+  if (runtime_location > -1) {
     ops[runtime_location].data = this.runtime(moduleCode, controllerCode);
+  }
+};
+
+Adom.prototype.getPath = function (p) {
+  let path = require("path");
+  return path.resolve(this.dirname, p);
 };
 
 Adom.prototype.openFile = function(p) {
   let fs = require("fs");
-  let path = require("path");
-  let f = path.resolve(this.dirname, p);
+  let f = this.getPath(p);
   let prog = fs.readFileSync(f).toString();
   this.files[f] = prog;
   return [prog, f];
@@ -1866,10 +1872,11 @@ Adom.prototype.resolve_imports = function(tokens, file) {
   return out_toks;
 };
 
-Adom.prototype.compile_file = function(file, input_state) {
+Adom.prototype.render = function(file, input_state) {
   try {
-    if (this.cache && this.opcode_cache) {
-      return this.execute(this.opcode_cache, input_state || {});
+    let cacheKey = this.getPath(file);
+    if (this.cache && this.opcode_cache[cacheKey]) {
+      return this.execute(this.opcode_cache[cacheKey], input_state || {});
     } else {
       let fileData = this.openFile(file);
       let f = fileData[1];
@@ -1878,7 +1885,7 @@ Adom.prototype.compile_file = function(file, input_state) {
       this.attach_runtime(ops, input_state);
       let html = this.execute(ops, input_state || {});
       if (this.cache) {
-        this.opcode_cache = ops;
+        this.opcode_cache[f] = ops;
       }
       return html;
     }
