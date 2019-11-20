@@ -1028,6 +1028,8 @@ Adom.prototype.execute = function(ops, initial_state) {
     let iter;
     let scope_depth = 0;
     let fragments = [];
+    let controller = undefined;
+    let following_textnode = false;
 
     function current_tag () {
       return open_tags[open_tags.length - 1];
@@ -1054,18 +1056,29 @@ Adom.prototype.execute = function(ops, initial_state) {
 	    if (f && current_tag().id === f.parent && scope_depth > 0) f.length++;
             if (op.data.self_close) {
               html += ">"; // configure based on doctype
+	      following_textnode = false;
             } else {
-	      let id = op.data.attributes['data-adom-id'];
+	      let a = op.data.attributes;
+	      let id = a['data-adom-id'];
               html += ">";
-              open_tags.push({ name: op.data.name, id: id ? id.value : undefined });
+	      if (a.controller) controller = a.controller;
+              open_tags.push({ name: op.data.name, id: id ? id.value : undefined, controller: a.controller });
             }
           }
           break;
         case "end_tag":
           {
-            let tagname = open_tags.pop().name;
-	    html += fmt() + "</" + tagname + ">";
+            let t = open_tags.pop();
+	    if (t.controller === controller) controller = undefined;
+	    html += fmt() + "</" + t.name + ">";
+	    following_textnode = false;
 	    if (op.data) {
+	      let frag_lengths = [];
+	      fragments.forEach(function (f) {
+		// the runtime relies on the order of the fragments initial lengths
+		if (f.controller) frag_lengths.push(f.length);
+	      })
+	      html += fmt() + `<script id="adom-initial-frag-lengths" type="text/template">${JSON.stringify(frag_lengths)}</script>`;
 	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}</script><script>${op.data}</script>`;
 	    }
           }
@@ -1078,9 +1091,10 @@ Adom.prototype.execute = function(ops, initial_state) {
         case "textnode":
           {
 	    let f = current_frag();
-	    if (f && current_tag().id === f.parent && scope_depth > 0) f.length++;
+	    if (!following_textnode && f && current_tag().id === f.parent && scope_depth > 0) f.length++;
             html += fmt() + assemble_textnode(op.data);
-          }
+	    following_textnode = true;
+	  }
           break;
         case "push_props":
           {
@@ -1101,7 +1115,7 @@ Adom.prototype.execute = function(ops, initial_state) {
 	    scope_depth++;
 	    if (scope_depth === 1) {
 	      let t = current_tag();
-	      fragments.push({ parent: t.id, length: 0 });
+	      fragments.push({ parent: t.id, length: 0, controller: controller });
 	    }
             if (!evaluate_condition(op.data.condition)) {
               ptr += op.data.jmp;
@@ -1123,7 +1137,7 @@ Adom.prototype.execute = function(ops, initial_state) {
 	    scope_depth++;
 	    if (scope_depth === 1) {
 	      let t = current_tag();
-	      fragments.push({ parent: t.id, length: 0 });
+	      fragments.push({ parent: t.id, length: 0, controller: controller });
 	    }
             let list = get(op.data.list);
             if (Array.isArray(list)) {
@@ -1403,6 +1417,7 @@ ${modules}
 
 window.onload = function () {
   var $$adom_input_state = JSON.parse(window['adom-state'].innerHTML);
+  var $$adom_initial_frag_lengths = JSON.parse(window['adom-initial-frag-lengths'].innerHTML);
   var $$adom_events = [];
 
   function $dispatch (event, data) {
@@ -1435,7 +1450,6 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
   let frag_index = 0;
   let frag_id = 0;
   let lindex = -1;
-  let id_list = [];
   let init = [];
   let controllers = [];
   let modules = [];
@@ -1550,7 +1564,7 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
           }
           in_controller = true;
           controllers.push(c);
-          delete op.data.attributes.controller;
+	  op.data.attributes.controller = c.name;
         } else if (in_controller) {
           let id = ids++
           op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
@@ -1582,7 +1596,6 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
               tag_info.pop()
             }
           } else {
-            id_list.push(id);
             updates.push(`adom.el("${op.data.name}", ${stringify_object(op.data.attributes)}, [`);
             if (op.data.self_close) {
               updates.push(']),')
@@ -1608,6 +1621,9 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
             updates = [];
             init = [];
 	    runtime_location = ptr - 1;
+	    frag_index = 0;
+	    frag_id = 0;
+	    lindex = -1;
           }
         }
         break;
@@ -1637,7 +1653,6 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
           let i = c.iterators;
           iterators.push(i);
           if (scope_depth === 0) {
-            id_list = [];
             lindex++;
             let t = last_tag() 
             frag_id = t.frag_count++;
@@ -1662,7 +1677,7 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
           iterators.pop();
           scope_depth--;
           if (scope_depth === 0) {
-            init.push(`adom.frag_lengths.push(adom.calculateFragLength(${JSON.stringify(id_list)}));`)
+            init.push(`adom.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
             updates.push(`] });`);
             let t = last_tag();
             let id = t.id;
@@ -1697,7 +1712,6 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
         if (in_controller) {
           let c = op.data.condition;
           if (scope_depth === 0) {
-            id_list = [];
             lindex++;
             let t = last_tag();
             frag_id = t.frag_count++;
@@ -1720,7 +1734,7 @@ Adom.prototype.attach_runtime = function(ops, input_state) {
         if (in_controller) {
           scope_depth--;
           if (scope_depth === 0) {
-            init.push(`adom.frag_lengths.push(adom.calculateFragLength(${JSON.stringify(id_list)}));`)
+            init.push(`adom.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
             updates.push(']);')
             let t = last_tag();
             let id = t.id;
