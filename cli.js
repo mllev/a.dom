@@ -5,7 +5,7 @@ let fs = require('fs')
 let path = require('path')
 let config = {}
 let dir = process.cwd()
-let c = new Adom({ root: dir })
+let c = new Adom({ rootDir: dir })
 
 for (let i = 0; i < process.argv.length; i++) {
   switch (process.argv[i]) {
@@ -21,5 +21,5 @@ for (let i = 0; i < process.argv.length; i++) {
 if (!config.file || !config.out) {
   console.log('usage: -i <input> -o <output>')
 } else {
-  fs.writeFileSync(path.resolve(dir, config.out), c.compile_file(config.file, {}))
+  fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file, {}))
 }
