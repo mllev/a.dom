@@ -276,6 +276,7 @@ Adom.prototype.parse = function(tokens) {
   let files = [];
   let ops = [];
   let dont_emit = false;
+  let yield_stack = [];
 
   function new_context() {
     files.push({
@@ -551,7 +552,7 @@ Adom.prototype.parse = function(tokens) {
     return [attr, events];
   }
 
-  function end_tag(name, attr, events, yield_func) {
+  function end_tag(name, attr, events) {
     if (accept(";")) {
       emit("begin_tag", {
         name: name,
@@ -561,7 +562,7 @@ Adom.prototype.parse = function(tokens) {
       });
     } else if (accept("[")) {
       emit("begin_tag", { name: name, attributes: attr, events: events });
-      parse_tag_list(yield_func);
+      parse_tag_list();
       expect("]");
       emit("end_tag");
     } else if (peek("chunk")) {
@@ -575,7 +576,7 @@ Adom.prototype.parse = function(tokens) {
     }
   }
 
-  function parse_tag(yield_func) {
+  function parse_tag() {
     let name = tok.data;
     expect("ident");
     let classlist = parse_class_list();
@@ -595,12 +596,14 @@ Adom.prototype.parse = function(tokens) {
         let end_ret = cursor;
         set_tok(custom);
         emit("push_props", attr);
-        parse_tag_list(function(y) {
+	yield_stack.push(function(y) {
           set_tok(ret);
-          parse_tag_list(yield_func);
+          parse_tag_list();
           expect("]");
           set_tok(y);
         });
+        parse_tag_list();
+	yield_stack.pop();
         emit("pop_props");
         set_tok(end_ret);
       } else {
@@ -608,12 +611,14 @@ Adom.prototype.parse = function(tokens) {
         let ret = cursor;
         set_tok(custom);
         emit("push_props", attr);
-        parse_tag_list(yield_func);
+	yield_stack.push(null);
+        parse_tag_list();
+	yield_stack.pop();
         emit("pop_props");
         set_tok(ret);
       }
     } else {
-      end_tag(name, attr, events, yield_func);
+      end_tag(name, attr, events);
     }
   }
 
@@ -641,44 +646,44 @@ Adom.prototype.parse = function(tokens) {
     return cond;
   }
 
-  function parse_if_statement(yield_func) {
+  function parse_if_statement() {
     expect("(");
     let condition = parse_conditional();
     expect(")");
     let op = emit("if", { condition: condition, jmp: 0 });
     if (accept("[")) {
-      parse_tag_list(yield_func);
+      parse_tag_list();
       expect("]");
     } else {
-      parse_tag(yield_func);
+      parse_tag();
     }
     let jmp = emit("jump", 0);
     if (!dont_emit) ops[op].data.jmp = ops.length - 1 - op;
     emit("else");
     if (accept("else")) {
       if (accept("[")) {
-        parse_tag_list(yield_func);
+        parse_tag_list();
         expect("]");
       } else if (accept("if")) {
-        parse_if_statement(yield_func);
+        parse_if_statement();
       } else {
-        parse_tag(yield_func);
+        parse_tag();
       }
     }
     if (!dont_emit) ops[jmp].data = ops.length - 1 - jmp;
     emit("end_if");
   }
 
-  function parse_tag_list(yield_func) {
+  function parse_tag_list() {
     let list;
     if (accept("doctype")) {
       let type = tok.data;
       expect("ident");
       emit("doctype", type);
-      parse_tag_list(yield_func);
+      parse_tag_list();
     } else if (accept("if")) {
-      parse_if_statement(yield_func);
-      parse_tag_list(yield_func);
+      parse_if_statement();
+      parse_tag_list();
     } else if (accept("each")) {
       expect("(");
       let iter1,
@@ -699,23 +704,24 @@ Adom.prototype.parse = function(tokens) {
       if (!dont_emit) ops[op].data.list = list;
       expect(")");
       expect("[");
-      parse_tag_list(yield_func);
+      parse_tag_list();
       expect("]");
       // iterate back to one instruction after the each instruction
       emit("iterate", op - ops.length);
       if (!dont_emit) ops[op].data.jmp = ops.length - 1 - op;
-      parse_tag_list(yield_func);
+      parse_tag_list();
     } else if (peek("ident")) {
-      parse_tag(yield_func);
-      parse_tag_list(yield_func);
+      parse_tag();
+      parse_tag_list();
     } else if (peek("chunk")) {
       let textnode = parse_textnode();
       if (textnode.length > 1 || textnode[0] !== '')
         emit("textnode", textnode);
       parse_tag_list();
     } else if (accept("yield")) {
-      if (yield_func) yield_func(cursor);
-      parse_tag_list(yield_func);
+      let y = yield_stack[yield_stack.length - 1];
+      if (y) y(cursor);
+      parse_tag_list();
     }
   }
 
