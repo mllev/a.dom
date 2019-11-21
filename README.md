@@ -279,7 +279,7 @@ html [
     ]
 ]
 ```
-Tags can either be self-closed using `;` if they don't have children. If you would like to add children to a tag, you use the yield keyword:
+Tags can either be self-closed using `;` if they don't have children, or they can contain children. If you would like to add children to a tag, you use the yield keyword:
 ```
 doctype html5
 
@@ -379,7 +379,7 @@ html [
     head []
     body controller={MyModule} [
         h1 | Hello, {name}! |
-        input on:input(MyModule);
+        input on:input(updateName);
     ]
 ]
 ```
