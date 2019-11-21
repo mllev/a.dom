@@ -1016,9 +1016,11 @@ Adom.prototype.execute = function(ops, initial_state) {
   function assemble_attributes(attr) {
     let str = "";
     Object.keys(attr).forEach(function(k) {
-      let v = get(attr[k]);
-      if (Array.isArray(v)) v = v.join(" ");
-      str += " " + k + '="' + v + '"';
+      if (k !== 'controller') {
+	let v = get(attr[k]);
+	if (Array.isArray(v)) v = v.join(" ");
+	str += " " + k + '="' + v + '"';
+      }
     });
     return str;
   }
