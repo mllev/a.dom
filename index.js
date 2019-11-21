@@ -2,7 +2,7 @@ function Adom(config) {
   this.opcode_cache = {};
   this.cache = config.cache || false;
   this.dirname = config.rootDir || "";
-  this.js_transform = config.jsTransform || undefined;
+  this.runtimeTransform = config.runtimeTransform;
   this.files = {};
 }
 
@@ -1422,7 +1422,7 @@ $adom.prototype.insertFrag = function (elements, par, index, lidx) {
 
   walk(elements, frag, par.childNodes[index]);
 
-  for (let i = index; i < (index + prevLen); i++) {
+  for (var i = index; i < (index + prevLen); i++) {
     par.removeChild(par.childNodes[index]);
   }
 
@@ -1820,7 +1820,11 @@ $$adom_modules.${m.name} = (function () {
   });
 
   if (runtime_location > -1) {
-    ops[runtime_location].data = this.runtime(moduleCode, controllerCode);
+    let r = this.runtime(moduleCode, controllerCode);
+    if (this.runtimeTransform) {
+      r = this.runtimeTransform(r);
+    }
+    ops[runtime_location].data = r;
   }
 };
 
