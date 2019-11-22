@@ -1565,8 +1565,8 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
     let op = ops[ptr++];
     switch (op.type) {
       case 'set': {
-	if (!op.data.isConst)
-	  state_keys.push(op.data.dst.value[0]);
+	      if (!op.data.isConst)
+	        state_keys.push(op.data.dst.value[0]);
       } break;
       case "declare_module": {
         modules.push(op.data);
@@ -1586,7 +1586,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           }
           in_controller = true;
           controllers.push(c);
-	  op.data.attributes.controller = c.name;
+	        op.data.attributes.controller = c.name;
         } else if (in_controller) {
           let id = ids++
           op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
@@ -1597,21 +1597,29 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             });
           }
           if (prop_events) {
-	    // events on custom tags are attached to the first child of the tag
+	          // events on custom tags are attached to the first child of the tag
             prop_events.forEach(function(e) {
               events.push({ id: id, event: e.type, handler: e.handler });
             });
-	    prop_events = undefined;
+	          prop_events = undefined;
           }
           if (scope_depth === 0) {
             last_tag(2).count++;
             let needsUpdates = false
             let obj = {}
             for (let a in op.data.attributes) {
-              let t = op.data.attributes[a].type
+              let attr = op.data.attributes[a]
+              let t = attr.type
               if (t === 'array' || t === 'variable' || t === 'array') {
-                needsUpdates = true
-                obj[a] = op.data.attributes[a]
+                if (t === 'variable') {
+                  if (state_keys.indexOf(attr.value[0]) > -1) {
+                    needsUpdates = true
+                    obj[a] = op.data.attributes[a]
+                  }
+                } else {
+                  needsUpdates = true
+                  obj[a] = op.data.attributes[a]
+                }
               }
             }
             if (needsUpdates) {
@@ -1645,10 +1653,10 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             events = [];
             updates = [];
             init = [];
-	    runtime_location = ptr - 1;
-	    frag_index = 0;
-	    frag_id = 0;
-	    lindex = -1;
+            runtime_location = ptr - 1;
+            frag_index = 0;
+            frag_id = 0;
+            lindex = -1;
           }
         }
         break;
@@ -1660,7 +1668,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             let id = parent.id;
             let needsUpdates = false
             op.data.forEach(function (c) {
-              if (c.type === 'variable') {
+              if (c.type === 'variable' && state_keys.indexOf(c.value[0]) > -1) {
                 needsUpdates = true
               }
             })
@@ -1888,7 +1896,7 @@ Adom.prototype.render = function(file, input_state) {
       let f = fileData[1];
       let tokens = this.resolve_imports(this.tokenize(fileData[0], f), f);
       let ops = this.parse(tokens);
-      this.attach_runtime(ops, input_state);
+      this.attach_runtime(ops, input_state || {});
       let html = this.execute(ops, input_state || {});
       if (this.cache) {
         this.opcode_cache[f] = ops;
