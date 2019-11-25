@@ -60,13 +60,13 @@ Adom.prototype.tokenize = function(prog, file) {
     let in_expr = false;
     let pos = cursor;
     while (i < max) {
-      if (text[i] === "{" && in_expr === false) {
+      if (text[i] === "{" && text[i+1] === "{" && in_expr === false) {
         in_expr = true;
         chunks.push({ type: "chunk", data: chunk, pos: pos, file: file });
         chunk = "{";
-        i++;
+        i+=2;
         pos = cursor + i;
-      } else if (text[i] === "}" && in_expr === true) {
+      } else if (text[i] === "}" && text[i+1] === "}" && in_expr === true) {
         in_expr = false;
         chunk += "}";
         let toks = this.tokenize(chunk, file);
@@ -77,7 +77,7 @@ Adom.prototype.tokenize = function(prog, file) {
           chunks.push(t);
         });
         chunk = "";
-        i++;
+        i+=2;
         pos = cursor + i + 1;
       } else {
         chunk += text[i++];
@@ -220,6 +220,7 @@ Adom.prototype.tokenize = function(prog, file) {
     } else if (c === '"' || c === "'") {
       let del = c;
       let i = cursor + 1;
+      let text = '';
 
       while (true) {
         if (i > end_pos || prog[i] === "\n") {
@@ -230,13 +231,22 @@ Adom.prototype.tokenize = function(prog, file) {
           break;
         }
         if (prog[i] === "\\" && prog[i + 1] === del) {
-          tok.data += prog[i + 1];
+          text += prog[i + 1];
           i += 2;
         }
-        tok.data += prog[i++];
+        text += prog[i++];
       }
 
-      tok.type = "string";
+      let chunks = break_into_chunks.call(this, text, cursor);
+      if (chunks.length > 1) {
+        tokens.push({ type: 'chunk_string', pos: cursor, file: file });
+        chunks.forEach(function(c) {
+          tokens.push(c);
+        });
+      } else {
+        tok.data = text;
+        tok.type = "string";
+      }
       cursor = i;
     } else if (
       c === "-" &&
@@ -345,7 +355,7 @@ Adom.prototype.parse = function(tokens) {
   }
 
   function is_primitive() {
-    return peek("string") || peek("number") || peek("bool");
+    return peek("chunk_string") || peek("string") || peek("number") || peek("bool");
   }
 
   function parse_primitive() {
@@ -353,11 +363,115 @@ Adom.prototype.parse = function(tokens) {
     let type = tok.type;
     let pos = tok.pos;
     let file = tok.file;
-    if (!accept("string") && !accept("number") && !accept("bool")) {
+    if (accept('chunk_string')) {
+      let chunks = parse_textnode();
+      value = chunks
+    } else if (!accept("string") && !accept("number") && !accept("bool")) {
       unexpected();
     }
     return { type: type, value: value, pos: pos, file: file };
   }
+
+/*
+  function parse_value () {
+    if string return string
+    if bool return bool
+    if chunks parse_chunks {
+
+    }
+    if variable parse_variable {
+  
+    } 
+    if object parse_object {
+  
+    }
+    if array parse_array { ''
+  
+    }
+    if accept comparison parse_ternary {
+  
+    }
+  }
+*/
+
+  function parse_value () {
+    let val = { pos: tok.pos, file: tok.file };
+    if (peek('string') || peek('number') || peek('bool')) {
+      val.type = tok.type;
+      val.value = tok.value;
+      next();
+    } else if (accept('chunked_string')) {
+      let chunks = parse_textnode();
+      val.type = 'chunked_string'
+      val.value = chunks
+    } else if (peek('ident')) {
+      let value = [tok.data];
+      expect("ident");
+      while (true) {
+        if (accept(".")) {
+          value.push(tok.data);
+          expect("ident");
+        } else if (accept("[")) {
+          value.push(parse_value().value);
+          expect("]");
+        } else {
+          break;
+        }
+      }
+      val.type = "variable";
+      val.value = value;
+    } else if (peek('{')) {
+      let o = parse_object();
+      val.type = 'object';
+      val.value = o.value;
+      return parse_object();
+    } else if (peek('[')) {
+      let a = parse_array();
+      val.type = 'array';
+      val.value = a.value;
+    } else {
+      unexpected();
+    }
+    let cmp = parse_comparison();
+    if (cmp) {
+      let data = [val];
+      data.push(value());
+      expect('?');
+      data.push(value());
+      expect(':');
+      data.push(value());
+      val.type = 'ternary'
+      val.value = { cmp: cmp, data: data };
+    }
+    return val;
+  }
+
+  /*
+  {
+    type: '==',
+    children: [
+      expr,
+      expr 
+    ]
+  }
+  {
+    type: 'string',
+    children: 'data'
+  }
+  {
+     type: 'array',
+     children: [
+       expr,
+       ... 
+     ] 
+  }
+  function parse_expr () {
+    if (accept('(')) {
+      parse_expr()
+      expect(')')
+    }
+  }
+  */
 
   function parse_variable() {
     let value = [tok.data];
@@ -389,14 +503,17 @@ Adom.prototype.parse = function(tokens) {
   }
 
   function parse_comparison() {
-    return (
+    let cmp = tok.data;
+
+    if (
       accept("==") ||
       accept("!=") ||
       accept("<=") ||
       accept(">=") ||
       accept(">") ||
       accept("<")
-    );
+    ) return cmp;
+    return undefined;
   }
 
   function parse_variable_primitive_or_ternary() {
@@ -419,17 +536,17 @@ Adom.prototype.parse = function(tokens) {
     expect("{");
     if (!peek('}')) {
       while (true) {
-	let key = tok.data;
-	expect("ident");
-	expect(":");
-	if (peek("[")) {
-	  obj[key] = parse_array();
-	} else if (peek("{")) {
-	  obj[key] = parse_object();
-	} else {
-	  obj[key] = parse_variable_or_primitive();
-	}
-	if (!accept(",")) break;
+      	let key = tok.data;
+      	expect("ident");
+      	expect(":");
+      	if (peek("[")) {
+      	  obj[key] = parse_array();
+      	} else if (peek("{")) {
+      	  obj[key] = parse_object();
+      	} else {
+      	  obj[key] = parse_variable_or_primitive();
+      	}
+      	if (!accept(",")) break;
       }
     }
     expect("}");
@@ -441,14 +558,14 @@ Adom.prototype.parse = function(tokens) {
     expect("[");
     if (!peek(']')) {
       while (true) {
-	if (peek("[")) {
-	  arr.push(parse_array());
-	} else if (peek("{")) {
-	  arr.push(parse_object());
-	} else {
-	  arr.push(parse_variable_or_primitive());
-	}
-	if (!accept(",")) break;
+      	if (peek("[")) {
+      	  arr.push(parse_array());
+      	} else if (peek("{")) {
+      	  arr.push(parse_object());
+      	} else {
+      	  arr.push(parse_variable_or_primitive());
+      	}
+      	if (!accept(",")) break;
       }
     }
     expect("]");
@@ -778,21 +895,22 @@ Adom.prototype.parse = function(tokens) {
       } else if (tok.type === "tag") {
         parse_custom_tag();
       } else if (peek('var') || peek('const')) {
-	let isConst = (tok.data === 'const');
-	next();
+      	let isConst = (tok.data === 'const');
+      	next();
         let dst = parse_variable();
         let val;
         expect("=");
         if (accept("file")) {
           expect("string");
         } else {
-          if (peek("[")) {
-            val = parse_array();
-          } else if (peek("{")) {
-            val = parse_object();
-          } else {
-            val = parse_variable_or_primitive();
-          }
+          val = parse_value();
+          // if (peek("[")) {
+          //   val = parse_array();
+          // } else if (peek("{")) {
+          //   val = parse_object();
+          // } else {
+          //   val = parse_variable_or_primitive();
+          // }
         }
         emit("set", { dst: dst, val: val, isConst: isConst });
       } else if (accept("module")) {
@@ -1132,14 +1250,14 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "if":
           {
-	    scope_depth++;
-	    if (scope_depth === 1) {
-	      let t = current_tag();
-	      fragments.push({ parent: t.id, length: 0, controller: controller });
-	    }
+  	        scope_depth++;
+      	    if (scope_depth === 1) {
+      	      let t = current_tag();
+      	      fragments.push({ parent: t.id, length: 0, controller: controller });
+      	    }
             if (!evaluate_condition(op.data.condition)) {
               ptr += op.data.jmp;
-	    }
+            }
           }
           break;
         case "end_if":
