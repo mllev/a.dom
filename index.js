@@ -25,8 +25,6 @@ Adom.prototype.tokenize = function(prog, file) {
     "null",
     "export",
     "file",
-    "and",
-    "or",
     "var",
     "const",
     "def"
@@ -168,6 +166,14 @@ Adom.prototype.tokenize = function(prog, file) {
     } else if (c === "!" && prog[cursor + 1] === "=") {
       tok.type = "!=";
       tok.data = "!=";
+      cursor += 2;
+    } else if (c === "&" && prog[cursor + 1] === "&") {
+      tok.type = "&&";
+      tok.data = "&&";
+      cursor += 2;
+    } else if (c === "|" && prog[cursor + 1] === "|") {
+      tok.type = "||";
+      tok.data = "||";
       cursor += 2;
     } else if (symbols.indexOf(c) !== -1) {
       tok.type = c;
@@ -374,9 +380,7 @@ Adom.prototype.parse = function(tokens) {
   }
 
   function is_comparison () {
-    return peek('and') ||
-      peek('or') ||
-      peek('==') ||
+    return peek('==') ||
       peek('<=') ||
       peek('>=') ||
       peek('!=') ||
@@ -404,7 +408,8 @@ Adom.prototype.parse = function(tokens) {
     return v;
   }
 
-  function parse_expr () {
+  function parse_expr (prec) {
+    if (prec == null) prec = 0;
     let expr = { pos: tok.pos, file: tok.file };
     if (peek('number') || peek('bool')) {
       expr.type = tok.type;
@@ -438,7 +443,7 @@ Adom.prototype.parse = function(tokens) {
       let cmp = tok.type;
       let lhs = expr;
       next();
-      let rhs = parse_expr();
+      let rhs = parse_expr(2);
       expr = {
         type: 'comparison',
         op: cmp,
@@ -447,7 +452,20 @@ Adom.prototype.parse = function(tokens) {
         file: expr.file
       };
     }
-    if (accept('?')) {
+    if (prec < 2 && (peek('&&') || peek('||'))) {
+      let cmp = tok.type;
+      let lhs = expr;
+      next();
+      let rhs = parse_expr(1);
+      expr = {
+        type: 'comparison',
+        op: cmp,
+        data: [ lhs, rhs ],
+        pos: expr.pos,
+        file: expr.file
+      };
+    }
+    if (prec < 1 && accept('?')) {
       expr = {
         type: 'ternary',
         data: [expr],
@@ -576,8 +594,11 @@ Adom.prototype.parse = function(tokens) {
         let evt = tok.data;
         expect("ident");
         expect("=");
-        let handler = parse_string();
-        events.push({ type: evt, handler: handler.data[0].data });
+        expect("{");
+        let handler = tok.data
+        expect("ident");
+        expect("}");
+        events.push({ type: evt, handler: handler });
       } else {
         break;
       }
