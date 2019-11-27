@@ -19,6 +19,7 @@ Adom.prototype.tokenize = function(prog, file) {
     "if",
     "in",
     "else",
+    "controller",
     "import",
     "yield",
     "on",
@@ -289,6 +290,14 @@ Adom.prototype.parse = function(tokens) {
     return t;
   }
 
+  function get_module (name) {
+    let t = files[files.length - 1].modules[name];
+    if (!t && tag_scopes.length > 0) {
+      t = tag_scopes[tag_scopes.length - 1].modules[name];
+    }
+    return t;
+  }
+
   function emit(op, data) {
     if (dont_emit) return;
     let i = { type: op };
@@ -546,22 +555,24 @@ Adom.prototype.parse = function(tokens) {
       if (accept("controller")) {
         expect("=");
         if (accept("{")) {
-          let pos = tok.pos,
-            file = tok.file;
-          let tname = tok.data;
-          let m = files[files.length - 1].modules[tname];
+          let pos = tok.pos;
+          let file = tok.file;
+          let mname = tok.data;
+          let m = get_module(mname);
           expect("ident");
-          if (!m) {
-            throw { msg: "unknown controller: " + tname, pos: pos, file: file };
+          if (!m && !dont_emit) {
+            throw { msg: "unknown controller: " + mname, pos: pos, file: file };
           }
           expect("}");
-          attr.controller = {
-            name: tname,
-            body: m.body,
-            deps: m.deps,
-            pos: pos,
-            file: file
-          };
+          if (!dont_emit) {
+            attr.controller = {
+              name: m.name,
+              body: m.body,
+              deps: m.deps,
+              pos: pos,
+              file: file
+            };
+          }
         } else {
           let pos = tok.pos,
             file = tok.file;
@@ -639,13 +650,12 @@ Adom.prototype.parse = function(tokens) {
     let attr = attr_data[0];
     let custom = get_custom_tag(name);
     if (classlist.value.length > 0) attr.class = classlist;
-    let prev_emit = dont_emit
-    if (custom) {
+    if (custom && !dont_emit) {
       if (accept("[")) {
         let ret = cursor;
         dont_emit = true;
         parse_tag_list();
-        dont_emit = prev_emit;
+        dont_emit = false;
         expect("]");
         let end_ret = cursor;
         set_tok(custom.pos);
@@ -668,8 +678,10 @@ Adom.prototype.parse = function(tokens) {
         set_tok(custom.pos);
         emit("push_props", { props: attr, events: events });
 	      yield_stack.push(null);
+        tag_scopes.push(custom.scope);
         parse_tag_list();
 	      yield_stack.pop();
+        tag_scopes.pop();
         emit("pop_props");
         set_tok(ret);
       }
@@ -1873,7 +1885,8 @@ Adom.prototype.resolve_imports = function(tokens, file) {
     switch (tokens[ptr].type) {
       case "import":
         {
-          let path = tokens[++ptr].data;
+          ptr+=2;
+          let path = tokens[ptr].data;
           let fileData = this.openFile(path);
           let f = fileData[1];
           let toks = this.resolve_imports(this.tokenize(fileData[0], f), f);
@@ -1882,8 +1895,9 @@ Adom.prototype.resolve_imports = function(tokens, file) {
           });
         }
         break;
-      case "file":
-        let path = tokens[++ptr].data;
+      case "file": {
+        ptr += 2;
+        let path = tokens[ptr].data;
         let fileData = this.openFile(path);
         out_toks.push({
           type: "string",
@@ -1891,7 +1905,7 @@ Adom.prototype.resolve_imports = function(tokens, file) {
           pos: tokens[ptr].pos,
           file: tokens[ptr].file
         });
-        break;
+      } break;
       default:
         out_toks.push(tokens[ptr]);
         break;
