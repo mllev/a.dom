@@ -370,10 +370,17 @@ Adom.prototype.parse = function(tokens) {
 
     while (true) {
       if (accept('.')) {
-        if (!acc) acc = [];
+        let p = tok.pos, f = tok.file;
+        if (!acc)  acc = [];
+        // because .ident is short for ['ident'] as in javascript
         acc.push({
-          type: 'ident',
-          data: tok.data
+          type: "string",
+          data: [{
+            type: "chunk",
+            data: tok.data
+          }],
+          pos: p,
+          file: f 
         });
         expect('ident');
       } else if (accept('[')) {
@@ -422,7 +429,7 @@ Adom.prototype.parse = function(tokens) {
     let expr = { pos: tok.pos, file: tok.file };
     if (peek('number') || peek('bool')) {
       expr.type = tok.type;
-      expr.data = tok.value;
+      expr.data = tok.data;
       next();
     } else if (peek('string')) {
       expr = parse_string();
@@ -1901,6 +1908,11 @@ Adom.prototype.resolve_imports = function(tokens, file) {
         let fileData = this.openFile(path);
         out_toks.push({
           type: "string",
+          pos: tokens[ptr].pos,
+          file: tokens[ptr].file
+        });
+        out_toks.push({
+          type: "chunk",
           data: fileData[0],
           pos: tokens[ptr].pos,
           file: tokens[ptr].file
