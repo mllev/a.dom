@@ -151,6 +151,8 @@ Adom.prototype.tokenize = function(prog, file) {
       if (tok.data === "true" || tok.data === "false") {
         tok.type = "bool";
         tok.data = tok.data === "true";
+      } else if (tok.data === "null") {
+        tok.data = null;
       }
     } else if (c === "<" && prog[cursor + 1] === "=") {
       tok.type = "<=";
@@ -427,7 +429,7 @@ Adom.prototype.parse = function(tokens) {
   function parse_expr (prec) {
     if (prec == null) prec = 0;
     let expr = { pos: tok.pos, file: tok.file };
-    if (peek('number') || peek('bool')) {
+    if (peek('number') || peek('bool') || peek('null')) {
       expr.type = tok.type;
       expr.data = tok.data;
       next();
@@ -440,7 +442,7 @@ Adom.prototype.parse = function(tokens) {
       expect(')');
       let acc = parse_acc();
       if (acc) {
-        acc.unshift(expr);
+        acc.unshift(ex);
         expr.type = 'accumulator';
         expr.data = acc;
       } else {
@@ -641,7 +643,7 @@ Adom.prototype.parse = function(tokens) {
       let str = parse_string();
       emit("begin_tag", { name: name, attributes: attr, events: events });
       if (str.data.length > 1 || str.data[0] !== '')
-        emit("textnode", str.data);
+        emit("textnode", str);
       emit("end_tag");
     } else {
       unexpected();
@@ -766,7 +768,7 @@ Adom.prototype.parse = function(tokens) {
     } else if (peek("string")) {
       let str = parse_string();
       if (str.data.length > 1 || str.data[0] !== '')
-        emit("textnode", str.data);
+        emit("textnode", str);
       parse_tag_list();
     } else if (accept("yield")) {
       let y = yield_stack[yield_stack.length - 1];
@@ -823,8 +825,9 @@ Adom.prototype.parse = function(tokens) {
       } else if (peek('var') || peek('const')) {
       	let isConst = (tok.data === 'const');
       	next();
-        let dst = parse_variable();
+        let dst = { data: tok.data, pos: tok.pos, file: tok.file };
         let val;
+        next();
         expect("=");
         if (accept("file")) {
           val = parse_string();
@@ -911,163 +914,89 @@ Adom.prototype.execute = function(ops, initial_state) {
     return ptr;
   }
 
-  function resolve_variable(v) {
-    let list = v.value.slice(0);
-    let pos = v.pos;
-    let file = v.file;
-    let curr = state;
-
-    if (constVars[list[0]]) curr = constVars;
-
-    curr = check_props(list) || curr;
-    curr = check_iterators(curr, list);
-
-    list.forEach(function(k, i) {
-      if (Array.isArray(k)) {
-        k = resolve_variable({ value: k, pos: pos, file: file });
-      }
-      if (curr[k] != null) {
-        curr = curr[k];
-      } else {
-        if (i > 0) {
-          throw {
-            msg: k + " is not a property of " + list[i - 1],
-            pos: pos,
-            file: file
-          };
-        } else {
-          throw { msg: k + " is not defined", pos: pos, file: file };
-        }
-      }
-    });
-    return curr;
-  }
-
-  function set(dst, val, isConst) {
-    let accessor = dst.value;
-    let pos = dst.pos,
-      file = dst.file;
-    let ptr = isConst ? constVars : state;
-    let max = accessor.length;
-    let prev = undefined;
-
-    for (let i = 0; i < max; i++) {
-      let a = accessor[i];
-      if (Array.isArray(a)) {
-        a = resolve_variable({ value: a, pos: pos, file: file });
-      }
-
-      if (Array.isArray(ptr) && typeof a === "string") {
-        throw { msg: prev + " is an array", pos: pos, file: file };
-      }
-
-      if (i === max - 1) {
-        ptr[a] = get(val);
-        return;
-      }
-
-      if (ptr[a] == null) {
-        if (typeof accessor[i + 1] === "number") {
-          ptr[a] = [];
-        } else {
-          ptr[a] = {};
-        }
-      } else {
-        throw { msg: a + " is already declared", pos: pos, file: file }
-      }
-
-      ptr = ptr[a];
-      prev = a;
-    }
-  }
-
-  function resolve_ternary(v) {
-    let v1 = v.value.data[0];
-    let v2 = v.value.data[1];
-    let v3 = v.value.data[2];
-    let v4 = v.value.data[3];
-    switch (v.value.cmp) {
-      case "==":
-        return get(v1) == get(v2) ? get(v3) : get(v4);
-      case "!=":
-        return get(v1) != get(v2) ? get(v3) : get(v4);
-      case "<=":
-        return get(v1) <= get(v2) ? get(v3) : get(v4);
-      case ">=":
-        return get(v1) >= get(v2) ? get(v3) : get(v4);
-      case ">":
-        return get(v1) > get(v2) ? get(v3) : get(v4);
-      case "<":
-        return get(v1) < get(v2) ? get(v3) : get(v4);
-      default:
-        return null;
-    }
-  }
-
-  function get(v) {
-    switch (v.type) {
-      case "string":
-      case "bool":
-      case "number":
-        return v.value;
-      case "variable":
-        return resolve_variable(v);
-      case "object":
-        {
-          let obj = {};
-          Object.keys(v.value).forEach(function(k) {
-            obj[k] = get(v.value[k]);
-          });
-          return obj;
-        }
-        break;
-      case "array":
-        {
-          return v.value.map(get);
-        }
-        break;
-      case "ternary":
-        {
-          return resolve_ternary(v);
-        }
-        break;
-    }
-    return null;
-  }
-
-  function evaluate_condition(condition) {
-    let lhs = get(condition.lhs);
-    let rhs = get(condition.rhs);
-    let cmp = condition.cmp;
-
-    if (cmp === "==" && lhs == rhs) return true;
-    if (cmp === "!=" && lhs != rhs) return true;
-    if (cmp === "<=" && lhs <= rhs) return true;
-    if (cmp === ">=" && lhs >= rhs) return true;
-    if (cmp === "<" && lhs < rhs) return true;
-    if (cmp === ">" && lhs > rhs) return true;
-
-    return false;
-  }
-
   function assemble_attributes(attr) {
-    let str = "";
-    Object.keys(attr).forEach(function(k) {
-      if (k !== 'controller') {
-	let v = get(attr[k]);
-	if (Array.isArray(v)) v = v.join(" ");
-	str += " " + k + '="' + v + '"';
-      }
-    });
-    return str;
+    return Object.keys(attr).map(function (k) {
+      return ` ${k}="${evaluate(attr[k])}"`
+    }).join('');
   }
 
-  function assemble_textnode(chunks) {
-    return chunks
-      .map(function(chunk) {
-        return typeof chunk === "string" ? chunk : get(chunk);
-      })
-      .join("");
+  function evaluate(expr){
+    switch (expr.type) {
+      case 'null':
+      case 'number':
+      case 'bool':
+      case 'chunk':
+        return expr.data
+      case 'string': {
+        return expr.data.map(function (c) {
+           return evaluate(c)
+        }).join('');
+      } break;
+      case 'accumulator': {
+        let v = expr.data[0];
+        let prev = v.data;
+        let ptr = evaluate(v);
+        if (ptr === undefined) throw { msg: v.data + ' is undefined.', pos: v.pos, file: v.file };
+        for (let i = 1; i < expr.data.length; i++) {
+          v = expr.data[i];
+          let str = evaluate(v);
+          if (ptr[str] !== undefined) {
+            prev = str;
+            ptr = ptr[str];
+          } else {
+            throw { msg: str + ' is not a property of ' + prev, pos: v.pos, file: v.file };
+          }
+        }
+        return ptr;
+      } break;
+      case 'ident': {
+        let v = expr.data;
+        if (v === 'props') {
+          return props[props.length - 1]
+        }
+        for (let i = iterators.length - 1; i >= 0; i--) {
+          let it = iterators[i];
+          if (it.iterators[0] === v) {
+            return it.list[it.index];
+          }
+          if (it.iterators[1] === v) {
+            return it.index;
+          }
+        }
+        if (state[v] !== undefined) return state[v];
+        if (constVars[v] !== undefined) return constVars[v];
+        return undefined;
+      } break;
+      case 'array': {
+        return expr.data.map(function (i) {
+          return evaluate(i);
+        })
+      } break;
+      case 'object': {
+        let keys = Object.keys(expr.data);
+        let obj = {};
+        keys.forEach(function (k) {
+          obj[k] = evaluate(expr.data[k]);
+        });
+        return obj;
+      } break;
+      case 'ternary': {
+        let v = expr.data;
+        return evaluate(v[0]) ? evaluate(v[1]) : evaluate(v[2]);
+      } break;
+      case 'comparison': {
+        let v1 = evaluate(expr.data[0]);
+        let v2 = evaluate(expr.data[1]);
+        if (expr.op === '==') return v1 === v2;
+        if (expr.op === '!=') return v1 !== v2;
+        if (expr.op === '<=') return v1 <= v2;
+        if (expr.op === '>=') return v1 >= v2;
+        if (expr.op === '>') return v1 > v2;
+        if (expr.op === '<') return v1 < v2;
+        if (expr.op === '&&') return v1 && v2;
+        if (expr.op === '||') return v1 || v2;
+      } break;
+    }
   }
 
   function fmt() {
@@ -1094,7 +1023,7 @@ Adom.prototype.execute = function(ops, initial_state) {
 
     function current_frag () {
       if (fragments.length > 0) {
-	return fragments[fragments.length - 1];
+	      return fragments[fragments.length - 1];
       }
       return null;
     }
@@ -1109,16 +1038,16 @@ Adom.prototype.execute = function(ops, initial_state) {
               "<" +
               op.data.name +
               assemble_attributes(op.data.attributes);
-	    let f = current_frag();
-	    if (f && current_tag().id === f.parent && scope_depth > 0) f.length++;
+      	    let f = current_frag();
+      	    if (f && current_tag().id === f.parent && scope_depth > 0) f.length++;
             if (op.data.self_close) {
               html += ">"; // configure based on doctype
-	      following_textnode = false;
+	            following_textnode = false;
             } else {
-	      let a = op.data.attributes;
-	      let id = a['data-adom-id'];
+      	      let a = op.data.attributes;
+      	      let id = a['data-adom-id'];
               html += ">";
-	      if (a.controller) controller = a.controller;
+  	          if (a.controller) controller = a.controller;
               open_tags.push({ name: op.data.name, id: id ? id.value : undefined, controller: a.controller });
             }
           }
@@ -1126,38 +1055,46 @@ Adom.prototype.execute = function(ops, initial_state) {
         case "end_tag":
           {
             let t = open_tags.pop();
-	    if (t.controller === controller) controller = undefined;
-	    html += fmt() + "</" + t.name + ">";
-	    following_textnode = false;
-	    if (op.data) {
-	      let frag_lengths = [];
-	      fragments.forEach(function (f) {
-		// the runtime relies on the order of the fragments initial lengths
-		if (f.controller) frag_lengths.push(f.length);
-	      })
-	      html += fmt() + `<script id="adom-initial-frag-lengths" type="text/template">${JSON.stringify(frag_lengths)}</script>`;
-	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}</script><script>${op.data}</script>`;
-	    }
+      	    if (t.controller === controller) controller = undefined;
+      	    html += fmt() + "</" + t.name + ">";
+      	    following_textnode = false;
+      	    if (op.data) {
+      	      let frag_lengths = [];
+      	      fragments.forEach(function (f) {
+            		// the runtime relies on the order of the fragments initial lengths
+            		if (f.controller) frag_lengths.push(f.length);
+            	})
+      	      html += fmt() + `<script id="adom-initial-frag-lengths" type="text/template">${JSON.stringify(frag_lengths)}</script>`;
+      	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}</script><script>${op.data}</script>`;
+      	    }
           }
           break;
         case "set":
           {
-            set(op.data.dst, op.data.val, op.data.isConst);
+            let dst = op.data.dst;
+            if (constVars[dst.data] != null || state[dst.data] != null) {
+              throw { msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file };
+            }
+            if (op.data.isConst) {
+              constVars[dst.data] = evaluate(op.data.val);
+            } else {
+              state[dst.data] = evaluate(op.data.val);
+            }
           }
           break;
         case "textnode":
           {
-	    let f = current_frag();
-	    if (!following_textnode && f && current_tag().id === f.parent && scope_depth > 0) f.length++;
-            html += fmt() + assemble_textnode(op.data);
-	    following_textnode = true;
-	  }
+      	    let f = current_frag();
+      	    if (!following_textnode && f && current_tag().id === f.parent && scope_depth > 0) f.length++;
+            html += fmt() + evaluate(op.data);
+	          following_textnode = true;
+	        }
           break;
         case "push_props":
           {
             let pctx = {};
             Object.keys(op.data.props).forEach(function(k) {
-              pctx[k] = get(op.data.props[k]);
+              pctx[k] = evaluate(op.data.props[k]);
             });
             props.push(pctx);
           }
@@ -1174,14 +1111,14 @@ Adom.prototype.execute = function(ops, initial_state) {
       	      let t = current_tag();
       	      fragments.push({ parent: t.id, length: 0, controller: controller });
       	    }
-            if (!evaluate_condition(op.data.condition)) {
+            if (!evaluate(op.data.condition)) {
               ptr += op.data.jmp;
             }
           }
           break;
         case "end_if":
           {
-	    scope_depth--;
+	          scope_depth--;
           }
           break;
         case "jump":
@@ -1191,16 +1128,16 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "each":
           {
-	    scope_depth++;
-	    if (scope_depth === 1) {
-	      let t = current_tag();
-	      fragments.push({ parent: t.id, length: 0, controller: controller });
-	    }
-            let list = get(op.data.list);
+      	    scope_depth++;
+      	    if (scope_depth === 1) {
+      	      let t = current_tag();
+      	      fragments.push({ parent: t.id, length: 0, controller: controller });
+      	    }
+            let list = evaluate(op.data.list);
             if (Array.isArray(list)) {
               if (list.length === 0) {
                 ptr += op.data.jmp;
-		scope_depth--;
+		            scope_depth--;
                 break;
               }
               iter = {
@@ -1258,7 +1195,7 @@ Adom.prototype.execute = function(ops, initial_state) {
               ptr += op.data;
             } else {
               iterators.pop();
-	      scope_depth--;
+	            scope_depth--;
             }
           }
           break;
@@ -1267,7 +1204,6 @@ Adom.prototype.execute = function(ops, initial_state) {
       }
     }
   }
-
 
   exec();
 
@@ -1939,9 +1875,7 @@ Adom.prototype.render = function(file, input_state) {
       let tokens = this.tokenize(fileData[0], f);
       tokens = this.resolve_imports(tokens, f);
       let ops = this.parse(tokens);
-      console.log(JSON.stringify(ops, null, 2));
-      return '';
-      this.attach_runtime(ops, input_state || {});
+      //this.attach_runtime(ops, input_state || {});
       let html = this.execute(ops, input_state || {});
       if (this.cache) {
         this.opcode_cache[f] = ops;
