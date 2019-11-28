@@ -1053,7 +1053,7 @@ Adom.prototype.execute = function(ops, initial_state) {
       	      let id = a['data-adom-id'];
               html += ">";
   	          if (a.controller) controller = a.controller;
-              open_tags.push({ name: op.data.name, id: id ? id.value : undefined, controller: a.controller });
+              open_tags.push({ name: op.data.name, id: id ? evaluate(id) : undefined, controller: a.controller });
             }
           }
           break;
@@ -1431,7 +1431,6 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
   let ptr = 0;
   let in_controller = false;
   let prop_depth = -1;
-  let iterators = [];
   let scope_depth = 0;
   let ids = 0;
   let updates = [];
@@ -1447,62 +1446,55 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
   let state_keys = Object.keys(input_state);
   let prop_events = undefined;
 
-  function is_iterator(v) {
-    for (let i = 0; i < iterators.length; i++) {
-      if (iterators[i].indexOf(v) !== -1) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function get_value(v) {
-    switch (v.type) {
-      case "bool":
-        return v.value.toString();
-      case "chunk":
-      case "string":
-        return '"' + v.value + '"';
-      case "number":
-        return v.value;
-      case "variable":
-        let start = 0;
-        let val = v.value;
-        let variable = "";
-        if (is_iterator(val[0])) {
-          variable = "";
-        } else if (val[0] === "props") {
-          variable = "adom.props[" + prop_depth + "]";
-          start = 1;
+  function print_expression (expr) {
+    switch (expr.type) {
+      case 'ident':
+      case 'null':
+      case 'number':
+      case 'bool':
+        return expr.data.toString();
+      case 'chunk':
+        return `"${expr.data}"`
+      case 'string': {
+        return `${expr.data.map(function (c) {
+           return print_expression(c)
+        }).join(' + ')}`;
+      } break;
+      case 'accumulator': {
+        let val = print_expression(expr.data[0]);
+        if (val === 'props') val = `adom.props[${prop_depth}]`;
+        for (let i = 1; i < expr.data.length; i++) {
+          val += `[${print_expression(expr.data[i])}]`;
         }
-        for (let i = start; i < val.length; i++) {
-          let part = val[i];
-          if (i === 0) variable += part;
-          else if (typeof part === "number") variable += "[" + part + "]";
-          else variable += '["' + part + '"]';
-        }
-        return variable;
-      case "array":
-        return "[" + v.value.map(get_value).join(", ") + "]";
-      case "ternary":
-        let d = v.value.data;
-        return `(${get_value(d[0])})${v.value.cmp}(${get_value(d[1])})?(${get_value(d[2])}):(${get_value(d[3])})`
-      default:
-        if (typeof v === "string") return '"' + v + '"';
-        return '""';
+        return val;
+      } break;
+      case 'array': {
+        return `[${expr.data.map(function (i) {
+          return print_expression(i);
+        }).join(', ')}]`
+      } break;
+      case 'object': {
+        let keys = Object.keys(expr.data);
+        return `{ ${keys.map(function (k) {
+          return `"${k}": ${print_expression(expr.data[k])}`;
+        }).join(', ')} }`;
+      } break;
+      case 'ternary': {
+        let v = expr.data;
+        let v1 = print_expression(v[0]);
+        let v2 = print_expression(v[1]);
+        let v3 = print_expression(v[2]);
+        return `(${v1} ? ${v2} : ${v3})`;
+      } break;
+      case 'comparison': {
+        let v1 = print_expression(expr.data[0]);
+        let v2 = print_expression(expr.data[1]);
+        return `(${v1} ${expr.op} ${v2})`
+      } break;
+      case 'parenthetical': {
+        return `(${print_expression})`;
+      } break;
     }
-  }
-
-  function get_content(chunks) {
-    return (
-      "(" +
-      chunks
-        .map(function(chunk) {
-          return get_value(chunk);
-        })
-        .join(" + ") +
-      ")"
-    );
   }
 
   function stringify_object(obj) {
@@ -1511,7 +1503,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
       "{" +
       keys
         .map(function(k, i) {
-          return '"' + k + '": ' + get_value(obj[k]);
+          return '"' + k + '": ' + print_expression(obj[k]);
         })
         .join(", ") +
       "}"
@@ -1536,7 +1528,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
     switch (op.type) {
       case 'set': {
 	      if (!op.data.isConst)
-	        state_keys.push(op.data.dst.value[0]);
+	        state_keys.push(op.data.dst.data);
       } break;
       case "declare_module": {
         modules.push(op.data);
@@ -1545,7 +1537,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
         if (op.data.attributes.controller) {
           let c = op.data.attributes.controller;
           let id = ids++;
-          op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
+          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id + "" }] };
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (in_controller) {
             throw {
@@ -1559,7 +1551,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
 	        op.data.attributes.controller = c.name;
         } else if (in_controller) {
           let id = ids++
-          op.data.attributes['data-adom-id'] = { type: 'string', value: id + "" };
+          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id + "" }] };
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (op.data.events.length > 0) {
             op.data.events.forEach(function(e) {
@@ -1575,26 +1567,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           }
           if (scope_depth === 0) {
             last_tag(2).count++;
-            let needsUpdates = false
-            let obj = {}
-            for (let a in op.data.attributes) {
-              let attr = op.data.attributes[a]
-              let t = attr.type
-              if (t === 'array' || t === 'variable' || t === 'array') {
-                if (t === 'variable') {
-                  if (state_keys.indexOf(attr.value[0]) > -1) {
-                    needsUpdates = true
-                    obj[a] = op.data.attributes[a]
-                  }
-                } else {
-                  needsUpdates = true
-                  obj[a] = op.data.attributes[a]
-                }
-              }
-            }
-            if (needsUpdates) {
-              updates.push(`adom.setAttributes(adom.id('${id}'),${stringify_object(obj)});`);
-            }
+            updates.push(`adom.setAttributes(adom.id('${id}'),${stringify_object(op.data.attributes)});`);
             if (op.data.self_close) {
               tag_info.pop()
             }
@@ -1636,17 +1609,9 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           if (scope_depth === 0) {
             let i = parent.count++;
             let id = parent.id;
-            let needsUpdates = false
-            op.data.forEach(function (c) {
-              if (c.type === 'variable' && state_keys.indexOf(c.value[0]) > -1) {
-                needsUpdates = true
-              }
-            })
-            if (needsUpdates) {
-              updates.push(`adom.setText("${id}", ${get_content(op.data)}, ${i});`);
-            }
+            updates.push(`adom.setText("${id}", ${print_expression(op.data)}, ${i});`);
           } else {
-            updates.push(`adom.el("text", ${get_content(op.data)}),`);
+            updates.push(`adom.el("text", ${print_expression(op.data)}),`);
           }
         }
         break;
@@ -1654,20 +1619,19 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
         if (in_controller) {
           let c = op.data;
           let i = c.iterators;
-          iterators.push(i);
           if (scope_depth === 0) {
             lindex++;
             let t = last_tag() 
             frag_id = t.frag_count++;
             frag_index = t.count
             updates.push(
-              `var frag${t.id}${frag_id} = adom.each(${get_value(op.data.list)}, function(${i[0]}${
+              `var frag${t.id}${frag_id} = adom.each(${print_expression(op.data.list)}, function(${i[0]}${
                 i[1] ? `, ${i[1]}` : ''
               }) { return [`
             )
           } else {
             updates.push(
-              `adom.each(${get_value(op.data.list)}, function(${i[0]}${
+              `adom.each(${print_expression(op.data.list)}, function(${i[0]}${
                 i[1] ? `, ${i[1]}` : ''
               }) { return [`
             )
@@ -1677,7 +1641,6 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
         break;
       case "iterate":
         if (in_controller) {
-          iterators.pop();
           scope_depth--;
           if (scope_depth === 0) {
             init.push(`adom.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
@@ -1720,11 +1683,9 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             let t = last_tag();
             frag_id = t.frag_count++;
             frag_index = t.count;
-            let v1 = get_value(c.lhs);
-            let v2 = get_value(c.rhs);
-            updates.push(`var frag${t.id}${frag_id} = adom.if((${v1})${c.cmp}(${v2}), [`)
+            updates.push(`var frag${t.id}${frag_id} = adom.if(${print_expression(c)}, [`)
           } else {
-            updates.push(`adom.if((${v1})${c.cmp}(${v2}), [`)
+            updates.push(`adom.if(${print_expression(c)}, [`)
           }
           scope_depth++;
         }
@@ -1880,7 +1841,7 @@ Adom.prototype.render = function(file, input_state) {
       let tokens = this.tokenize(fileData[0], f);
       tokens = this.resolve_imports(tokens, f);
       let ops = this.parse(tokens);
-      //this.attach_runtime(ops, input_state || {});
+      this.attach_runtime(ops, input_state || {});
       let html = this.execute(ops, input_state || {});
       if (this.cache) {
         this.opcode_cache[f] = ops;
