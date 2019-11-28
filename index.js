@@ -960,7 +960,8 @@ Adom.prototype.execute = function(ops, initial_state) {
             return it.list[it.index];
           }
           if (it.iterators[1] === v) {
-            return it.index;
+            return it.type === 'object' ?
+              it.object[it.list[it.index]] : it.index;
           }
         }
         if (state[v] !== undefined) return state[v];
