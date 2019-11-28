@@ -446,7 +446,8 @@ Adom.prototype.parse = function(tokens) {
         expr.type = 'accumulator';
         expr.data = acc;
       } else {
-        expr = ex;
+        expr.type = 'parenthetical'
+        expr.data = ex;
       }
     } else if (peek('{')) {
       expr.type = 'object';
@@ -996,6 +997,9 @@ Adom.prototype.execute = function(ops, initial_state) {
         if (expr.op === '<') return v1 < v2;
         if (expr.op === '&&') return v1 && v2;
         if (expr.op === '||') return v1 || v2;
+      } break;
+      case 'parenthetical': {
+        return evaluate(expr.data);
       } break;
     }
   }
