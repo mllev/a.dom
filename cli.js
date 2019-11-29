@@ -15,11 +15,14 @@ for (let i = 0; i < process.argv.length; i++) {
     case '-o':
       config.out = process.argv[i+1]
       break
+    case '-r':
+      config.root = process.argv[i+1]
+      break
   }
 }
 
 if (!config.file || !config.out) {
-  console.log('usage: -i <input> -o <output>')
+  console.log('usage: -i <input> -o <output> -r <root src directory>')
 } else {
-  fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file, {}))
+  fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file, { rootDir: config.root }))
 }
