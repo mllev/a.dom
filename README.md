@@ -87,7 +87,7 @@ div
     attr1='val1'
     attr2='val2' [ div [] div [] ]
 ```
-Attribute syntax is largely the same as HTML. Each attribute take the form `<attribute> '=' <string>`. ADOM supports both single and double quote strings for attributes.
+Attribute syntax is largely the same as HTML. Each attribute takes the form `<attribute> '=' <string>`. ADOM supports both single and double quote strings for attributes.
 ```js
 div attr1="val1" attr2="val2" []
 ```
@@ -209,7 +209,7 @@ html [
     ]
 ]
 ```
-`each` can takes an optional second argument:
+`each` can take an optional second argument:
 ```js
 each (item, i in items) [
     // i is the index
