@@ -23,7 +23,6 @@ Adom.prototype.tokenize = function(prog, file) {
     "if",
     "in",
     "else",
-    "controller",
     "import",
     "yield",
     "on",
@@ -570,36 +569,23 @@ Adom.prototype.parse = function(tokens) {
     let events = [];
     while (true) {
       let key = tok.data;
-      if (accept("controller")) {
-        expect("=");
-        if (accept("{")) {
-          let pos = tok.pos;
-          let file = tok.file;
-          let mname = tok.data;
-          let m = get_module(mname);
-          expect("ident");
-          if (!m && !dont_emit) {
-            throw_adom_error({ msg: "unknown controller: " + mname, pos: pos, file: file });
-          }
-          expect("}");
-          if (!dont_emit) {
-            attr.controller = {
-              name: m.name,
-              body: m.body,
-              deps: m.deps,
-              pos: pos,
-              file: file
-            };
-          }
-        } else {
-          let pos = tok.pos,
-            file = tok.file;
-          expect("string");
-          throw_adom_error({
-            msg: "importing controllers is currently unsupported",
+      if (accept("#")) {
+        let pos = tok.pos;
+        let file = tok.file;
+        let mname = tok.data;
+        let m = get_module(mname);
+        expect("ident");
+        if (!m && !dont_emit) {
+          throw_adom_error({ msg: "unknown controller: " + mname, pos: pos, file: file });
+        }
+        if (!dont_emit) {
+          attr.controller = {
+            name: m.name,
+            body: m.body,
+            deps: m.deps,
             pos: pos,
             file: file
-          });
+          };
         }
       } else if (accept("ident")) {
         if (accept("=")) {

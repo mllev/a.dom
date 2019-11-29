@@ -327,7 +327,7 @@ html [
     ]
 ]
 ```
-Let's say our goal is to update `name` in real time as you type. First, we have to create a `controller`, and change `const` to `var`:
+Let's say our goal is to update `name` in real time as you type. First, we have to create a `controller`, and change `const` to `var`. By changing the type to `var` we are telling adom that this variable should be available for runtime modification.
 ```js
 doctype html5
 
@@ -345,7 +345,7 @@ html [
     ]
 ]
 ```
-Now attach the controller to some chunk of UI:
+Now attach the controller to some chunk of UI using the `#` symbol. In this example, we will attach our controller to body:
 ```js
 doctype html5
 
@@ -357,7 +357,7 @@ def MyCtrl ->
 
 html [
     head []
-    body controller={MyCtrl} [
+    body #MyCtrl [
         h1 "Hello, {{name}}!"
         input;
     ]
@@ -377,7 +377,7 @@ def MyCtrl ->
 
 html [
     head []
-    body controller={MyCtrl} [
+    body #MyCtrl [
         h1 "Hello, {{name}}!"
         input on:input={updateName};
     ]
@@ -398,7 +398,7 @@ def MyCtrl ->
 
 html [
     head []
-    body controller={MyCtrl} [
+    body #MyCtrl [
         h1 "Hello, {{name}}!"
         input on:input={updateName};
     ]
@@ -418,7 +418,7 @@ def MyCtrl ->
 
 html [
     head []
-    body controller={MyCtrl} [
+    body #MyCtrl [
         h1 "Hello, {{name}}!"
         input on:input={@updateName};
     ]
