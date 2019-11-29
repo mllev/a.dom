@@ -12,7 +12,7 @@ ADOM is a templating language with extremely advanced features.
 
 In just 2k lines of code, with no dependencies, and a single function API, ADOM packs in:
 
-- an extremely terse templating language with NO whitespace sensitivity
+- an extremely terse templating language with no whitespace sensitivity
 - a high speed reactive UI engine using plain Javascript, with no modifications made to your code (making it fully compatible with Javascript preprocessors, and the full ecosystem of tools)
 - server side rendering that is simpler, faster, and *far* easier to understand than all modern solutions
 - code separation and bundling via simple import/export semantics
@@ -279,7 +279,7 @@ html [
     ]
 ]
 ```
-Tags can either be self-closed using `;` if they don't have children, or they can contain children. If you would like to add children to a tag, you use the yield keyword:
+Tags can either be self-closed using `;` if they don't have children, or they can contain children. If you would like to add children to a tag, you use the `yield` keyword:
 ```js
 doctype html5
 
