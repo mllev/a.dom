@@ -6,6 +6,11 @@ function Adom(config) {
   this.files = {};
 }
 
+function throw_adom_error (err) {
+  err.origin = 'adom';
+  throw err;
+};
+
 Adom.prototype.tokenize = function(prog, file) {
   let cursor = 0,
     end_pos = prog.length - 1;
@@ -191,7 +196,7 @@ Adom.prototype.tokenize = function(prog, file) {
       let i = cursor + 3;
       while (true) {
         if (i > end_pos) {
-          throw { msg: "unterminated long string", pos: cursor, file: file };
+          throw_adom_error({ msg: "unterminated long string", pos: cursor, file: file });
         } else if (
           prog[i] === '"' &&
           prog[i + 1] === '"' &&
@@ -212,7 +217,7 @@ Adom.prototype.tokenize = function(prog, file) {
 
       while (true) {
         if (i > end_pos || prog[i] === "\n") {
-          throw { msg: "unterminated string", pos: cursor, file: file };
+          throw_adom_error({ msg: "unterminated string", pos: cursor, file: file });
         }
         if (prog[i] === del) {
           i++;
@@ -253,7 +258,7 @@ Adom.prototype.tokenize = function(prog, file) {
         tok.data += prog[i++];
       }
       if (i > end_pos) {
-        throw { msg: "expected closing <-", pos: cursor, file: file };
+        throw_adom_error({ msg: "expected closing <-", pos: cursor, file: file });
       }
       cursor = i;
       tok.type = "module_body";
@@ -318,18 +323,18 @@ Adom.prototype.parse = function(tokens) {
   }
 
   function unexpected() {
-    throw { msg: "unexpected " + tok.type, pos: tok.pos, file: tok.file };
+    throw_adom_error({ msg: "unexpected " + tok.type, pos: tok.pos, file: tok.file });
   }
 
   function expect(t) {
     if (tok.type === t) {
       next();
     } else {
-      throw {
+      throw_adom_error({
         msg: "expected: " + t + " found: " + tok.type,
         pos: tok.pos,
         file: tok.file
-      };
+      });
     }
   }
 
@@ -574,7 +579,7 @@ Adom.prototype.parse = function(tokens) {
           let m = get_module(mname);
           expect("ident");
           if (!m && !dont_emit) {
-            throw { msg: "unknown controller: " + mname, pos: pos, file: file };
+            throw_adom_error({ msg: "unknown controller: " + mname, pos: pos, file: file });
           }
           expect("}");
           if (!dont_emit) {
@@ -590,11 +595,11 @@ Adom.prototype.parse = function(tokens) {
           let pos = tok.pos,
             file = tok.file;
           expect("string");
-          throw {
+          throw_adom_error({
             msg: "importing controllers is currently unsupported",
             pos: pos,
             file: file
-          };
+          });
         }
       } else if (accept("ident")) {
         if (accept("=")) {
@@ -604,11 +609,11 @@ Adom.prototype.parse = function(tokens) {
           } else if (peek("string")) {
             attr[key] = parse_string();
           } else {
-            throw {
+            throw_adom_error({
               msg: "unexpected " + tok.type,
               pos: tok.pos,
               file: tok.file
-            };
+            });
           }
         } else {
           attr[key] = { type: "bool", data: true };
@@ -808,9 +813,9 @@ Adom.prototype.parse = function(tokens) {
         fctx.exports.forEach(function(ex) {
           let e = ex.val;
           if (!fctx.modules[e] && !fctx.tags[e])
-            throw { msg: "no such tag or module", pos: ex.pos, file: ex.file };
+            throw_adom_error({ msg: "no such tag or module", pos: ex.pos, file: ex.file });
           if (fctx.modules[e] && fctx.tags[e])
-            throw { msg: "export is ambiguous", pos: ex.pos, file: ex.file };
+            throw_adom_error({ msg: "export is ambiguous", pos: ex.pos, file: ex.file });
           if (fctx.modules[e])
             files[files.length - 1].modules[e] = fctx.modules[e];
           if (fctx.tags[e]) files[files.length - 1].tags[e] = fctx.tags[e];
@@ -863,7 +868,7 @@ Adom.prototype.parse = function(tokens) {
         expect("module_body");
         deps.forEach(function (dep) {
           if (!files[files.length - 1].modules[dep]) {
-            throw { msg: 'unknown module ' + dep, pos: pos, file: file };
+            throw_adom_error({ msg: 'unknown module ' + dep, pos: pos, file: file });
           } else {
             let m = files[files.length - 1].modules[dep];
             emit('declare_module', {
@@ -875,7 +880,7 @@ Adom.prototype.parse = function(tokens) {
         });
         files[files.length - 1].modules[mname] = { name: mname, body: module_body, deps: deps };
       } else {
-        throw { msg: "unexpected: " + tok.type, pos: tok.pos, file: tok.file };
+        throw_adom_error({ msg: "unexpected: " + tok.type, pos: tok.pos, file: tok.file });
       }
     }
   }
@@ -898,11 +903,11 @@ Adom.prototype.execute = function(ops, initial_state) {
   function check_props(list) {
     if (list[0] === "props") {
       if (props.length < 1)
-        throw {
+        throw_adom_error({
           msg: "props can only be used inside a custom tag",
           pos: pos,
           file: file
-        };
+        });
       let v = props[props.length - 1];
       list.shift();
       return v;
@@ -946,7 +951,7 @@ Adom.prototype.execute = function(ops, initial_state) {
         let v = expr.data[0];
         let prev = v.data;
         let ptr = evaluate(v);
-        if (ptr === undefined) throw { msg: v.data + ' is undefined.', pos: v.pos, file: v.file };
+        if (ptr === undefined) throw_adom_error({ msg: v.data + ' is undefined.', pos: v.pos, file: v.file });
         for (let i = 1; i < expr.data.length; i++) {
           v = expr.data[i];
           let str = evaluate(v);
@@ -954,7 +959,7 @@ Adom.prototype.execute = function(ops, initial_state) {
             prev = str;
             ptr = ptr[str];
           } else {
-            throw { msg: str + ' is not a property of ' + prev, pos: v.pos, file: v.file };
+            throw_adom_error({ msg: str + ' is not a property of ' + prev, pos: v.pos, file: v.file });
           }
         }
         return ptr;
@@ -1087,7 +1092,7 @@ Adom.prototype.execute = function(ops, initial_state) {
           {
             let dst = op.data.dst;
             if (constVars[dst.data] != null || state[dst.data] != null) {
-              throw { msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file };
+              throw_adom_error({ msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file });
             }
             if (op.data.isConst) {
               constVars[dst.data] = evaluate(op.data.val);
@@ -1184,11 +1189,11 @@ Adom.prototype.execute = function(ops, initial_state) {
                 iter.data[op.data.iterators[1]] = iter.object[iter.list[0]];
               iterators.push(iter);
             } else {
-              throw {
+              throw_adom_error({
                 msg: "each statements can only operate on arrays or objects",
                 pos: op.data.list.pos,
                 file: op.data.list.file
-              };
+              });
             }
           }
           break;
@@ -1270,7 +1275,7 @@ $adom.prototype.id = function (id, all) {
 
 $adom.prototype.setAttributes = function (e, attr) {
   Object.keys(attr).forEach(function (att) {
-    let a = attr[att];
+    var a = attr[att];
     e.setAttribute(att, a.constructor === Array ? a.join(' ') : a);
   });
 };
@@ -1550,11 +1555,11 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id + "" }] };
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (in_controller) {
-            throw {
+            throw_adom_error({
               msg: "nested controllers are illegal",
               pos: c.pos,
               file: c.file
-            };
+            });
           }
           in_controller = true;
           controllers.push(c);
@@ -1862,12 +1867,10 @@ Adom.prototype.render = function(file, input_state) {
       return html;
     }
   } catch (e) {
-    if (e.pos != null) {
+    if (e.origin === 'adom') {
       console.log("Error: ", e.file);
       console.log(e.msg);
       console.log(this.get_error_text(this.files[e.file], e.pos));
-    } else if (e.msg) {
-      console.log(e.msg);
     } else {
       console.log(e);
     }
