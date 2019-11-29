@@ -1276,7 +1276,12 @@ $adom.prototype.id = function (id, all) {
 $adom.prototype.setAttributes = function (e, attr) {
   Object.keys(attr).forEach(function (att) {
     var a = attr[att];
-    e.setAttribute(att, a.constructor === Array ? a.join(' ') : a);
+    var v = a.contructor === Array ? a.join(' ') : a;
+    if (att === 'value') {
+      e.value = v;
+    } else {
+      e.setAttribute(att, v);
+    }
   });
 };
 
