@@ -14,7 +14,6 @@ Adom.prototype.tokenize = function(prog, file) {
   let keywords = [
     "tag",
     "doctype",
-    "layout",
     "each",
     "if",
     "in",
@@ -47,7 +46,8 @@ Adom.prototype.tokenize = function(prog, file) {
     ",",
     ">",
     "<",
-    "?"
+    "?",
+    "@"
   ];
 
   function break_into_chunks(text, cursor) {
@@ -545,7 +545,10 @@ Adom.prototype.parse = function(tokens) {
       if (!accept(".")) break;
       classes.push({
         type: "string",
-        value: tok.data,
+        data: [{
+          type: 'chunk',
+          data: tok.data
+        }],
         pos: tok.pos,
         file: tok.file
       });
@@ -553,7 +556,7 @@ Adom.prototype.parse = function(tokens) {
     }
     return {
       type: "array",
-      value: classes
+      data: classes
     };
   }
 
@@ -617,9 +620,14 @@ Adom.prototype.parse = function(tokens) {
         expect("=");
         expect("{");
         let handler = tok.data
+        let sync = false;
+        if (accept('@')) {
+          handler = tok.data;
+          sync = true;
+        }
         expect("ident");
         expect("}");
-        events.push({ type: evt, handler: handler });
+        events.push({ type: evt, handler: handler, sync: sync });
       } else {
         break;
       }
@@ -659,7 +667,7 @@ Adom.prototype.parse = function(tokens) {
     let events = attr_data[1];
     let attr = attr_data[0];
     let custom = get_custom_tag(name);
-    if (classlist.value.length > 0) attr.class = classlist;
+    if (classlist.data.length > 0) attr.class = classlist;
     if (custom && !dont_emit) {
       if (accept("[")) {
         let ret = cursor;
@@ -917,7 +925,8 @@ Adom.prototype.execute = function(ops, initial_state) {
 
   function assemble_attributes(attr) {
     return Object.keys(attr).map(function (k) {
-      return ` ${k}="${evaluate(attr[k])}"`
+      let v = evaluate(attr[k]);
+      return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
     }).join('');
   }
 
@@ -1260,8 +1269,9 @@ $adom.prototype.id = function (id, all) {
 };
 
 $adom.prototype.setAttributes = function (e, attr) {
-  Object.keys(attr).forEach(function (a) {
-    e.setAttribute(a, attr[a]);
+  Object.keys(attr).forEach(function (att) {
+    let a = attr[att];
+    e.setAttribute(att, a.constructor === Array ? a.join(' ') : a);
   });
 };
 
@@ -1555,13 +1565,13 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (op.data.events.length > 0) {
             op.data.events.forEach(function(e) {
-              events.push({ id: id, event: e.type, handler: e.handler });
+              events.push({ id: id, event: e.type, handler: e.handler, sync: e.sync });
             });
           }
           if (prop_events) {
 	          // events on custom tags are attached to the first child of the tag
             prop_events.forEach(function(e) {
-              events.push({ id: id, event: e.type, handler: e.handler });
+              events.push({ id: id, event: e.type, handler: e.handler, sync: e.sync });
             });
 	          prop_events = undefined;
           }
@@ -1738,7 +1748,10 @@ $$adom_modules.${m.name} = (function () {
   (function (${state_keys.join(',')}) {
     function $addEventListeners () {
       ${c.events.map(function (e) {
-        return `adom.addEventListener("${e.id}", "${e.event}", ${e.handler});`
+        return `adom.addEventListener("${e.id}", "${e.event}", function ($event) {
+          ${e.handler}($event);
+          ${e.sync ? '$sync();' : ''}
+        });`
       }).join('\n')}
     }
 
