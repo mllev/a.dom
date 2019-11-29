@@ -195,7 +195,7 @@ const items = [
 html [
     head []
     body [
-        h1 | TODO LIST |
+        h1 "TODO LIST"
         ul [
             each (item in items) [
                 li "{{item}}"
@@ -228,7 +228,7 @@ const items = {
 html [
     head []
     body [
-        h1 | TODO LIST |
+        h1 "TODO LIST"
         ul [
             each (key, value in items) [
                 li "{{key}}: {{value}}"
