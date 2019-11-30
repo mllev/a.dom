@@ -5,6 +5,14 @@ let fs = require('fs')
 let path = require('path')
 let config = {}
 let dir = process.cwd()
+let help = `
+usage: adom -i <input> -o <output> [options]
+  options:
+    -r <dir>   root directory - omit if your adom source tree begins in the current directory
+    -p <port>  development server port - defaults to 5000
+    --dev      start a development server
+      
+`
 
 for (let i = 0; i < process.argv.length; i++) {
   switch (process.argv[i]) {
@@ -29,7 +37,7 @@ let c = new Adom({ rootDir: path.resolve(dir, config.root || '') })
 
 if (!config.dev) {
   if (!config.file || !config.out) {
-    console.log('usage: -i <input> -o <output> -r <root src directory>')
+    console.log(help);
   } else {
     fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file))
   }
@@ -39,6 +47,6 @@ if (!config.dev) {
     res.writeHead(200, { 'Content-type': 'text/html' })
     res.end(c.render(config.file))
   }).listen(port, function () {
-    console.log('development server running on port: ' + port)
+    console.log('Development server running on port: ' + port)
   })
 }
