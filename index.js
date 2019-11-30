@@ -937,7 +937,6 @@ Adom.prototype.execute = function(ops, initial_state) {
         let v = expr.data[0];
         let prev = v.data;
         let ptr = evaluate(v);
-        if (ptr === undefined) throw_adom_error({ msg: v.data + ' is undefined.', pos: v.pos, file: v.file });
         for (let i = 1; i < expr.data.length; i++) {
           v = expr.data[i];
           let str = evaluate(v);
@@ -967,7 +966,7 @@ Adom.prototype.execute = function(ops, initial_state) {
         }
         if (state[v] !== undefined) return state[v];
         if (constVars[v] !== undefined) return constVars[v];
-        return undefined;
+        throw_adom_error({ msg: v + ' is undefined.', pos: expr.pos, file: expr.file });
       } break;
       case 'array': {
         return expr.data.map(function (i) {
