@@ -206,9 +206,10 @@ Adom.prototype.tokenize = function(prog, file) {
         }
         str += prog[i++];
       }
-      tok.data = str;
-      tok.type = "string";
+      tokens.push({ type: 'string', pos: cursor, file: file });
+      tokens.push({ type: 'chunk', data: str, pos: cursor, file: file })
       cursor = i;
+      continue;
     } else if (c === '"' || c === "'") {
       let del = c;
       let i = cursor + 1;
