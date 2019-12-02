@@ -1262,7 +1262,7 @@ $adom.prototype.id = function (id, all) {
 $adom.prototype.setAttributes = function (e, attr) {
   Object.keys(attr).forEach(function (att) {
     var a = attr[att];
-    var v = a.contructor === Array ? a.join(' ') : a;
+    var v = a.constructor === Array ? a.join(' ') : a;
     if (att === 'value') {
       e.value = v;
     } else {
@@ -1787,12 +1787,17 @@ Adom.prototype.getPath = function (p) {
   return path.resolve(this.dirname, p);
 };
 
-Adom.prototype.openFile = function(p) {
+Adom.prototype.openFile = function(p, filter) {
   let fs = require("fs");
   let f = this.getPath(p);
-  let prog = fs.readFileSync(f).toString();
-  this.files[f] = prog;
-  return [prog, f];
+  let t;
+  if (filter === 'base64') {
+    t = fs.readFileSync(f).toString('base64');
+  } else {
+    t = fs.readFileSync(f).toString();
+  }
+  this.files[f] = t;
+  return [t, f];
 };
 
 Adom.prototype.resolve_imports = function(tokens, file) {
@@ -1814,20 +1819,28 @@ Adom.prototype.resolve_imports = function(tokens, file) {
         }
         break;
       case "file": {
-        ptr += 2;
-        let path = tokens[ptr].data;
-        let fileData = this.openFile(path);
-        out_toks.push({
-          type: "string",
-          pos: tokens[ptr].pos,
-          file: tokens[ptr].file
-        });
-        out_toks.push({
-          type: "chunk",
-          data: fileData[0],
-          pos: tokens[ptr].pos,
-          file: tokens[ptr].file
-        });
+        let filter = undefined;
+        ptr++;
+        if (tokens[ptr].type === 'ident') {
+          filter = tokens[ptr].data;
+          ptr++;
+        }
+        if (tokens[ptr].type === 'string') {
+          ptr++; // the next token is where the string begins
+          let path = tokens[ptr].data;
+          let fileData = this.openFile(path, filter);
+          out_toks.push({
+            type: "string",
+            pos: tokens[ptr].pos,
+            file: tokens[ptr].file
+          });
+          out_toks.push({
+            type: "chunk",
+            data: fileData[0],
+            pos: tokens[ptr].pos,
+            file: tokens[ptr].file
+          });
+        }
       } break;
       default:
         out_toks.push(tokens[ptr]);
