@@ -1,4 +1,7 @@
+var Adom = (function (exports) {
+
 function Adom(config) {
+  config = config || {};
   this.opcode_cache = {};
   this.cache = config.cache || false;
   this.dirname = config.rootDir || "";
@@ -921,6 +924,7 @@ Adom.prototype.execute = function(ops, initial_state) {
 
   function assemble_attributes(attr) {
     return Object.keys(attr).map(function (k) {
+      if (k === 'controller') return '';
       let v = evaluate(attr[k]);
       return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
     }).join('');
@@ -1037,6 +1041,10 @@ Adom.prototype.execute = function(ops, initial_state) {
       return null;
     }
 
+    function end_script () {
+      return ['<', '/', 'script', '>'].join('')
+    }
+
     while (ptr < ops.length) {
       let op = ops[ptr++];
       switch (op.type) {
@@ -1073,8 +1081,8 @@ Adom.prototype.execute = function(ops, initial_state) {
             		// the runtime relies on the order of the fragments initial lengths
             		if (f.controller) frag_lengths.push(f.length);
             	})
-      	      html += fmt() + `<script id="adom-initial-frag-lengths" type="text/template">${JSON.stringify(frag_lengths)}</script>`;
-      	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}</script><script>${op.data}</script>`;
+      	      html += fmt() + `<script id="adom-initial-frag-lengths" type="text/template">${JSON.stringify(frag_lengths)}${end_script()}`;
+      	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}${end_script()}<script>${op.data}${end_script()}`;
       	    }
           }
           break;
@@ -1095,7 +1103,11 @@ Adom.prototype.execute = function(ops, initial_state) {
           {
       	    let f = current_frag();
       	    if (!following_textnode && f && current_tag().id === f.parent && scope_depth > 0) f.length++;
-            html += fmt() + escapeHTML(evaluate(op.data));
+            if (current_tag().name === 'script') {
+              html += fmt() + evaluate(op.data);
+            } else {
+              html += fmt() + escapeHTML(evaluate(op.data));
+            }
 	          following_textnode = true;
 	        }
           break;
@@ -1472,7 +1484,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
       } break;
       case 'accumulator': {
         let val = print_expression(expr.data[0]);
-        if (val === 'props') val = `adom.props[${prop_depth}]`;
+        if (val === 'props') val = `$$a.props[${prop_depth}]`;
         for (let i = 1; i < expr.data.length; i++) {
           val += `[${print_expression(expr.data[i])}]`;
         }
@@ -1577,12 +1589,12 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           }
           if (scope_depth === 0) {
             last_tag(2).count++;
-            updates.push(`adom.setAttributes(adom.id('${id}'),${stringify_object(op.data.attributes)});`);
+            updates.push(`$$a.setAttributes($$a.id('${id}'),${stringify_object(op.data.attributes)});`);
             if (op.data.self_close) {
               tag_info.pop()
             }
           } else {
-            updates.push(`adom.el("${op.data.name}", ${stringify_object(op.data.attributes)}, [`);
+            updates.push(`$$a.el("${op.data.name}", ${stringify_object(op.data.attributes)}, [`);
             if (op.data.self_close) {
               updates.push(']),')
               tag_info.pop()
@@ -1619,9 +1631,9 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           if (scope_depth === 0) {
             let i = parent.count++;
             let id = parent.id;
-            updates.push(`adom.setText("${id}", ${print_expression(op.data)}, ${i});`);
+            updates.push(`$$a.setText("${id}", ${print_expression(op.data)}, ${i});`);
           } else {
-            updates.push(`adom.el("text", ${print_expression(op.data)}),`);
+            updates.push(`$$a.el("text", ${print_expression(op.data)}),`);
           }
         }
         break;
@@ -1635,13 +1647,13 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             frag_id = t.frag_count++;
             frag_index = t.count
             updates.push(
-              `var frag${t.id}${frag_id} = adom.each(${print_expression(op.data.list)}, function(${i[0]}${
+              `var frag${t.id}${frag_id} = $$a.each(${print_expression(op.data.list)}, function(${i[0]}${
                 i[1] ? `, ${i[1]}` : ''
               }) { return [`
             )
           } else {
             updates.push(
-              `adom.each(${print_expression(op.data.list)}, function(${i[0]}${
+              `$$a.each(${print_expression(op.data.list)}, function(${i[0]}${
                 i[1] ? `, ${i[1]}` : ''
               }) { return [`
             )
@@ -1653,12 +1665,12 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
         if (in_controller) {
           scope_depth--;
           if (scope_depth === 0) {
-            init.push(`adom.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
+            init.push(`$$a.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
             updates.push(`] });`);
             let t = last_tag();
             let id = t.id;
             let index = get_frag_index(t);
-            updates.push(`var offs${t.id}${frag_id} = adom.insertFrag(frag${t.id}${frag_id}, adom.id('${id}'),${index},${lindex});`);
+            updates.push(`var offs${t.id}${frag_id} = $$a.insertFrag(frag${t.id}${frag_id}, $$a.id('${id}'),${index},${lindex});`);
           } else {
             updates.push(`] }),`);
           }
@@ -1667,9 +1679,9 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
       case "push_props":
         if (in_controller) {
           if (scope_depth === 0) {
-            updates.push(`adom.push_props(${stringify_object(op.data.props)});`);
+            updates.push(`$$a.push_props(${stringify_object(op.data.props)});`);
           } else {
-            updates.push(`adom.push_props(${stringify_object(op.data.props)}),`);
+            updates.push(`$$a.push_props(${stringify_object(op.data.props)}),`);
           }
 	  prop_events = op.data.events;
           prop_depth++;
@@ -1678,9 +1690,9 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
       case "pop_props":
         if (in_controller) {
           if (scope_depth === 0) {
-            updates.push(`adom.pop_props();`);
+            updates.push(`$$a.pop_props();`);
           } else {
-            updates.push(`adom.pop_props(),`);
+            updates.push(`$$a.pop_props(),`);
           }
           prop_depth--;
         }
@@ -1693,9 +1705,9 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             let t = last_tag();
             frag_id = t.frag_count++;
             frag_index = t.count;
-            updates.push(`var frag${t.id}${frag_id} = adom.if(${print_expression(c)}, [`)
+            updates.push(`var frag${t.id}${frag_id} = $$a.if(${print_expression(c)}, [`)
           } else {
-            updates.push(`adom.if(${print_expression(c)}, [`)
+            updates.push(`$$a.if(${print_expression(c)}, [`)
           }
           scope_depth++;
         }
@@ -1709,12 +1721,12 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
         if (in_controller) {
           scope_depth--;
           if (scope_depth === 0) {
-            init.push(`adom.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
+            init.push(`$$a.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
             updates.push(']);')
             let t = last_tag();
             let id = t.id;
             let index = get_frag_index(t);
-            updates.push(`var offs${t.id}${frag_id} = adom.insertFrag(frag${t.id}${frag_id}, adom.id('${id}'),${index},${lindex});`);
+            updates.push(`var offs${t.id}${frag_id} = $$a.insertFrag(frag${t.id}${frag_id}, $$a.id('${id}'),${index},${lindex});`);
           } else {
             updates.push(']),')
           }
@@ -1740,7 +1752,7 @@ $$adom_modules.${m.name} = (function () {
   controllers.forEach(function (c) {
     controllerCode += `
 (function ${c.name} (${c.deps.join(',')}) {
-  var adom = new $adom();
+  var $$a = new $adom();
   var $ = JSON.parse(JSON.stringify($$adom_input_state));
 
   ${c.init.join('\n')}
@@ -1748,7 +1760,7 @@ $$adom_modules.${m.name} = (function () {
   (function (${state_keys.join(',')}) {
     function $addEventListeners () {
       ${c.events.map(function (e) {
-        return `adom.addEventListener("${e.id}", "${e.event}", function ($event) {
+        return `$$a.addEventListener("${e.id}", "${e.event}", function ($event) {
           ${e.handler}($event);
           ${e.sync ? '$sync();' : ''}
         });`
@@ -1787,12 +1799,23 @@ $$adom_modules.${m.name} = (function () {
 };
 
 Adom.prototype.getPath = function (p) {
-  let path = require("path");
-  return path.resolve(this.dirname, p);
+  try {
+    let path = require("path");
+    return path.resolve(this.dirname, p);
+  } catch (e) {
+    return p;
+  }
 };
 
 Adom.prototype.openFile = function(p, filter) {
-  let fs = require("fs");
+  let fs;
+
+  try {
+    fs = require("fs");
+  } catch (e) {
+    return ['', p]
+  }
+
   let f = this.getPath(p);
   let t;
   if (filter === 'base64') {
@@ -1856,6 +1879,19 @@ Adom.prototype.resolve_imports = function(tokens, file) {
   return out_toks;
 };
 
+Adom.prototype.renderString = function (str, input_state) {
+  try {
+    let tokens = this.tokenize(str, 'main');
+    tokens = this.resolve_imports(tokens, 'main');
+    let ops = this.parse(tokens);
+    this.attach_runtime(ops, input_state || {});
+    return this.execute(ops, input_state || {});
+  } catch (e) {
+    console.log(e.msg);
+    console.log(this.get_error_text(str, e.pos));
+  }
+};
+
 Adom.prototype.render = function(file, input_state) {
   try {
     let cacheKey = this.getPath(file);
@@ -1886,4 +1922,12 @@ Adom.prototype.render = function(file, input_state) {
   }
 };
 
-module.exports = Adom;
+return Adom;
+
+})();
+
+if (typeof module !== 'undefined') {
+  module.exports = Adom
+} else {
+  window.Adom = Adom
+}
