@@ -887,6 +887,10 @@ Adom.prototype.execute = function(ops, initial_state) {
   let iterators = [];
   let constVars = {};
 
+  function escapeHTML (txt) {
+    return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   function check_props(list) {
     if (list[0] === "props") {
       if (props.length < 1)
@@ -1091,7 +1095,7 @@ Adom.prototype.execute = function(ops, initial_state) {
           {
       	    let f = current_frag();
       	    if (!following_textnode && f && current_tag().id === f.parent && scope_depth > 0) f.length++;
-            html += fmt() + evaluate(op.data);
+            html += fmt() + escapeHTML(evaluate(op.data));
 	          following_textnode = true;
 	        }
           break;
@@ -1460,7 +1464,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
       case 'bool':
         return expr.data.toString();
       case 'chunk':
-        return `"${expr.data}"`
+        return `"${expr.data.replace(/"/g, '\\"').replace(/(\r\n|\n|\r)/gm, '\\n')}"`
       case 'string': {
         return `${expr.data.map(function (c) {
            return print_expression(c)
