@@ -1025,10 +1025,10 @@ Adom.prototype.execute = function(ops, initial_state) {
 
   function exec() {
     let iter;
-    let scope_depth = 0;
     let fragments = [];
     let controller = undefined;
     let following_textnode = false;
+    let frag_depth = 0;
 
     function current_tag () {
       return open_tags[open_tags.length - 1];
@@ -1056,7 +1056,7 @@ Adom.prototype.execute = function(ops, initial_state) {
               op.data.name +
               assemble_attributes(op.data.attributes);
       	    let f = current_frag();
-      	    if (f && current_tag().id === f.parent && scope_depth > 0) f.length++;
+      	    if (frag_depth > 0 && current_tag().id === f.parent) f.length++;
             if (op.data.self_close) {
               html += ">"; // configure based on doctype
 	            following_textnode = false;
@@ -1102,7 +1102,7 @@ Adom.prototype.execute = function(ops, initial_state) {
         case "textnode":
           {
       	    let f = current_frag();
-      	    if (!following_textnode && f && current_tag().id === f.parent && scope_depth > 0) f.length++;
+      	    if (!following_textnode && frag_depth > 0 && current_tag().id === f.parent) f.length++;
             if (current_tag().name === 'script') {
               html += fmt() + evaluate(op.data);
             } else {
@@ -1127,19 +1127,18 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "if":
           {
-  	        scope_depth++;
-      	    if (scope_depth === 1) {
-      	      let t = current_tag();
-      	      fragments.push({ parent: t.id, length: 0, controller: controller });
-      	    }
+    	      let t = current_tag();
+            if (frag_depth === 0)
+    	        fragments.push({ parent: t.id, length: 0, controller: controller });
             if (!evaluate(op.data.condition)) {
               ptr += op.data.jmp;
             }
+            frag_depth++;
           }
           break;
         case "end_if":
           {
-	          scope_depth--;
+            frag_depth--;
           }
           break;
         case "jump":
@@ -1149,16 +1148,13 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "each":
           {
-      	    scope_depth++;
-      	    if (scope_depth === 1) {
-      	      let t = current_tag();
-      	      fragments.push({ parent: t.id, length: 0, controller: controller });
-      	    }
+    	      let t = current_tag();
+            if (frag_depth === 0)
+    	        fragments.push({ parent: t.id, length: 0, controller: controller });
             let list = evaluate(op.data.list);
             if (Array.isArray(list)) {
               if (list.length === 0) {
                 ptr += op.data.jmp;
-		            scope_depth--;
                 break;
               }
               iter = {
@@ -1197,6 +1193,7 @@ Adom.prototype.execute = function(ops, initial_state) {
                 file: op.data.list.file
               });
             }
+            frag_depth++;
           }
           break;
         case "iterate":
@@ -1216,7 +1213,7 @@ Adom.prototype.execute = function(ops, initial_state) {
               ptr += op.data;
             } else {
               iterators.pop();
-	            scope_depth--;
+              frag_depth--;
             }
           }
           break;
@@ -1255,6 +1252,7 @@ Adom.prototype.get_error_text = function(prog, c) {
 
 Adom.prototype.runtime = function (modules, controllers) {
   return `
+(function () {
 function $adom () {
   this.frag_lengths = [];
   this.props = [];
@@ -1446,6 +1444,7 @@ window.onload = function () {
 
   ${controllers}
 }
+})();
 `
 }
 
@@ -1878,7 +1877,7 @@ Adom.prototype.resolve_imports = function(tokens, file) {
 
   return out_toks;
 };
-
+/*
 Adom.prototype.renderString = function (str, input_state) {
   try {
     let tokens = this.tokenize(str, 'main');
@@ -1887,11 +1886,14 @@ Adom.prototype.renderString = function (str, input_state) {
     this.attach_runtime(ops, input_state || {});
     return this.execute(ops, input_state || {});
   } catch (e) {
-    console.log(e.msg);
-    console.log(this.get_error_text(str, e.pos));
+    let err = this.get_error_text(str, e.pos);
+    let lines = err.split('\n');
+    return e.msg + '<br>' + lines.map(function (l) {
+      return l.replace(/^\s+/, function(m){ return m.replace(/\s/g, '&nbsp;');});
+    }).join('<br>')
   }
 };
-
+*/
 Adom.prototype.render = function(file, input_state) {
   try {
     let cacheKey = this.getPath(file);
