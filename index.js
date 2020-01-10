@@ -1507,6 +1507,34 @@ Adom.prototype.generate_runtime = function(ops, input_state, fn) {
     return index;
   }
 
+  function needs_update (v) {
+    if (v.type === 'ident') return true;
+    else if (Array.isArray(v.data)) {
+      for (let i = 0; i < v.data.length; i++) {
+        if (needs_update(v.data[i])) return true;
+      }
+    } else if ('object' === typeof v.data) {
+      let keys = Object.keys(v.data);
+      for (let i = 0; i < keys.length; i++) {
+        if (needs_update(v.data[i])) return true;
+      }
+    }
+    return false;
+  }
+
+  function get_dynamic_attr (a) {
+    let attr = {}
+    let keys = Object.keys(a);
+    let updates = false;
+    for (let i = 0; i < keys.length; i++) {
+      if (needs_update(a[keys[i]])) {
+        attr[keys[i]] = a[keys[i]];
+        updates = true;
+      } 
+    }
+    return updates ? attr : undefined;
+  }
+
   while (ptr < ops.length) {
     let op = ops[ptr++];
     switch (op.type) {
@@ -1542,7 +1570,10 @@ Adom.prototype.generate_runtime = function(ops, input_state, fn) {
           }
           if (scope_depth === 0) {
             last_tag(2).count++;
-            updates.push(`$$a.setAttributes($$a.id('${id}'),${stringify_object(op.data.attributes)});`);
+            let a = get_dynamic_attr(op.data.attributes);
+            if (a) {
+              updates.push(`$$a.setAttributes($$a.id('${id}'),${stringify_object(a)});`);
+            }
             if (op.data.self_close) {
               tag_info.pop();
             }
@@ -1581,7 +1612,9 @@ Adom.prototype.generate_runtime = function(ops, input_state, fn) {
           if (scope_depth === 0) {
             let i = parent.count++;
             let id = parent.id;
-            updates.push(`$$a.setText("${id}", ${print_expression(op.data)}, ${i});`);
+            if (needs_update(op.data)) {
+              updates.push(`$$a.setText("${id}", ${print_expression(op.data)}, ${i});`);
+            }
           } else {
             updates.push(`$$a.el("text", ${print_expression(op.data)}),`);
           }
@@ -1818,7 +1851,6 @@ Adom.prototype.render = function(file, input_state) {
       let ops = this.parse(tokens);
       let runtime = this.generate_runtime(ops, input_state || {});
       let html = this.execute(ops, input_state || {}, runtime);
-      console.log(html)
       if (this.cache) {
         this.opcode_cache[f] = ops;
       }
