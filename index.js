@@ -34,7 +34,7 @@ Adom.prototype.tokenize = function(prog, file) {
     "file",
     "var",
     "const",
-    "def"
+    "root"
   ];
 
   let symbols = [
@@ -142,8 +142,8 @@ Adom.prototype.tokenize = function(prog, file) {
         (c >= "a" && c <= "z") ||
         (c >= "A" && c <= "Z") ||
         (c >= "0" && c <= "9") ||
-        c === "_" ||
-        c === "-"
+        (c === "_") ||
+        (c === "-")
       ) {
         tok.data += c;
         c = prog[++i];
@@ -249,18 +249,20 @@ Adom.prototype.tokenize = function(prog, file) {
       prog[cursor + 1] === ">"
     ) {
       let i = cursor + 2;
-      while (i <= end_pos) {
+      let found = false;
+      while (i <= (end_pos - 2)) {
         if (
           prog[i] === "\n" &&
           prog[i + 1] === "<" &&
           prog[i + 2] === "-"
         ) {
-          i += 4;
+          i += 3;
+          found = true;
           break;
         }
         tok.data += prog[i++];
       }
-      if (i > end_pos) {
+      if (!found) {
         throw_adom_error({ msg: "expected closing <-", pos: cursor, file: file });
       }
       cursor = i;
@@ -283,11 +285,13 @@ Adom.prototype.parse = function(tokens) {
   let dont_emit = false;
   let yield_stack = [];
   let tag_scopes = [];
+  let runtime = '';
+  let root_found = false;
+  let root_idx = -1;
 
   function new_context() {
     files.push({
       tags: {},
-      modules: {},
       exports: []
     });
   }
@@ -412,6 +416,15 @@ Adom.prototype.parse = function(tokens) {
       peek('!=') ||
       peek('>') ||
       peek('<');
+  }
+
+  function emit_textnode (d) {
+    let o = ops[ops.length - 1]
+    if (o && o.type === 'textnode') {
+      o.data.data = o.data.data.concat(d);
+    } else {
+      emit("textnode", d);
+    }
   }
 
   function parse_variable () {
@@ -573,23 +586,20 @@ Adom.prototype.parse = function(tokens) {
     let events = [];
     while (true) {
       let key = tok.data;
-      if (accept("#")) {
+      if (accept("root")) {
         let pos = tok.pos;
         let file = tok.file;
-        let mname = tok.data;
-        let m = get_module(mname);
-        expect("ident");
-        if (!m && !dont_emit) {
-          throw_adom_error({ msg: "unknown controller: " + mname, pos: pos, file: file });
-        }
         if (!dont_emit) {
-          attr.controller = {
-            name: m.name,
-            body: m.body,
-            deps: m.deps,
-            pos: pos,
-            file: file
-          };
+          if (root_found === true) {
+            throw_adom_error({
+              msg: 'root node already declared',
+              pos: pos,
+              file: file
+            });
+          }
+          root_idx = ops.length;
+          root_found = true;
+          attr.isRoot = true;
         }
       } else if (accept("ident")) {
         if (accept("=")) {
@@ -646,8 +656,9 @@ Adom.prototype.parse = function(tokens) {
     } else if (peek("string")) {
       let str = parse_string();
       emit("begin_tag", { name: name, attributes: attr, events: events });
-      if (str.data.length > 1 || str.data[0] !== '')
-        emit("textnode", str);
+      if (str.data.length > 1 || str.data[0] !== '') {
+        emit_textnode(str);
+      }
       emit("end_tag");
     } else {
       unexpected();
@@ -673,16 +684,16 @@ Adom.prototype.parse = function(tokens) {
         let end_ret = cursor;
         set_tok(custom.pos);
         emit("push_props", { props: attr, events: events });
-	      tag_scopes.push(custom.scope);
-	      yield_stack.push(function(y) {
+        tag_scopes.push(custom.scope);
+        yield_stack.push(function(y) {
           set_tok(ret);
           parse_tag_list();
           expect("]");
           set_tok(y);
         });
         parse_tag_list();
-	      yield_stack.pop();
-	      tag_scopes.pop();
+        yield_stack.pop();
+        tag_scopes.pop();
         emit("pop_props");
         set_tok(end_ret);
       } else {
@@ -690,10 +701,10 @@ Adom.prototype.parse = function(tokens) {
         let ret = cursor;
         set_tok(custom.pos);
         emit("push_props", { props: attr, events: events });
-	      yield_stack.push(null);
+        yield_stack.push(null);
         tag_scopes.push(custom.scope);
         parse_tag_list();
-	      yield_stack.pop();
+        yield_stack.pop();
         tag_scopes.pop();
         emit("pop_props");
         set_tok(ret);
@@ -771,8 +782,9 @@ Adom.prototype.parse = function(tokens) {
       parse_tag_list();
     } else if (peek("string")) {
       let str = parse_string();
-      if (str.data.length > 1 || str.data[0] !== '')
-        emit("textnode", str);
+      if (str.data.length > 1 || str.data[0] !== '') {
+        emit_textnode(str);
+      }
       parse_tag_list();
     } else if (accept("yield")) {
       let y = yield_stack[yield_stack.length - 1];
@@ -802,12 +814,8 @@ Adom.prototype.parse = function(tokens) {
         let fctx = files.pop();
         fctx.exports.forEach(function(ex) {
           let e = ex.val;
-          if (!fctx.modules[e] && !fctx.tags[e])
-            throw_adom_error({ msg: "no such tag or module", pos: ex.pos, file: ex.file });
-          if (fctx.modules[e] && fctx.tags[e])
-            throw_adom_error({ msg: "export is ambiguous", pos: ex.pos, file: ex.file });
-          if (fctx.modules[e])
-            files[files.length - 1].modules[e] = fctx.modules[e];
+          if (!fctx.tags[e])
+            throw_adom_error({ msg: "no such tag", pos: ex.pos, file: ex.file });
           if (fctx.tags[e]) files[files.length - 1].tags[e] = fctx.tags[e];
         });
         if (files.length === 0) {
@@ -839,36 +847,9 @@ Adom.prototype.parse = function(tokens) {
           val = parse_expr();
         }
         emit("set", { dst: dst, val: val, isConst: isConst });
-      } else if (accept("def")) {
-        let mname = tok.data;
-        expect("ident");
-        let deps = [];
-        let pos = tok.pos, file = tok.file;
-        if (accept('[')) {
-          if (!accept(']')) {
-            while (true) {
-              deps.push(tok.data);
-              expect('ident');
-              if (!accept(',')) break;
-            }
-            expect(']');
-          }
-        }
-        let module_body = tok.data;
-        expect("module_body");
-        deps.forEach(function (dep) {
-          if (!files[files.length - 1].modules[dep]) {
-            throw_adom_error({ msg: 'unknown module ' + dep, pos: pos, file: file });
-          } else {
-            let m = files[files.length - 1].modules[dep];
-            emit('declare_module', {
-              name: m.name,
-              body: m.body,
-              deps: m.deps
-            });
-          }
-        });
-        files[files.length - 1].modules[mname] = { name: mname, body: module_body, deps: deps };
+      } else if (peek('module_body')) {
+        runtime += tok.data;
+        next();
       } else {
         throw_adom_error({ msg: "unexpected: " + tok.type, pos: tok.pos, file: tok.file });
       }
@@ -877,10 +858,14 @@ Adom.prototype.parse = function(tokens) {
 
   parse_file();
 
+  if (root_idx > -1) {
+    ops[root_idx].data.runtime = runtime;
+  }
+
   return ops;
 };
 
-Adom.prototype.execute = function(ops, initial_state) {
+Adom.prototype.execute = function(ops, initial_state, runtime) {
   let html = "";
   let ptr = 0;
   let state = initial_state;
@@ -924,7 +909,7 @@ Adom.prototype.execute = function(ops, initial_state) {
 
   function assemble_attributes(attr) {
     return Object.keys(attr).map(function (k) {
-      if (k === 'controller') return '';
+      if (k === 'isRoot') return '';
       let v = evaluate(attr[k]);
       return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
     }).join('');
@@ -999,12 +984,12 @@ Adom.prototype.execute = function(ops, initial_state) {
         let v2 = evaluate(expr.data[1]);
         if (expr.op === '==') return v1 === v2;
         if (expr.op === '!=') return v1 !== v2;
-        if (expr.op === '<=') return v1 <= v2;
-        if (expr.op === '>=') return v1 >= v2;
-        if (expr.op === '>') return v1 > v2;
-        if (expr.op === '<') return v1 < v2;
-        if (expr.op === '&&') return v1 && v2;
-        if (expr.op === '||') return v1 || v2;
+        if (expr.op === '<=') return v1 <=  v2;
+        if (expr.op === '>=') return v1 >=  v2;
+        if (expr.op === '&&') return v1 &&  v2;
+        if (expr.op === '||') return v1 ||  v2;
+        if (expr.op === '>' ) return v1 >   v2;
+        if (expr.op === '<' ) return v1 <   v2;
       } break;
       case 'parenthetical': {
         return evaluate(expr.data);
@@ -1026,8 +1011,7 @@ Adom.prototype.execute = function(ops, initial_state) {
   function exec() {
     let iter;
     let fragments = [];
-    let controller = undefined;
-    let following_textnode = false;
+    let in_controller = false;
     let frag_depth = 0;
 
     function current_tag () {
@@ -1055,35 +1039,33 @@ Adom.prototype.execute = function(ops, initial_state) {
               "<" +
               op.data.name +
               assemble_attributes(op.data.attributes);
-      	    let f = current_frag();
-      	    if (frag_depth > 0 && current_tag().id === f.parent) f.length++;
+            let f = current_frag();
+            if (in_controller && frag_depth > 0 && current_tag().id === f.parent) f.length++;
             if (op.data.self_close) {
               html += ">"; // configure based on doctype
-	            following_textnode = false;
             } else {
-      	      let a = op.data.attributes;
-      	      let id = a['data-adom-id'];
+              let a = op.data.attributes;
+              let id = a['data-adom-id'];
               html += ">";
-  	          if (a.controller) controller = a.controller;
-              open_tags.push({ name: op.data.name, id: id ? evaluate(id) : undefined, controller: a.controller });
+              if (a.isRoot) in_controller = true;
+              open_tags.push({ name: op.data.name, id: id ? evaluate(id) : undefined, root: a.isRoot });
             }
           }
           break;
         case "end_tag":
           {
             let t = open_tags.pop();
-      	    if (t.controller === controller) controller = undefined;
-      	    html += fmt() + "</" + t.name + ">";
-      	    following_textnode = false;
-      	    if (op.data) {
-      	      let frag_lengths = [];
-      	      fragments.forEach(function (f) {
-            		// the runtime relies on the order of the fragments initial lengths
-            		if (f.controller) frag_lengths.push(f.length);
-            	})
-      	      html += fmt() + `<script id="adom-initial-frag-lengths" type="text/template">${JSON.stringify(frag_lengths)}${end_script()}`;
-      	      html += fmt() + `<script id="adom-state" type="text/template">${JSON.stringify(state)}${end_script()}<script>${op.data}${end_script()}`;
-      	    }
+            html += fmt() + "</" + t.name + ">";
+            if (t.root) {
+              let frag_lengths = fragments.map(function (f) {
+                return f.length;
+              });
+              html += fmt() +  `<script>(function () { var $$adom_init = ${JSON.stringify({
+                state: state,
+                lengths: frag_lengths
+              })}; ${runtime} })()${end_script()}`
+              in_controller = false;
+            }
           }
           break;
         case "set":
@@ -1101,15 +1083,14 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "textnode":
           {
-      	    let f = current_frag();
-      	    if (!following_textnode && frag_depth > 0 && current_tag().id === f.parent) f.length++;
+            let f = current_frag();
+            if (in_controller && frag_depth > 0 && current_tag().id === f.parent) f.length++;
             if (current_tag().name === 'script') {
               html += fmt() + evaluate(op.data);
             } else {
               html += fmt() + escapeHTML(evaluate(op.data));
             }
-	          following_textnode = true;
-	        }
+          }
           break;
         case "push_props":
           {
@@ -1127,9 +1108,9 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "if":
           {
-    	      let t = current_tag();
-            if (frag_depth === 0)
-    	        fragments.push({ parent: t.id, length: 0, controller: controller });
+            let t = current_tag();
+            if (frag_depth === 0 && in_controller)
+              fragments.push({ parent: t.id, length: 0 });
             if (!evaluate(op.data.condition)) {
               ptr += op.data.jmp;
             }
@@ -1148,9 +1129,9 @@ Adom.prototype.execute = function(ops, initial_state) {
           break;
         case "each":
           {
-    	      let t = current_tag();
-            if (frag_depth === 0)
-    	        fragments.push({ parent: t.id, length: 0, controller: controller });
+            let t = current_tag();
+            if (frag_depth === 0 && in_controller)
+              fragments.push({ parent: t.id, length: 0 });
             let list = evaluate(op.data.list);
             if (Array.isArray(list)) {
               if (list.length === 0) {
@@ -1250,7 +1231,7 @@ Adom.prototype.get_error_text = function(prog, c) {
   return buf;
 };
 
-Adom.prototype.runtime = function (modules, controllers) {
+Adom.prototype.runtime = function (controller) {
   return `
 (function () {
 function $adom () {
@@ -1421,34 +1402,17 @@ $adom.prototype.insertFrag = function (elements, par, index, lidx) {
   return (this.frag_lengths[lidx] = elements.length);
 };
 
-var $$adom_modules = [];
-
-${modules}
-
 window.onload = function () {
-  var $$adom_input_state = JSON.parse(window['adom-state'].innerHTML);
-  var $$adom_initial_frag_lengths = JSON.parse(window['adom-initial-frag-lengths'].innerHTML);
-  var $$adom_events = [];
+  var $$adom_input_state = $$adom_init.state;
+  var $$adom_initial_frag_lengths = $$adom_init.lengths;
 
-  function $dispatch (event, data) {
-    for (var i = 0; i < $$adom_events.length; i++) {
-      if ($$adom_events[i].event === event) {
-        $$adom_events[i].fn(data);
-      }
-    }
-  }
-
-  function $on (event, fn) {
-    $$adom_events.push({ event: event, fn: fn });
-  }
-
-  ${controllers}
+  ${controller}
 }
 })();
 `
 }
 
-Adom.prototype.attach_runtime = function(ops, input_state, fn) {
+Adom.prototype.generate_runtime = function(ops, input_state, fn) {
   let ptr = 0;
   let in_controller = false;
   let prop_depth = -1;
@@ -1461,8 +1425,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
   let frag_id = 0;
   let lindex = -1;
   let init = [];
-  let controllers = [];
-  let modules = [];
+  let controller = undefined;
   let runtime_location = -1;
   let state_keys = Object.keys(input_state);
   let prop_events = undefined;
@@ -1510,7 +1473,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
       case 'comparison': {
         let v1 = print_expression(expr.data[0]);
         let v2 = print_expression(expr.data[1]);
-        return `(${v1} ${expr.op} ${v2})`
+        return `(${v1} ${expr.op} ${v2})`;
       } break;
       case 'parenthetical': {
         return `(${print_expression})`;
@@ -1555,23 +1518,14 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
         modules.push(op.data);
       } break;
       case "begin_tag":
-        if (op.data.attributes.controller) {
-          let c = op.data.attributes.controller;
+        if (op.data.runtime) {
           let id = ids++;
+          controller = { body: op.data.runtime };
           op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id + "" }] };
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
-          if (in_controller) {
-            throw_adom_error({
-              msg: "nested controllers are illegal",
-              pos: c.pos,
-              file: c.file
-            });
-          }
           in_controller = true;
-          controllers.push(c);
-	        op.data.attributes.controller = c.name;
         } else if (in_controller) {
-          let id = ids++
+          let id = ids++;
           op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id + "" }] };
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (op.data.events.length > 0) {
@@ -1590,13 +1544,13 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             last_tag(2).count++;
             updates.push(`$$a.setAttributes($$a.id('${id}'),${stringify_object(op.data.attributes)});`);
             if (op.data.self_close) {
-              tag_info.pop()
+              tag_info.pop();
             }
           } else {
             updates.push(`$$a.el("${op.data.name}", ${stringify_object(op.data.attributes)}, [`);
             if (op.data.self_close) {
               updates.push(']),')
-              tag_info.pop()
+              tag_info.pop();
             }
           }
         }
@@ -1608,16 +1562,13 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
             updates.push(']),')
           }
           if (!tag_info.length) {
-            let c = controllers[controllers.length - 1];
-            c.updates = updates;
-            c.init = init;
-            c.events = events;
-            controller = undefined;
+            controller.updates = updates;
+            controller.init = init;
+            controller.events = events;
             in_controller = false;
             events = [];
             updates = [];
             init = [];
-            runtime_location = ptr - 1;
             frag_index = 0;
             frag_id = 0;
             lindex = -1;
@@ -1682,7 +1633,7 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
           } else {
             updates.push(`$$a.push_props(${stringify_object(op.data.props)}),`);
           }
-	  prop_events = op.data.events;
+          prop_events = op.data.events;
           prop_depth++;
         }
         break;
@@ -1720,14 +1671,14 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
         if (in_controller) {
           scope_depth--;
           if (scope_depth === 0) {
-            init.push(`$$a.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
-            updates.push(']);')
+            init.push(`$$a.frag_lengths.push($$adom_initial_frag_lengths.shift());`);
+            updates.push(']);');
             let t = last_tag();
             let id = t.id;
             let index = get_frag_index(t);
             updates.push(`var offs${t.id}${frag_id} = $$a.insertFrag(frag${t.id}${frag_id}, $$a.id('${id}'),${index},${lindex});`);
           } else {
-            updates.push(']),')
+            updates.push(']),');
           }
         }
         break;
@@ -1736,29 +1687,16 @@ Adom.prototype.attach_runtime = function(ops, input_state, fn) {
     }
   }
 
-  let moduleCode = '';
-  let controllerCode = '';
-
-  modules.forEach(function (m) {
-    moduleCode += `
-$$adom_modules.${m.name} = (function () {
-  ${m.body}
-})(${m.deps.map(function (d) {
-  return `$$adom_modules.${d}`
-}).join(',')});`;
-  });
-
-  controllers.forEach(function (c) {
-    controllerCode += `
-(function ${c.name} (${c.deps.join(',')}) {
+  return this.runtime(`
+(function () {
   var $$a = new $adom();
   var $ = JSON.parse(JSON.stringify($$adom_input_state));
 
-  ${c.init.join('\n')}
+  ${controller.init.join('\n')}
 
   (function (${state_keys.join(',')}) {
     function $addEventListeners () {
-      ${c.events.map(function (e) {
+      ${controller.events.map(function (e) {
         return `$$a.addEventListener("${e.id}", "${e.event}", function ($event) {
           ${e.handler}($event);
           ${e.sync ? '$sync();' : ''}
@@ -1767,8 +1705,8 @@ $$adom_modules.${m.name} = (function () {
     }
 
     function $sync () {
-      ${c.updates.join('\n')}
-        $addEventListeners();
+      ${controller.updates.join('\n')}
+      $addEventListeners();
     }
 
     function $call () {
@@ -1778,23 +1716,12 @@ $$adom_modules.${m.name} = (function () {
     }
 
     $addEventListeners();
-    ${c.body}
+    ${controller.body}
   })(${state_keys.map(function (k) {
     return `$.${k}`; 
   }).join(',')});
-})(${c.deps.map(function (d) {
-  return `$$adom_modules.${d}`;
-}).join(',')});
-    `    
-  });
+})();`);
 
-  if (runtime_location > -1) {
-    let r = this.runtime(moduleCode, controllerCode);
-    if (this.runtimeTransform) {
-      r = this.runtimeTransform(r);
-    }
-    ops[runtime_location].data = r;
-  }
 };
 
 Adom.prototype.getPath = function (p) {
@@ -1877,23 +1804,7 @@ Adom.prototype.resolve_imports = function(tokens, file) {
 
   return out_toks;
 };
-/*
-Adom.prototype.renderString = function (str, input_state) {
-  try {
-    let tokens = this.tokenize(str, 'main');
-    tokens = this.resolve_imports(tokens, 'main');
-    let ops = this.parse(tokens);
-    this.attach_runtime(ops, input_state || {});
-    return this.execute(ops, input_state || {});
-  } catch (e) {
-    let err = this.get_error_text(str, e.pos);
-    let lines = err.split('\n');
-    return e.msg + '<br>' + lines.map(function (l) {
-      return l.replace(/^\s+/, function(m){ return m.replace(/\s/g, '&nbsp;');});
-    }).join('<br>')
-  }
-};
-*/
+
 Adom.prototype.render = function(file, input_state) {
   try {
     let cacheKey = this.getPath(file);
@@ -1905,8 +1816,9 @@ Adom.prototype.render = function(file, input_state) {
       let tokens = this.tokenize(fileData[0], f);
       tokens = this.resolve_imports(tokens, f);
       let ops = this.parse(tokens);
-      this.attach_runtime(ops, input_state || {});
-      let html = this.execute(ops, input_state || {});
+      let runtime = this.generate_runtime(ops, input_state || {});
+      let html = this.execute(ops, input_state || {}, runtime);
+      console.log(html)
       if (this.cache) {
         this.opcode_cache[f] = ops;
       }
