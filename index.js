@@ -794,6 +794,35 @@ Adom.prototype.parse = function(tokens) {
     expect("]");
   }
 
+  function parse_rhs (to_runtime) {
+    let val;
+    if (accept("file")) {
+      let f = [];
+      if (accept('[')) {
+        while (true) {
+          if (!accept('string')) break;
+          f.push(tok.data);
+          next();
+        }
+        expect(']');
+      } else {
+        expect('string');
+        f.push(tok.data);
+        next();
+      }
+      pending.push({
+        name: f,
+        op: ops.length,
+        runtime: to_runtime
+      });
+      // the file will be resolved to a string later
+      val = { pos: tok.pos, file: tok.file };
+    } else {
+      val = parse_expr();
+    }
+    return val;
+  }
+
   function parse_file() {
     while (true) {
       if (tok.type === "file_begin") {
@@ -827,41 +856,52 @@ Adom.prototype.parse = function(tokens) {
       	let isConst = (tok.data === 'const');
       	next();
         let dst = { data: tok.data, pos: tok.pos, file: tok.file };
-        let val;
         next();
         expect("=");
-        if (accept("file")) {
-          expect('string');
-          pending.push({
-            name: tok.data,
-            op: ops.length
-          });
-          // the file will be resolved to a string later
-          val = { pos: tok.pos, file: tok.file };
-          next();
-        } else {
-          val = parse_expr();
-        }
+        let val = parse_rhs();
         emit("set", { dst: dst, val: val, isConst: isConst });
       } else if (peek('module_body')) {
         runtime += tok.data;
         next();
+      } else if (accept('@')) {
+        let id = tok.data;
+        let pos = tok.pos;
+        let file = tok.file;
+        expect('ident');
+        if (id !== 'runtime') {
+          throw_adom_error({ msg: "unknown system variable: " + id, pos: pos, file: file });
+        }
+        expect('=');
+        parse_rhs(true);
       } else {
         throw_adom_error({ msg: "unexpected: " + tok.type, pos: tok.pos, file: tok.file });
       }
     }
   }
 
-  parse_file();
-
-  if (root_idx > -1) {
-    ops[root_idx].data.runtime = runtime;
+  let self = this; // ew
+  function openFileArray (a) {
+    let txt = '';
+    for (let i = 0; i < a.length; i++) {
+      txt += self.openFile(a[i])[0];
+    }
+    return txt;
   }
+
+  parse_file();
 
   for (let i = 0; i < pending.length; i++) {
     let file = pending[i];
-    ops[file.op].data.val.type = 'string';
-    ops[file.op].data.val.data = [ { type: 'chunk', data: this.openFile(file.name) } ];
+    if (file.runtime) {
+      runtime = openFileArray(file.name);
+    } else {
+      ops[file.op].data.val.type = 'string';
+      ops[file.op].data.val.data = [ { type: 'chunk', data: openFileArray(file.name) } ];
+    }
+  }
+
+  if (root_idx > -1) {
+    ops[root_idx].data.runtime = runtime;
   }
 
   return ops;
