@@ -907,7 +907,7 @@ Adom.prototype.parse = function(tokens) {
   return ops;
 };
 
-Adom.prototype.execute = function(ops, initial_state, runtime) {
+Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
   let html = "";
   let ptr = 0;
   let state = initial_state;
@@ -916,6 +916,7 @@ Adom.prototype.execute = function(ops, initial_state, runtime) {
   let props = [];
   let iterators = [];
   let constVars = {};
+  let runtime_full;
 
   function escapeHTML (txt) {
     return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1102,10 +1103,11 @@ Adom.prototype.execute = function(ops, initial_state, runtime) {
               let frag_lengths = fragments.map(function (f) {
                 return f.length;
               });
-              html += fmt() +  `<script>(function () { var $$adom_init = ${JSON.stringify({
+              runtime_full = `(function () { var $$adom_init = ${JSON.stringify({
                 state: state,
                 lengths: frag_lengths
-              })}; ${runtime} })()${end_script()}`
+              })}; ${runtime} })()`
+              if (!mount) html += fmt() + `<script>${runtime_full}${end_script()}`;
               in_controller = false;
             }
           }
@@ -1248,7 +1250,14 @@ Adom.prototype.execute = function(ops, initial_state, runtime) {
 
   exec();
 
-  return html;
+  if (mount) {
+    return {
+      html: html,
+      runtime: runtime_full
+    }
+  } else {
+    return html;
+  }
 };
 
 Adom.prototype.get_error_text = function(prog, c) {
@@ -1762,6 +1771,10 @@ Adom.prototype.generate_runtime = function(ops, input_state, fn) {
     }
   }
 
+  if (!controller) {
+    return '';
+  }
+
   return this.runtime(`
 (function () {
   var $$a = new $adom();
@@ -1828,7 +1841,7 @@ Adom.prototype.openFile = function(p, filter) {
   return [t, f];
 };
 
-Adom.prototype.resolve_imports = function(tokens, file) {
+Adom.prototype.resolve_imports = function(tokens) {
   let out_toks = [];
   let ptr = 0;
 
@@ -1866,7 +1879,7 @@ Adom.prototype.render = function(file, input_state) {
       let fileData = this.openFile(file);
       let f = fileData[1];
       let tokens = this.tokenize(fileData[0], f);
-      tokens = this.resolve_imports(tokens, f);
+      tokens = this.resolve_imports(tokens);
       let ops = this.parse(tokens);
       let runtime = this.generate_runtime(ops, input_state || {});
       let html = this.execute(ops, input_state || {}, runtime);
@@ -1884,6 +1897,26 @@ Adom.prototype.render = function(file, input_state) {
       console.log(e);
     }
     return "";
+  }
+};
+
+Adom.prototype.mount = function (sel, str) {
+  try {
+    let tokens = this.tokenize(str, 'main');
+    tokens = this.resolve_imports(tokens);
+    let ops = this.parse(tokens);
+    let runtime = this.generate_runtime(ops, {});
+    let out = this.execute(ops, {}, runtime, true);
+    document.querySelector(sel).innerHTML = out.html;
+    console.log(out);
+    window.eval(out.runtime);
+  } catch (e) {
+    if (e.origin === 'adom') {
+      document.querySelector(sel).innerHTML = '<pre>' + e.msg + '\n' +
+        this.get_error_text(str, e.pos) + '</pre>';
+    } else {
+      console.log(e);
+    }
   }
 };
 
