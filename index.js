@@ -7,6 +7,7 @@ function Adom(config) {
   this.dirname = config.rootDir || "";
   this.runtimeTransform = config.runtimeTransform;
   this.files = {};
+  this.uid = Math.floor(Math.random() * 10000);
 }
 
 function throw_adom_error (err) {
@@ -1282,7 +1283,7 @@ Adom.prototype.get_error_text = function(prog, c) {
   return buf;
 };
 
-Adom.prototype.runtime = function (controller) {
+Adom.prototype.runtime = function (controller, mount) {
   return `
 (function () {
 function $adom () {
@@ -1453,17 +1454,17 @@ $adom.prototype.insertFrag = function (elements, par, index, lidx) {
   return (this.frag_lengths[lidx] = elements.length);
 };
 
-window.onload = function () {
+${!mount ? 'window.onload = ' : '('}function () {
   var $$adom_input_state = $$adom_init.state;
   var $$adom_initial_frag_lengths = $$adom_init.lengths;
 
   ${controller}
-}
+}${mount ? ')()' : ''}
 })();
 `
 }
 
-Adom.prototype.generate_runtime = function(ops, input_state, fn) {
+Adom.prototype.generate_runtime = function(ops, input_state, mount, fn) {
   let ptr = 0;
   let in_controller = false;
   let prop_depth = -1;
@@ -1480,6 +1481,7 @@ Adom.prototype.generate_runtime = function(ops, input_state, fn) {
   let runtime_location = -1;
   let state_keys = Object.keys(input_state);
   let prop_events = undefined;
+  let idpref = this.uid.toString();
 
   function print_expression (expr) {
     switch (expr.type) {
@@ -1598,14 +1600,14 @@ Adom.prototype.generate_runtime = function(ops, input_state, fn) {
       } break;
       case "begin_tag":
         if (op.data.runtime) {
-          let id = ids++;
+          let id = idpref + ids++;
           controller = { body: op.data.runtime };
-          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id + "" }] };
+          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id }] };
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           in_controller = true;
         } else if (in_controller) {
-          let id = ids++;
-          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id + "" }] };
+          let id = idpref + ids++;
+          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id }] };
           tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
           if (op.data.events.length > 0) {
             op.data.events.forEach(function(e) {
@@ -1808,7 +1810,7 @@ Adom.prototype.generate_runtime = function(ops, input_state, fn) {
   })(${state_keys.map(function (k) {
     return `$.${k}`; 
   }).join(',')});
-})();`);
+})();`, mount);
 
 };
 
@@ -1905,7 +1907,7 @@ Adom.prototype.mount = function (sel, str) {
     let tokens = this.tokenize(str, 'main');
     tokens = this.resolve_imports(tokens);
     let ops = this.parse(tokens);
-    let runtime = this.generate_runtime(ops, {});
+    let runtime = this.generate_runtime(ops, {}, true);
     let out = this.execute(ops, {}, runtime, true);
     document.querySelector(sel).innerHTML = out.html;
     console.log(out);
