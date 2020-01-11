@@ -281,6 +281,7 @@ Adom.prototype.parse = function(tokens) {
   let tok = tokens[0];
   let cursor = 0;
   let files = [];
+  let pending = [];
   let ops = [];
   let dont_emit = false;
   let yield_stack = [];
@@ -546,18 +547,6 @@ Adom.prototype.parse = function(tokens) {
     }
     expect("]");
     return arr;
-  }
-
-  function parse_textnode() {
-    let chunks = [];
-    while (true) {
-      chunks.push(tok.data);
-      expect("chunk");
-      if (!accept("{")) break;
-      chunks.push(parse_expr());
-      expect("}");
-    }
-    return chunks;
   }
 
   function parse_class_list() {
@@ -842,7 +831,14 @@ Adom.prototype.parse = function(tokens) {
         next();
         expect("=");
         if (accept("file")) {
-          val = parse_string();
+          expect('string');
+          pending.push({
+            name: tok.data,
+            op: ops.length
+          });
+          // the file will be resolved to a string later
+          val = { pos: tok.pos, file: tok.file };
+          next();
         } else {
           val = parse_expr();
         }
@@ -860,6 +856,12 @@ Adom.prototype.parse = function(tokens) {
 
   if (root_idx > -1) {
     ops[root_idx].data.runtime = runtime;
+  }
+
+  for (let i = 0; i < pending.length; i++) {
+    let file = pending[i];
+    ops[file.op].data.val.type = 'string';
+    ops[file.op].data.val.data = [ { type: 'chunk', data: this.openFile(file.name) } ];
   }
 
   return ops;
@@ -1804,30 +1806,6 @@ Adom.prototype.resolve_imports = function(tokens, file) {
           });
         }
         break;
-      case "file": {
-        let filter = undefined;
-        ptr++;
-        if (tokens[ptr].type === 'ident') {
-          filter = tokens[ptr].data;
-          ptr++;
-        }
-        if (tokens[ptr].type === 'string') {
-          ptr++; // the next token is where the string begins
-          let path = tokens[ptr].data;
-          let fileData = this.openFile(path, filter);
-          out_toks.push({
-            type: "string",
-            pos: tokens[ptr].pos,
-            file: tokens[ptr].file
-          });
-          out_toks.push({
-            type: "chunk",
-            data: fileData[0],
-            pos: tokens[ptr].pos,
-            file: tokens[ptr].file
-          });
-        }
-      } break;
       default:
         out_toks.push(tokens[ptr]);
         break;
@@ -1842,7 +1820,8 @@ Adom.prototype.render = function(file, input_state) {
   try {
     let cacheKey = this.getPath(file);
     if (this.cache && this.opcode_cache[cacheKey]) {
-      return this.execute(this.opcode_cache[cacheKey], input_state || {});
+      let cached = this.opcode_cache[cacheKey];
+      return this.execute(cached.ops, input_state || {}, cached.runtime);
     } else {
       let fileData = this.openFile(file);
       let f = fileData[1];
@@ -1852,7 +1831,7 @@ Adom.prototype.render = function(file, input_state) {
       let runtime = this.generate_runtime(ops, input_state || {});
       let html = this.execute(ops, input_state || {}, runtime);
       if (this.cache) {
-        this.opcode_cache[f] = ops;
+        this.opcode_cache[f] = { ops: ops, runtime: runtime };
       }
       return html;
     }
