@@ -610,18 +610,20 @@ Adom.prototype.parse = function(tokens) {
         }
       } else if (accept("on")) {
         expect(":");
+        let handler, sync;
         let evt = tok.data;
         expect("ident");
         expect("=");
-        expect("{");
-        let handler = tok.data
-        let sync = false;
-        if (accept('@')) {
-          handler = tok.data;
+        if (peek('string')) {
+          handler = parse_strict_string();
+          sync = false;
+        } else {
+          expect("{");
+          handler = tok.data
           sync = true;
+          expect("ident");
+          expect("}");
         }
-        expect("ident");
-        expect("}");
         events.push({ type: evt, handler: handler, sync: sync });
       } else {
         break;
@@ -795,21 +797,32 @@ Adom.prototype.parse = function(tokens) {
     expect("]");
   }
 
+  function parse_strict_string () {
+    expect('string');
+    let data = tok.data;
+    next();
+    if (peek('{')) {
+      throw_adom_error({
+        msg: 'cannot interpolate here',
+        pos: tok.pos,
+        file: tok.file
+      });
+    }
+    return data;
+  }
+
   function parse_rhs (to_runtime) {
     let val;
     if (accept("file")) {
       let f = [];
       if (accept('[')) {
         while (true) {
-          if (!accept('string')) break;
-          f.push(tok.data);
-          next();
+          if (!peek('string')) break;
+          f.push(parse_strict_string());
         }
         expect(']');
       } else {
-        expect('string');
-        f.push(tok.data);
-        next();
+        f.push(parse_strict_string());
       }
       pending.push({
         name: f,
@@ -1787,9 +1800,8 @@ Adom.prototype.generate_runtime = function(ops, input_state, mount, fn) {
   (function (${state_keys.join(',')}) {
     function $addEventListeners () {
       ${controller.events.map(function (e) {
-        return `$$a.addEventListener("${e.id}", "${e.event}", function ($event) {
-          ${e.handler}($event);
-          ${e.sync ? '$sync();' : ''}
+        return `$$a.addEventListener("${e.id}", "${e.event}", function ($e) {
+          ${e.sync ? `${e.handler}($e); $sync();` : `${e.handler};`}
         });`
       }).join('\n')}
     }
@@ -1910,7 +1922,6 @@ Adom.prototype.mount = function (sel, str) {
     let runtime = this.generate_runtime(ops, {}, true);
     let out = this.execute(ops, {}, runtime, true);
     document.querySelector(sel).innerHTML = out.html;
-    console.log(out);
     window.eval(out.runtime);
   } catch (e) {
     if (e.origin === 'adom') {
