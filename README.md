@@ -389,12 +389,12 @@ doctype html5
 
 var name = 'matt'
 
-def MyCtrl ->
+--
     function updateName (e) {
         name = e.target.value
         $sync()
     }
-<-
+--
 
 html [
     head []
@@ -410,11 +410,11 @@ doctype html5
 
 var name = 'matt'
 
-def MyCtrl ->
+--
     function updateName (e) {
         name = e.target.value
     }
-<-
+--
 
 html [
     head []
