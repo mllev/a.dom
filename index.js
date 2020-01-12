@@ -247,14 +247,14 @@ Adom.prototype.tokenize = function(prog, file) {
       continue;
     } else if (
       c === "-" &&
-      prog[cursor + 1] === ">"
+      prog[cursor + 1] === "-"
     ) {
       let i = cursor + 2;
       let found = false;
       while (i <= (end_pos - 2)) {
         if (
           prog[i] === "\n" &&
-          prog[i + 1] === "<" &&
+          prog[i + 1] === "-" &&
           prog[i + 2] === "-"
         ) {
           i += 3;
@@ -264,7 +264,7 @@ Adom.prototype.tokenize = function(prog, file) {
         tok.data += prog[i++];
       }
       if (!found) {
-        throw_adom_error({ msg: "expected closing <-", pos: cursor, file: file });
+        throw_adom_error({ msg: "expected closing --", pos: cursor, file: file });
       }
       cursor = i;
       tok.type = "module_body";
