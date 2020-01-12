@@ -311,7 +311,7 @@ This compiles to the following html:
 </html>
 ```
 #### REACTIVITY
-ADOM supports changing the state of your data at runtime. This is achieved by writing `controllers`.
+ADOM supports changing the state of your data at runtime.
 
 Let's take the following example and make it reactive:
 ```js
@@ -327,15 +327,15 @@ html [
     ]
 ]
 ```
-Let's say our goal is to update `name` in real time as you type. First, we have to create a `controller`, and change `const` to `var`. By changing the type to `var` we are telling adom that this variable should be available for runtime modification.
+Let's say our goal is to update `name` in real time as you type. First, we have to create a block of javascript, and change `const` to `var`. By changing the type to `var` we are telling adom that this variable should be available for runtime modification.
 ```js
 doctype html5
 
 var name = 'matt'
 
-def MyCtrl ->
+--
     // all javascript code goes here
-<-
+--
 
 html [
     head []
@@ -345,41 +345,41 @@ html [
     ]
 ]
 ```
-Now attach the controller to some chunk of UI using the `#` symbol. In this example, we will attach our controller to body:
+Now create a root node for your application:
 ```js
 doctype html5
 
 var name = 'matt'
 
-def MyCtrl ->
+--
     // all javascript code goes here
-<-
+--
 
 html [
     head []
-    body #MyCtrl [
+    body root [
         h1 "Hello, {{name}}!"
         input;
     ]
 ]
 ```
-Attach an `input` event to the input tag, and put your handler inside the controller:
+Attach an `input` event to the input tag, and put write your handler:
 ```js
 doctype html5
 
 var name = 'matt'
 
-def MyCtrl ->
+--
     function updateName (e) {
         // update code
     }
-<-
+--
 
 html [
     head []
-    body #MyCtrl [
+    body root [
         h1 "Hello, {{name}}!"
-        input on:input={updateName};
+        input on:input='updateName($e)';
     ]
 ]
 ```
@@ -398,13 +398,13 @@ def MyCtrl ->
 
 html [
     head []
-    body #MyCtrl [
+    body root [
         h1 "Hello, {{name}}!"
-        input on:input={updateName};
+        input on:input='updateName($e)';
     ]
 ]
 ```
-If you would like `$sync` to be called automatically after your event handler, you can prefix your handler with `@`:
+If you would like `$sync` to be called automatically after your event handler, you can rewrite your `on:input` like so:
 ```js
 doctype html5
 
@@ -418,9 +418,9 @@ def MyCtrl ->
 
 html [
     head []
-    body #MyCtrl [
+    body root [
         h1 "Hello, {{name}}!"
-        input on:input={@updateName};
+        input on:input={updateName};
     ]
 ]
 
