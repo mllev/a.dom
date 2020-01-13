@@ -15,7 +15,7 @@ function throw_adom_error (err) {
   throw err;
 };
 
-Adom.prototype.tokenize = function(prog, file) {
+Adom.prototype.tokenize = function(prog, file, offset) {
   let cursor = 0,
     end_pos = prog.length - 1;
   let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
@@ -75,11 +75,10 @@ Adom.prototype.tokenize = function(prog, file) {
       } else if (text[i] === "}" && text[i+1] === "}" && in_expr === true) {
         in_expr = false;
         chunk += "}";
-        let toks = this.tokenize(chunk, file);
+        let toks = this.tokenize(chunk, file, pos);
         toks.shift(); //file_begin
         toks.pop(); //eof
         toks.forEach(function(t) {
-          t.pos += pos;
           chunks.push(t);
         });
         chunk = "";
@@ -93,9 +92,11 @@ Adom.prototype.tokenize = function(prog, file) {
     return chunks;
   }
 
+  let offs = offset || 0;
+
   while (true) {
     let c = prog[cursor];
-    let tok = { type: "", data: "", pos: cursor, file: file };
+    let tok = { type: "", data: "", pos: offs + cursor, file: file };
 
     if (cursor > end_pos) {
       tok.type = "eof";
@@ -199,7 +200,7 @@ Adom.prototype.tokenize = function(prog, file) {
       let i = cursor + 3;
       while (true) {
         if (i > end_pos) {
-          throw_adom_error({ msg: "unterminated long string", pos: cursor, file: file });
+          throw_adom_error({ msg: "unterminated long string", pos: offs + cursor, file: file });
         } else if (
           prog[i] === '"' &&
           prog[i + 1] === '"' &&
@@ -210,8 +211,8 @@ Adom.prototype.tokenize = function(prog, file) {
         }
         str += prog[i++];
       }
-      tokens.push({ type: 'string', pos: cursor, file: file });
-      tokens.push({ type: 'chunk', data: str, pos: cursor, file: file })
+      tokens.push({ type: 'string', pos: offs + cursor, file: file });
+      tokens.push({ type: 'chunk', data: str, pos: offs + cursor, file: file })
       cursor = i;
       continue;
     } else if (c === '"' || c === "'") {
@@ -221,7 +222,7 @@ Adom.prototype.tokenize = function(prog, file) {
 
       while (true) {
         if (i > end_pos || prog[i] === "\n") {
-          throw_adom_error({ msg: "unterminated string", pos: cursor, file: file });
+          throw_adom_error({ msg: "unterminated string", pos: offs + cursor, file: file });
         }
         if (prog[i] === del) {
           i++;
@@ -235,13 +236,13 @@ Adom.prototype.tokenize = function(prog, file) {
       }
 
       let chunks = break_into_chunks.call(this, text, cursor);
-      tokens.push({ type: 'string', pos: cursor, file: file });
+      tokens.push({ type: 'string', pos: offs + cursor, file: file });
       if (chunks.length > 1) {
         chunks.forEach(function(c) {
           tokens.push(c);
         });
       } else {
-        tokens.push({ type: 'chunk', data: text, pos: cursor, file: file })
+        tokens.push({ type: 'chunk', data: text, pos: offs + cursor, file: file })
       }
       cursor = i;
       continue;
@@ -264,7 +265,7 @@ Adom.prototype.tokenize = function(prog, file) {
         tok.data += prog[i++];
       }
       if (!found) {
-        throw_adom_error({ msg: "expected closing --", pos: cursor, file: file });
+        throw_adom_error({ msg: "expected closing --", pos: offs + cursor, file: file });
       }
       cursor = i;
       tok.type = "module_body";
