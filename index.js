@@ -969,7 +969,7 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
     return Object.keys(attr).map(function (k) {
       if (k === 'isRoot') return '';
       let v = evaluate(attr[k]);
-      if (!v) return '';
+      if (v === false || v == null) return '';
       return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
     }).join('');
   }
@@ -1325,7 +1325,7 @@ $adom.prototype.setAttributes = function (e, attr) {
   Object.keys(attr).forEach(function (att) {
     var a = attr[att];
     var v = a.constructor === Array ? a.join(' ') : a;
-    if (!v) {
+    if (v === 'false' || v == null) {
       e.removeAttribute(att);
     } else if (att === 'value') {
       e.value = v;
