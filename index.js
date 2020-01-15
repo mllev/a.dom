@@ -1616,7 +1616,7 @@ Adom.prototype.generate_runtime = function(ops, input_state, mount, fn) {
         modules.push(op.data);
       } break;
       case "begin_tag":
-        if (op.data.runtime) {
+        if (op.data.runtime != null) {
           let id = idpref + ids++;
           controller = { body: op.data.runtime };
           op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id }] };
