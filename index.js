@@ -1325,7 +1325,7 @@ $adom.prototype.setAttributes = function (e, attr) {
   Object.keys(attr).forEach(function (att) {
     var a = attr[att];
     var v = a.constructor === Array ? a.join(' ') : a;
-    if (v === 'false' || v == null) {
+    if (v === false || v == null) {
       e.removeAttribute(att);
     } else if (att === 'value') {
       e.value = v;
