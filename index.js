@@ -58,6 +58,10 @@ Adom.prototype.tokenize = function(prog, file, offset) {
     "@"
   ];
 
+  function is_newline (c) {
+    return c == '\n' || c == '\r'
+  }
+
   function break_into_chunks(text, cursor) {
     let chunks = [];
     let chunk = "";
@@ -102,11 +106,11 @@ Adom.prototype.tokenize = function(prog, file, offset) {
       tok.type = "eof";
       tokens.push(tok);
       break;
-    } else if (c === " " || c === "\n" || c === "\t") {
+    } else if (c === " " || is_newline(c) || c === "\t") {
       let i = cursor;
       while (
         i <= end_pos &&
-        (prog[i] === " " || prog[i] === "\t" || prog[i] === "\n")
+        (prog[i] === " " || prog[i] === "\t" || is_newline(prog[i]))
       ) {
         i++;
       }
@@ -221,7 +225,7 @@ Adom.prototype.tokenize = function(prog, file, offset) {
       let text = '';
 
       while (true) {
-        if (i > end_pos || prog[i] === "\n") {
+        if (i > end_pos || is_newline(prog[i])) {
           throw_adom_error({ msg: "unterminated string", pos: offs + cursor, file: file });
         }
         if (prog[i] === del) {
