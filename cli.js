@@ -44,7 +44,7 @@ if (!config.dev) {
 } else {
   let port = config.devPort || 5000
   require('http').createServer(function (req, res) {
-    res.writeHead(200, { 'Content-type': 'text/html' })
+    res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' })
     res.end(c.render(config.file))
   }).listen(port, function () {
     console.log('Development server running on port: ' + port)

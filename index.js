@@ -223,7 +223,6 @@ Adom.prototype.tokenize = function(prog, file, offset) {
       let del = c;
       let i = cursor + 1;
       let text = '';
-
       while (true) {
         if (i > end_pos || is_newline(prog[i])) {
           throw_adom_error({ msg: "unterminated string", pos: offs + cursor, file: file });
@@ -238,7 +237,6 @@ Adom.prototype.tokenize = function(prog, file, offset) {
         }
         text += prog[i++];
       }
-
       let chunks = break_into_chunks.call(this, text, cursor);
       tokens.push({ type: 'string', pos: offs + cursor, file: file });
       if (chunks.length > 1) {
@@ -662,9 +660,96 @@ Adom.prototype.parse = function(tokens) {
     }
   }
 
+  /*
+
+  [ 
+    { key: '', value: '' },
+    { sel: 'selector', rules: [] }
+
+    [
+      rule1
+
+      sel1 [
+        rule2
+      ]
+
+      @media1 [
+        rule3
+      ]
+
+      sel2 [
+        rule4
+        sel3 [
+          rule5
+          sel4 [
+            rule6    
+          ]
+        ]
+
+        @media2 [
+          rule7
+        ]
+      ]
+    ]
+
+    .a1s2d3f4 { rule1 }
+    .a1s2d3f4 sel1 { rule2 }
+    .a1s2d3f4 sel2 { rule4 }
+    .a1s2d3f4 sel2 sel3 { rule5 }
+    .a1s2d3f4 sel2 sel3 sel4 { rule6 }
+    @media1 { .a1s2d3f4 { rule3 } }
+    @media2 { .a2s2d3f4 sel2 { rule7 } }
+  ]
+  */
+
+  function parse_scoped_style_rules (sel) {
+    let rules = [];
+    let children = [];
+    while (true) {
+      if (peek('ident')) {
+        let k = tok.data;
+        next();
+        if (peek('string')) {
+          let v = parse_strict_string();
+          rules.push([k, v]);
+        } else {
+          unexpected();
+        }
+      } else if (peek('string')) {
+        let s = parse_strict_string();
+        expect('[');
+        children.push(parse_scoped_style_rules(s));
+        expect(']');
+      } else {
+        break;
+      }
+    }
+    return {
+      sel: sel,
+      rules: rules,
+      children: children
+    }
+  }
+
+  function rand_class () {
+    let c = '';
+    let count = 8;
+    while (count--) {
+      c += 'abcdefghijklmnopqrstuvwxyz1234567890'[Math.floor(Math.random() * 36)];
+    }
+    return c;
+  }
+
   function parse_tag() {
     let name = tok.data;
     expect("ident");
+    if (name === 'css') {
+      expect('[');
+      let styles = parse_scoped_style_rules(rand_class());
+      console.log(styles);
+      expect(']');
+      return;
+    }
     let classlist = parse_class_list();
     let attr_data = parse_attributes();
     let events = attr_data[1];
@@ -1329,12 +1414,14 @@ $adom.prototype.setAttributes = function (e, attr) {
   Object.keys(attr).forEach(function (att) {
     var a = attr[att];
     var v = a.constructor === Array ? a.join(' ') : a;
-    if (v === false || v == null) {
-      e.removeAttribute(att);
-    } else if (att === 'value') {
-      e.value = v;
+    if (att in e) {
+      e[att] = v;
     } else {
-      e.setAttribute(att, v);
+      if (v === false || v == null) {
+        e.removeAttribute(att);
+      } else {
+        e.setAttribute(att, v);
+      }
     }
   });
 };
@@ -1446,6 +1533,9 @@ $adom.prototype.insertFrag = function (elements, par, index, lidx) {
   var frag = document.createDocumentFragment();
   var prevLen = this.frag_lengths[lidx];
   var setAttr = this.setAttributes.bind(this);
+  var ptr = par.childNodes[index];
+  
+  console.log(ptr, elements)
 
   function walk (elements, par, domPtr) {
     elements.forEach(function (el) {
