@@ -293,6 +293,7 @@ Adom.prototype.parse = function(tokens) {
   let runtime = '';
   let root_found = false;
   let root_idx = -1;
+  let in_tag = false;
 
   function new_context() {
     files.push({
@@ -305,14 +306,6 @@ Adom.prototype.parse = function(tokens) {
     let t = files[files.length - 1].tags[name];
     if (!t && tag_scopes.length > 0) {
       t = tag_scopes[tag_scopes.length - 1].tags[name];
-    }
-    return t;
-  }
-
-  function get_module (name) {
-    let t = files[files.length - 1].modules[name];
-    if (!t && tag_scopes.length > 0) {
-      t = tag_scopes[tag_scopes.length - 1].modules[name];
     }
     return t;
   }
@@ -702,6 +695,19 @@ Adom.prototype.parse = function(tokens) {
   ]
   */
 
+  function transform_to_css (styles) {
+    let str = '';
+    let ptr = styles;
+    while (true) {
+      ptr.rules.forEach(function (rule) {
+        str += (`${rule[0]}:${rule[1]};`);
+      });
+      break;
+    }
+    
+    return str;
+  }
+
   function parse_scoped_style_rules (sel) {
     let rules = [];
     let children = [];
@@ -746,7 +752,7 @@ Adom.prototype.parse = function(tokens) {
     if (name === 'css') {
       expect('[');
       let styles = parse_scoped_style_rules(rand_class());
-      console.log(styles);
+      console.log(transform_to_css(styles));
       expect(']');
       return;
     }
@@ -760,7 +766,9 @@ Adom.prototype.parse = function(tokens) {
       if (accept("[")) {
         let ret = cursor;
         dont_emit = true;
+        in_tag = true;
         parse_tag_list();
+        in_tag = false;
         dont_emit = false;
         expect("]");
         let end_ret = cursor;
@@ -773,7 +781,9 @@ Adom.prototype.parse = function(tokens) {
           expect("]");
           set_tok(y);
         });
+        in_tag = true;
         parse_tag_list();
+        in_tag = false;
         yield_stack.pop();
         tag_scopes.pop();
         emit("pop_props");
@@ -785,7 +795,9 @@ Adom.prototype.parse = function(tokens) {
         emit("push_props", { props: attr, events: events });
         yield_stack.push(null);
         tag_scopes.push(custom.scope);
+        in_tag = true;
         parse_tag_list();
+        in_tag = false;
         yield_stack.pop();
         tag_scopes.pop();
         emit("pop_props");
@@ -872,6 +884,9 @@ Adom.prototype.parse = function(tokens) {
       let y = yield_stack[yield_stack.length - 1];
       if (y) y(cursor);
       parse_tag_list();
+    } else if (in_tag && (peek('var' || peek('const')))) {
+      parse_assignment();
+      parse_tag_list();
     }
   }
 
@@ -882,7 +897,9 @@ Adom.prototype.parse = function(tokens) {
     expect("[");
     dont_emit = true;
     files[files.length - 1].tags[tag] = { pos: cursor, scope: files[files.length - 1] };
+    in_tag = true;
     parse_tag_list();
+    in_tag = false;
     dont_emit = false;
     expect("]");
   }
@@ -927,6 +944,19 @@ Adom.prototype.parse = function(tokens) {
     return val;
   }
 
+  function parse_assignment () {
+    let isConst = (tok.data === 'const');
+    if (in_tag && isConst) {
+      throw_adom_error({ msg: 'cannot use const inside of a tag', pos: tok.pos, file: tok.file })
+    }
+    next();
+    let dst = { data: tok.data, pos: tok.pos, file: tok.file };
+    next();
+    expect("=");
+    let val = parse_rhs();
+    emit("set", { dst: dst, val: val, isConst: isConst });
+  }
+
   function parse_file() {
     while (true) {
       if (tok.type === "file_begin") {
@@ -957,13 +987,7 @@ Adom.prototype.parse = function(tokens) {
       } else if (tok.type === "tag") {
         parse_custom_tag();
       } else if (peek('var') || peek('const')) {
-      	let isConst = (tok.data === 'const');
-      	next();
-        let dst = { data: tok.data, pos: tok.pos, file: tok.file };
-        next();
-        expect("=");
-        let val = parse_rhs();
-        emit("set", { dst: dst, val: val, isConst: isConst });
+        parse_assignment();
       } else if (peek('module_body')) {
         runtime += tok.data;
         next();
@@ -1016,42 +1040,15 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
   let ptr = 0;
   let state = initial_state;
   let open_tags = [];
-  let pretty = false;
+  let pretty = true;
   let props = [];
   let iterators = [];
   let constVars = {};
   let runtime_full;
+  let tag_locals = [];
 
   function escapeHTML (txt) {
     return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function check_props(list) {
-    if (list[0] === "props") {
-      if (props.length < 1)
-        throw_adom_error({
-          msg: "props can only be used inside a custom tag",
-          pos: pos,
-          file: file
-        });
-      let v = props[props.length - 1];
-      list.shift();
-      return v;
-    }
-    return null;
-  }
-
-  function check_iterators(ptr, list) {
-    let check = list[0];
-    let i = iterators.length - 1;
-    while (i >= 0) {
-      if (iterators[i].data[check] != null) {
-        list.shift();
-        return iterators[i].data[check];
-      }
-      i--;
-    }
-    return ptr;
   }
 
   function assemble_attributes(attr) {
@@ -1106,6 +1103,7 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
               it.object[it.list[it.index]] : it.index;
           }
         }
+        if (tag_locals[tag_locals.length - 1][v]) return tag_locals[tag_locals.length - 1][v];
         if (state[v] !== undefined) return state[v];
         if (constVars[v] !== undefined) return constVars[v];
         throw_adom_error({ msg: v + ' is undefined.', pos: expr.pos, file: expr.file });
@@ -1146,14 +1144,7 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
   }
 
   function fmt() {
-    return pretty
-      ? "\n" +
-          open_tags
-            .map(function() {
-              return "    ";
-            })
-            .join("")
-      : "";
+    return pretty ? `\n${'    '.repeat(open_tags.length)}` : '';
   }
 
   function exec() {
@@ -1223,7 +1214,9 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
             if (constVars[dst.data] != null || state[dst.data] != null) {
               throw_adom_error({ msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file });
             }
-            if (op.data.isConst) {
+            if (tag_locals.length > 0) {
+              tag_locals[tag_locals.length - 1][dst.data] = evaluate(op.data.val);
+            } else if (op.data.isConst) {
               constVars[dst.data] = evaluate(op.data.val);
             } else {
               state[dst.data] = evaluate(op.data.val);
@@ -1248,11 +1241,13 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
               pctx[k] = evaluate(op.data.props[k]);
             });
             props.push(pctx);
+            tag_locals.push({});
           }
           break;
         case "pop_props":
           {
             props.pop();
+            tag_locals.pop();
           }
           break;
         case "if":
@@ -1589,7 +1584,6 @@ Adom.prototype.generate_runtime = function(ops, input_state, mount, fn) {
   let lindex = -1;
   let init = [];
   let controller = undefined;
-  let runtime_location = -1;
   let state_keys = Object.keys(input_state);
   let prop_events = undefined;
   let idpref = this.uid.toString();
