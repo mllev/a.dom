@@ -35,7 +35,8 @@ Adom.prototype.tokenize = function(prog, file, offset) {
     "file",
     "var",
     "const",
-    "root"
+    "root",
+    "css"
   ];
 
   let symbols = [
@@ -585,7 +586,7 @@ Adom.prototype.parse = function(tokens) {
           }
           root_idx = ops.length;
           root_found = true;
-          attr.isRoot = true;
+          attr.id = { type: 'string', data: [{ type: 'chunk', data: 'adom-root' }] };
         }
       } else if (accept("ident")) {
         if (accept("=")) {
@@ -746,16 +747,15 @@ Adom.prototype.parse = function(tokens) {
     return c;
   }
 
+  function parse_custom_tag_body () {
+    in_tag = true;
+    parse_tag_list();
+    in_tag = false;
+  }
+
   function parse_tag() {
     let name = tok.data;
     expect("ident");
-    if (name === 'css') {
-      expect('[');
-      let styles = parse_scoped_style_rules(rand_class());
-      console.log(transform_to_css(styles));
-      expect(']');
-      return;
-    }
     let classlist = parse_class_list();
     let attr_data = parse_attributes();
     let events = attr_data[1];
@@ -766,14 +766,13 @@ Adom.prototype.parse = function(tokens) {
       if (accept("[")) {
         let ret = cursor;
         dont_emit = true;
-        in_tag = true;
-        parse_tag_list();
-        in_tag = false;
+        parse_custom_tag_body();
         dont_emit = false;
         expect("]");
         let end_ret = cursor;
         set_tok(custom.pos);
         emit("push_props", { props: attr, events: events });
+        emit("begin_custom_tag", name);
         tag_scopes.push(custom.scope);
         yield_stack.push(function(y) {
           set_tok(ret);
@@ -781,11 +780,10 @@ Adom.prototype.parse = function(tokens) {
           expect("]");
           set_tok(y);
         });
-        in_tag = true;
-        parse_tag_list();
-        in_tag = false;
+        parse_custom_tag_body();
         yield_stack.pop();
         tag_scopes.pop();
+        emit("end_custom_tag", name);
         emit("pop_props");
         set_tok(end_ret);
       } else {
@@ -793,13 +791,13 @@ Adom.prototype.parse = function(tokens) {
         let ret = cursor;
         set_tok(custom.pos);
         emit("push_props", { props: attr, events: events });
+        emit("begin_custom_tag", name);
         yield_stack.push(null);
         tag_scopes.push(custom.scope);
-        in_tag = true;
-        parse_tag_list();
-        in_tag = false;
+        parse_custom_tag_body();
         yield_stack.pop();
         tag_scopes.pop();
+        emit("end_custom_tag", name);
         emit("pop_props");
         set_tok(ret);
       }
@@ -887,6 +885,12 @@ Adom.prototype.parse = function(tokens) {
     } else if (in_tag && (peek('var' || peek('const')))) {
       parse_assignment();
       parse_tag_list();
+    } else if (in_tag && accept('css')) {
+      // make sure inside of at least 1 tag
+      expect('[');
+      let styles = parse_scoped_style_rules(rand_class());
+      expect(']');
+      parse_tag_list();
     }
   }
 
@@ -897,9 +901,7 @@ Adom.prototype.parse = function(tokens) {
     expect("[");
     dont_emit = true;
     files[files.length - 1].tags[tag] = { pos: cursor, scope: files[files.length - 1] };
-    in_tag = true;
-    parse_tag_list();
-    in_tag = false;
+    parse_custom_tag_body();
     dont_emit = false;
     expect("]");
   }
@@ -1007,11 +1009,10 @@ Adom.prototype.parse = function(tokens) {
     }
   }
 
-  let self = this; // ew
-  function openFileArray (a) {
+  const openFileArray = (a) => {
     let txt = '';
     for (let i = 0; i < a.length; i++) {
-      txt += self.openFile(a[i])[0];
+      txt += this.openFile(a[i])[0];
     }
     return txt;
   }
@@ -1029,13 +1030,14 @@ Adom.prototype.parse = function(tokens) {
   }
 
   if (root_idx > -1) {
+    ops[root_idx].data.is_root = true;
     ops[root_idx].data.runtime = runtime;
   }
 
   return ops;
 };
 
-Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
+Adom.prototype.execute = function(ops, initial_state, sync, mount) {
   let html = "";
   let ptr = 0;
   let state = initial_state;
@@ -1103,7 +1105,7 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
               it.object[it.list[it.index]] : it.index;
           }
         }
-        if (tag_locals[tag_locals.length - 1][v]) return tag_locals[tag_locals.length - 1][v];
+        if (tag_locals[tag_locals.length - 1][v] !== undefined) return tag_locals[tag_locals.length - 1][v];
         if (state[v] !== undefined) return state[v];
         if (constVars[v] !== undefined) return constVars[v];
         throw_adom_error({ msg: v + ' is undefined.', pos: expr.pos, file: expr.file });
@@ -1149,19 +1151,9 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
 
   function exec() {
     let iter;
-    let fragments = [];
-    let in_controller = false;
-    let frag_depth = 0;
 
     function current_tag () {
       return open_tags[open_tags.length - 1];
-    }
-
-    function current_frag () {
-      if (fragments.length > 0) {
-	      return fragments[fragments.length - 1];
-      }
-      return null;
     }
 
     function end_script () {
@@ -1178,16 +1170,12 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
               "<" +
               op.data.name +
               assemble_attributes(op.data.attributes);
-            let f = current_frag();
-            if (in_controller && frag_depth > 0 && current_tag().id === f.parent) f.length++;
             if (op.data.self_close) {
               html += ">"; // configure based on doctype
             } else {
               let a = op.data.attributes;
-              let id = a['data-adom-id'];
               html += ">";
-              if (a.isRoot) in_controller = true;
-              open_tags.push({ name: op.data.name, id: id ? evaluate(id) : undefined, root: a.isRoot });
+              open_tags.push({ name: op.data.name, user_runtime: op.data.runtime });
             }
           }
           break;
@@ -1195,16 +1183,11 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
           {
             let t = open_tags.pop();
             html += fmt() + "</" + t.name + ">";
-            if (t.root) {
-              let frag_lengths = fragments.map(function (f) {
-                return f.length;
-              });
+            if (t.user_runtime) {
               runtime_full = `(function () { var $$adom_init = ${JSON.stringify({
-                state: state,
-                lengths: frag_lengths
-              })}; ${runtime} })()`
+                state: state
+              })}; ${adom_runtime + sync + t.user_runtime} })()`
               if (!mount) html += fmt() + `<script>${runtime_full}${end_script()}`;
-              in_controller = false;
             }
           }
           break;
@@ -1225,8 +1208,6 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
           break;
         case "textnode":
           {
-            let f = current_frag();
-            if (in_controller && frag_depth > 0 && current_tag().id === f.parent) f.length++;
             if (current_tag().name === 'script') {
               html += fmt() + evaluate(op.data);
             } else {
@@ -1252,18 +1233,9 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
           break;
         case "if":
           {
-            let t = current_tag();
-            if (frag_depth === 0 && in_controller)
-              fragments.push({ parent: t.id, length: 0 });
             if (!evaluate(op.data.condition)) {
               ptr += op.data.jmp;
             }
-            frag_depth++;
-          }
-          break;
-        case "end_if":
-          {
-            frag_depth--;
           }
           break;
         case "jump":
@@ -1273,9 +1245,6 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
           break;
         case "each":
           {
-            let t = current_tag();
-            if (frag_depth === 0 && in_controller)
-              fragments.push({ parent: t.id, length: 0 });
             let list = evaluate(op.data.list);
             if (Array.isArray(list)) {
               if (list.length === 0) {
@@ -1318,7 +1287,6 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
                 file: op.data.list.file
               });
             }
-            frag_depth++;
           }
           break;
         case "iterate":
@@ -1338,7 +1306,6 @@ Adom.prototype.execute = function(ops, initial_state, runtime, mount) {
               ptr += op.data;
             } else {
               iterators.pop();
-              frag_depth--;
             }
           }
           break;
@@ -1382,212 +1349,103 @@ Adom.prototype.get_error_text = function(prog, c) {
   return buf;
 };
 
-Adom.prototype.runtime = function (controller, mount) {
-  return `
-(function () {
-function $adom () {
-  this.frag_lengths = [];
-  this.props = [];
+const adom_runtime = `
+var $$processed = [];
+var $$firstSync = true;
+
+function $$addEventListeners (node, events) {
+    var keys = Object.keys(events);
+    keys.forEach(function (event) {
+        node.addEventListener(event, events[event]);
+    })
 }
 
-$adom.prototype.push_props = function (obj) {
-  this.props.push(obj);
-  return [];
-};
-
-$adom.prototype.pop_props = function () {
-  this.props.pop();
-  return [];
-};
-
-$adom.prototype.id = function (id, all) {
-  var a = document.querySelectorAll('[data-adom-id="' + id + '"]');
-  return all ? a : a[0];
-};
-
-$adom.prototype.setAttributes = function (e, attr) {
-  Object.keys(attr).forEach(function (att) {
-    var a = attr[att];
-    var v = a.constructor === Array ? a.join(' ') : a;
-    if (att in e) {
-      e[att] = v;
-    } else {
-      if (v === false || v == null) {
-        e.removeAttribute(att);
-      } else {
-        e.setAttribute(att, v);
-      }
-    }
-  });
-};
-
-$adom.prototype.addEventListener = function (id, event, handler) {
-  var elements = this.id(id, true);
-  for (var i = 0; i < elements.length; i++) {
-    var e = elements[i];
-    if (!e.dataset['on' + event]) {
-      e.dataset['on' + event] = true;
-      e.addEventListener(event, handler);
-    }
-  }
-};
-
-$adom.prototype.if = function (cond, pass, fail) {
-  var elements = [];
-  var children;
-  if (cond) {
-    children = pass;
-  } else {
-    children = fail;
-  }
-  children.forEach(function (child) {
-    if (Array.isArray(child)) {
-      child.forEach(function (c) {
-        elements.push(c);
-      });
-    } else {
-      elements.push(child);
-    }
-  });
-  return elements;
-};
-
-$adom.prototype.each = function (list, fn) {
-  var elements = [];
-  function addChildren (children) {
-    children.forEach(function (child) {
-      if (Array.isArray(child)) {
-        child.forEach(function (c) {
-          elements.push(c);
-        })
-      } else {
-        elements.push(child);
-      }
-    })
-  }
-  if (Array.isArray(list)) {
-    list.forEach(function (item, i) {
-      var children = fn(item, i);
-      addChildren(children);
-    })
-  } else if (typeof list === 'object') {
-    var keys = Object.keys(list);
-    keys.forEach(function (key) {
-      var children = fn(key, list[key]);
-      addChildren(children);
-    })
-  } else {
-    throw new Error(list + ' is not iterable');
-  }
-  return elements;
-};
-
-$adom.prototype.el = function (tag, attributes, children) {
-  if (tag === 'text') {
-    return { type: 'text', text: attributes };
-  }
-  var els = [];
-  children.forEach(function (child) {
-    if (Array.isArray(child)) {
-      child.forEach(function (c) {
-        els.push(c);
-      })
-    } else {
-      els.push(child);
-    }
-  });
-  return {
-    type: 'node',
-    name: tag,
-    attributes: attributes,
-    children: els
-  };
-};
-
-$adom.prototype.insertAtIndex = function (child, par, index) {
-  if (index >= par.childNodes.length) {
-    par.appendChild(child);
-  } else {
-    par.insertBefore(child, par.childNodes[index]);
-  }
+function $$if (cond, condIf, condElse) {
+    if (cond) condIf();
+    else condElse();
 }
 
-$adom.prototype.setText = function (id, text, index) {
-  var el = this.id(id);
-  var children = el.childNodes;
-  if (index >= children.length) {
-    el.appendChild(document.createTextNode(text));
-  } else if (children[index].nodeType === Node.TEXT_NODE) {
-    children[index].nodeValue = text;
-  } else {
-    this.insertAtIndex(document.createTextNode(text), el, index);
-  }
-};
-
-$adom.prototype.insertFrag = function (elements, par, index, lidx) {
-  var frag = document.createDocumentFragment();
-  var prevLen = this.frag_lengths[lidx];
-  var setAttr = this.setAttributes.bind(this);
-  var ptr = par.childNodes[index];
-  
-  console.log(ptr, elements)
-
-  function walk (elements, par, domPtr) {
-    elements.forEach(function (el) {
-      var e;
-
-      if (el.type === 'text') {
-        e = document.createTextNode(el.text);
-      } else {
-        e = document.createElement(el.name);
-        setAttr(e, el.attributes);
-        if (el.children.length) {
-          walk(el.children, e);
+function $$each (list, fn) {
+    if (Array.isArray(list)) {
+        for (var i = 0; i < list.length; i++) {
+            fn(list[i], i);
         }
-      }
-      par.appendChild(e);
-    })
-  }
-
-  walk(elements, frag, par.childNodes[index]);
-
-  for (var i = index; i < (index + prevLen); i++) {
-    par.removeChild(par.childNodes[index]);
-  }
-
-  this.insertAtIndex(frag, par, index);
-
-  return (this.frag_lengths[lidx] = elements.length);
-};
-
-${!mount ? 'window.onload = ' : '('}function () {
-  var $$adom_input_state = $$adom_init.state;
-  var $$adom_initial_frag_lengths = $$adom_init.lengths;
-
-  ${controller}
-}${mount ? ')()' : ''}
-})();
-`
+    } else if (typeof list === 'object') {
+        var keys = Object.keys(list);
+        for (var i = 0; i < keys.length; i++) {
+            fn(keys[i], list[keys[i]]);
+        }
+    } else {
+        throw new Error(list + ' is not iterable');
+    }
 }
 
-Adom.prototype.generate_runtime = function(ops, input_state, mount, fn) {
-  let ptr = 0;
-  let in_controller = false;
-  let prop_depth = -1;
-  let scope_depth = 0;
-  let ids = 0;
-  let updates = [];
-  let events = [];
-  let tag_info = [];
-  let frag_index = 0;
-  let frag_id = 0;
-  let lindex = -1;
-  let init = [];
-  let controller = undefined;
-  let state_keys = Object.keys(input_state);
-  let prop_events = undefined;
-  let idpref = this.uid.toString();
+function $$clean (node) {
+    var num = $$processed[$$processed.length - 1];
+    while (node.childNodes[num]) {
+        node.removeChild(node.childNodes[num]);
+    }
+}
 
+function $$create (type, props) {
+    var node;
+    if (type === 'text') node = document.createTextNode(props);
+    else {
+        node = document.createElement(type);
+        $$attr(node, props);
+    }
+    if (props.events) $$addEventListeners(node, props.events);
+    return node;
+}
+
+function $$attr (node, props) {
+    Object.keys(props).forEach(function (p) {
+        var a = props[p];
+        if (p === 'events') return;
+        var v = a.constructor === Array ? a.join(' ') : a;
+        if (p in node) {
+            node[p] = v;
+        } else if (v === false || v == null) {
+            node.removeAttribute(at);
+        } else {
+            node.setAttribute(p, v);
+        }
+    });
+}
+
+function $$e (par, type, props, children, state) {
+    var index = $$processed[$$processed.length - 1]++;
+    var node = par.childNodes[index];
+    if (!node) {
+        node = $$create(type, props);
+        par.appendChild(node);
+    } else {
+        if (type === 'text' && node.nodeType === Node.TEXT_NODE) {
+            node.nodeValue = props;
+        } else if (node.tagName && (type === node.tagName.toLowerCase())) {
+            $$attr(node, props);
+            if ($$firstSync && props.events) $$addEventListeners(node, props.events);
+        } else {
+            var out = node;
+            node = $$create(type, props);
+            par.replaceChild(node, out);
+        }
+    }
+    if (node.__adomState) {
+        state = node.__adomState;
+    } else if (state) {
+        node.__adomState = state;
+    }
+    if (children) {
+        $$processed.push(0);
+        children(node, state);
+        $$clean(node);
+        $$processed.pop();
+    }
+}
+  `;
+
+Adom.prototype.generate_sync = function (ops, input_state) {
   function print_expression (expr) {
     switch (expr.type) {
       case 'ident':
@@ -1652,270 +1510,93 @@ Adom.prototype.generate_runtime = function(ops, input_state, mount, fn) {
     );
   }
 
-  function last_tag (index) {
-    return tag_info[tag_info.length - (index || 1)]
-  }
-
-  function get_frag_index (t) {
-    let index = '';
-    for (let i = 0; i < t.frag_count - 1; i++) {
-      index += `offs${t.id}${i} + `;
+  /*
+    function $sync() {
+        var par = window['adom-root'];
+        $$processed.push(0);
+        $$each([1, 2], function () {
+            $$e(par, 'div', {}, function (par, $state) {
+                $$e(par, 'ul', {}, function (par) {
+                    $$each($state.items, function (i) {
+                        $$e(par, 'li', { events: { 'click': function ($e) {
+                            if ($e.target.__adomState) {
+                                var $state = $e.target.__adomState;
+                            }
+                            $state.value += 'a'
+                            $sync()
+                        } }}, function (par, $state) {
+                            $$e(par, 'text', $state.value);
+                        }, { value: i });
+                    });
+                });
+                $$e(par, 'button', { events: {
+                    'click': function ($e) {
+                        $state.items.push(Math.random());
+                        $sync();
+                    }
+                }}, function (par) {
+                    $$e(par, 'text', 'add');
+                });
+                $$e(par, 'button', { events: {
+                    'click': function ($e) {
+                        $state.items.splice(3, 1);
+                        console.log($state.items)
+                        $sync();
+                    }
+                }}, function (par) {
+                    $$e(par, 'text', 'remove');
+                });
+            }, { items: JSON.parse(JSON.stringify(items)) });
+        });
+        $$e(par, 'p', {}, function (par) {
+            $$e(par, 'span', {}, function (par) {
+                $$e(par, 'text', 'hi');
+            });
+        });
+        $$clean(par);
+        $$processed.pop();
+        $$firstSync = false;
     }
-    index += frag_index;
-    return index;
-  }
+  */
 
-  function needs_update (v) {
-    if (v.type === 'ident') return true;
-    else if (Array.isArray(v.data)) {
-      for (let i = 0; i < v.data.length; i++) {
-        if (needs_update(v.data[i])) return true;
-      }
-    } else if ('object' === typeof v.data) {
-      let keys = Object.keys(v.data);
-      for (let i = 0; i < keys.length; i++) {
-        if (needs_update(v.data[i])) return true;
-      }
-    }
-    return false;
-  }
-
-  function get_dynamic_attr (a) {
-    let attr = {}
-    let keys = Object.keys(a);
-    let updates = false;
-    for (let i = 0; i < keys.length; i++) {
-      if (needs_update(a[keys[i]])) {
-        attr[keys[i]] = a[keys[i]];
-        updates = true;
-      } 
-    }
-    return updates ? attr : undefined;
-  }
+  let ptr = 0;
+  let tags = [];
 
   while (ptr < ops.length) {
     let op = ops[ptr++];
+    if (tags.length) console.log(op);
     switch (op.type) {
       case 'set': {
-	      if (!op.data.isConst)
-	        state_keys.push(op.data.dst.data);
-      } break;
-      case "declare_module": {
-        modules.push(op.data);
       } break;
       case "begin_tag":
-        if (op.data.runtime != null) {
-          let id = idpref + ids++;
-          controller = { body: op.data.runtime };
-          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id }] };
-          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
-          in_controller = true;
-        } else if (in_controller) {
-          let id = idpref + ids++;
-          op.data.attributes['data-adom-id'] = { type: 'string', data: [{ type: 'chunk', data: id }] };
-          tag_info.push({ name: op.data.name, ref: op, count: 0, frag_count: 0, id: id })
-          if (op.data.events.length > 0) {
-            op.data.events.forEach(function(e) {
-              events.push({ id: id, event: e.type, handler: e.handler, sync: e.sync });
-            });
-          }
-          if (prop_events) {
-	          // events on custom tags are attached to the first child of the tag
-            prop_events.forEach(function(e) {
-              events.push({ id: id, event: e.type, handler: e.handler, sync: e.sync });
-            });
-	          prop_events = undefined;
-          }
-          if (scope_depth === 0) {
-            last_tag(2).count++;
-            let a = get_dynamic_attr(op.data.attributes);
-            if (a) {
-              updates.push(`$$a.setAttributes($$a.id('${id}'),${stringify_object(a)});`);
-            }
-            if (op.data.self_close) {
-              tag_info.pop();
-            }
-          } else {
-            updates.push(`$$a.el("${op.data.name}", ${stringify_object(op.data.attributes)}, [`);
-            if (op.data.self_close) {
-              updates.push(']),')
-              tag_info.pop();
-            }
-          }
+        if (op.data.is_root || tags.length) {
+          tags.push(op.data.name);
         }
         break;
       case "end_tag":
-        if (in_controller) {
-          tag_info.pop()
-          if (scope_depth > 0) {
-            updates.push(']),')
-          }
-          if (!tag_info.length) {
-            controller.updates = updates;
-            controller.init = init;
-            controller.events = events;
-            in_controller = false;
-            events = [];
-            updates = [];
-            init = [];
-            frag_index = 0;
-            frag_id = 0;
-            lindex = -1;
-          }
-        }
+        if (tags.length) tags.pop();
         break;
       case "textnode":
-        if (in_controller) {
-          let parent = last_tag();
-          if (scope_depth === 0) {
-            let i = parent.count++;
-            let id = parent.id;
-            if (needs_update(op.data)) {
-              updates.push(`$$a.setText("${id}", ${print_expression(op.data)}, ${i});`);
-            }
-          } else {
-            updates.push(`$$a.el("text", ${print_expression(op.data)}),`);
-          }
-        }
         break;
       case "each":
-        if (in_controller) {
-          let c = op.data;
-          let i = c.iterators;
-          if (scope_depth === 0) {
-            lindex++;
-            let t = last_tag() 
-            frag_id = t.frag_count++;
-            frag_index = t.count
-            updates.push(
-              `var frag${t.id}${frag_id} = $$a.each(${print_expression(op.data.list)}, function(${i[0]}${
-                i[1] ? `, ${i[1]}` : ''
-              }) { return [`
-            )
-          } else {
-            updates.push(
-              `$$a.each(${print_expression(op.data.list)}, function(${i[0]}${
-                i[1] ? `, ${i[1]}` : ''
-              }) { return [`
-            )
-          }
-          scope_depth++;
-        }
         break;
       case "iterate":
-        if (in_controller) {
-          scope_depth--;
-          if (scope_depth === 0) {
-            init.push(`$$a.frag_lengths.push($$adom_initial_frag_lengths.shift());`)
-            updates.push(`] });`);
-            let t = last_tag();
-            let id = t.id;
-            let index = get_frag_index(t);
-            updates.push(`var offs${t.id}${frag_id} = $$a.insertFrag(frag${t.id}${frag_id}, $$a.id('${id}'),${index},${lindex});`);
-          } else {
-            updates.push(`] }),`);
-          }
-        }
         break;
       case "push_props":
-        if (in_controller) {
-          if (scope_depth === 0) {
-            updates.push(`$$a.push_props(${stringify_object(op.data.props)});`);
-          } else {
-            updates.push(`$$a.push_props(${stringify_object(op.data.props)}),`);
-          }
-          prop_events = op.data.events;
-          prop_depth++;
-        }
         break;
       case "pop_props":
-        if (in_controller) {
-          if (scope_depth === 0) {
-            updates.push(`$$a.pop_props();`);
-          } else {
-            updates.push(`$$a.pop_props(),`);
-          }
-          prop_depth--;
-        }
         break;
       case "if":
-        if (in_controller) {
-          let c = op.data.condition;
-          if (scope_depth === 0) {
-            lindex++;
-            let t = last_tag();
-            frag_id = t.frag_count++;
-            frag_index = t.count;
-            updates.push(`var frag${t.id}${frag_id} = $$a.if(${print_expression(c)}, [`)
-          } else {
-            updates.push(`$$a.if(${print_expression(c)}, [`)
-          }
-          scope_depth++;
-        }
         break;
       case "else":
-        if (in_controller) {
-          updates.push('],[');
-        }
         break;
       case "end_if":
-        if (in_controller) {
-          scope_depth--;
-          if (scope_depth === 0) {
-            init.push(`$$a.frag_lengths.push($$adom_initial_frag_lengths.shift());`);
-            updates.push(']);');
-            let t = last_tag();
-            let id = t.id;
-            let index = get_frag_index(t);
-            updates.push(`var offs${t.id}${frag_id} = $$a.insertFrag(frag${t.id}${frag_id}, $$a.id('${id}'),${index},${lindex});`);
-          } else {
-            updates.push(']),');
-          }
-        }
         break;
       default:
         break;
     }
   }
-
-  if (!controller) {
-    return '';
-  }
-
-  return this.runtime(`
-(function () {
-  var $$a = new $adom();
-  var $ = JSON.parse(JSON.stringify($$adom_input_state));
-
-  ${controller.init.join('\n')}
-
-  (function (${state_keys.join(',')}) {
-    function $addEventListeners () {
-      ${controller.events.map(function (e) {
-        return `$$a.addEventListener("${e.id}", "${e.event}", function ($e) {
-          ${e.sync ? `${e.handler}($e); $sync();` : `${e.handler};`}
-        });`
-      }).join('\n')}
-    }
-
-    function $sync () {
-      ${controller.updates.join('\n')}
-      $addEventListeners();
-    }
-
-    function $call () {
-      var args = Array.clice.call(arguments);
-      var fn = args.shift(); fn.apply(null, args);
-      $sync();
-    }
-
-    $addEventListeners();
-    ${controller.body}
-  })(${state_keys.map(function (k) {
-    return `$.${k}`; 
-  }).join(',')});
-})();`, mount);
-
+  return 'function $sync() {}';
 };
 
 Adom.prototype.getPath = function (p) {
@@ -1987,10 +1668,10 @@ Adom.prototype.render = function(file, input_state) {
       let tokens = this.tokenize(fileData[0], f);
       tokens = this.resolve_imports(tokens);
       let ops = this.parse(tokens);
-      let runtime = this.generate_runtime(ops, input_state || {});
-      let html = this.execute(ops, input_state || {}, runtime);
+      let sync = this.generate_sync(ops, input_state || {});
+      let html = this.execute(ops, input_state || {}, sync);
       if (this.cache) {
-        this.opcode_cache[f] = { ops: ops, runtime: runtime };
+        this.opcode_cache[f] = { ops: ops, sync: sync };
       }
       return html;
     }
@@ -2011,8 +1692,8 @@ Adom.prototype.mount = function (sel, str) {
     let tokens = this.tokenize(str, 'main');
     tokens = this.resolve_imports(tokens);
     let ops = this.parse(tokens);
-    let runtime = this.generate_runtime(ops, {}, true);
-    let out = this.execute(ops, {}, runtime, true);
+    let sync = this.generate_sync(ops, {}, true);
+    let out = this.execute(ops, {}, sync, true);
     document.querySelector(sel).innerHTML = out.html;
     window.eval(out.runtime);
   } catch (e) {
