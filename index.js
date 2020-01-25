@@ -1,4 +1,7 @@
-var Adom = (function (exports) {
+var Adom = (function () {
+
+let _c = 0;
+const op_ = _c++;
 
 function Adom(config) {
   config = config || {};
@@ -771,8 +774,7 @@ Adom.prototype.parse = function(tokens) {
         expect("]");
         let end_ret = cursor;
         set_tok(custom.pos);
-        emit("push_props", { props: attr, events: events });
-        emit("begin_custom_tag", name);
+        emit("begin_custom_tag", { name: name, props: attr, events: events });
         tag_scopes.push(custom.scope);
         yield_stack.push(function(y) {
           set_tok(ret);
@@ -784,21 +786,18 @@ Adom.prototype.parse = function(tokens) {
         yield_stack.pop();
         tag_scopes.pop();
         emit("end_custom_tag", name);
-        emit("pop_props");
         set_tok(end_ret);
       } else {
         expect(";");
         let ret = cursor;
         set_tok(custom.pos);
-        emit("push_props", { props: attr, events: events });
-        emit("begin_custom_tag", name);
+        emit("begin_custom_tag", { name: name, props: attr, events: events });
         yield_stack.push(null);
         tag_scopes.push(custom.scope);
         parse_custom_tag_body();
         yield_stack.pop();
         tag_scopes.pop();
         emit("end_custom_tag", name);
-        emit("pop_props");
         set_tok(ret);
       }
     } else {
@@ -882,7 +881,7 @@ Adom.prototype.parse = function(tokens) {
       let y = yield_stack[yield_stack.length - 1];
       if (y) y(cursor);
       parse_tag_list();
-    } else if (in_tag && (peek('var' || peek('const')))) {
+    } else if (in_tag && (peek('var') || peek('const'))) {
       parse_assignment();
       parse_tag_list();
     } else if (in_tag && accept('css')) {
@@ -1215,7 +1214,7 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
             }
           }
           break;
-        case "push_props":
+        case "begin_custom_tag":
           {
             let pctx = {};
             Object.keys(op.data.props).forEach(function(k) {
@@ -1225,7 +1224,7 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
             tag_locals.push({});
           }
           break;
-        case "pop_props":
+        case "end_custom_tag":
           {
             props.pop();
             tag_locals.pop();
@@ -1327,27 +1326,67 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
   }
 };
 
-Adom.prototype.get_error_text = function(prog, c) {
-  let i = c;
-  let buf = "",
-    pad = "";
-  let pos = c;
-  let line = 1;
-  while (pos >= 0) if (prog[pos--] === "\n") line++;
-  buf += line + "| ";
-  let np = line.toString().length + 2;
-  for (let k = 0; k < np; k++) pad += " ";
-  while (prog[i - 1] !== "\n" && i > 0) i--;
-  while (prog[i] !== "\n" && i < prog.length) {
-    if (i < c) {
-      if (prog[i] === "\t") pad += "\t";
-      else pad += " ";
+Adom.prototype.print_error = function (err, textOnly) {
+  let prog = this.files[err.file];
+  let index = err.pos;
+
+  function get_line_info (index) {
+    let i = 0, c = 1, last = 0;
+    while (i < index) {
+      if (prog[i++] === '\n') {
+        last = i;
+        c++;
+      }
     }
-    buf += prog[i++];
+    return { line: c, start: last, offset: index - last };
   }
-  buf += "\n" + pad + "^\n";
-  return buf;
-};
+
+  function line_text (start) {
+    let i = start, line = '';
+    while (prog[i] !== '\n' && i < prog.length) {
+      line += prog[i++];
+    }
+    return line;
+  }
+
+  function line_to_pos (l) {
+    let i = 0, count = 1;
+    while (i < prog.length) {
+      if (count === l) break;
+      if (prog[i] === '\n') count++;
+      i++;
+    }
+    return i;
+  }
+
+  function digit_count (num) {
+    return num.toString().length;
+  }
+
+  let info = get_line_info(index);
+
+  if (!textOnly) {
+    const red = '\x1b[31m'
+    const dim = '\x1b[2m'
+    const underline = '\x1b[4m'
+    const highlight = '\x1b[47m'
+    const reset = '\x1b[0m'
+
+    console.log(`\n${red}Error: ${highlight}${err.file}${reset}`);
+    console.log(`\nLine ${info.line}:${info.offset}: ${underline}${err.msg}${reset}\n`);
+    console.log(`${dim}${info.line - 1}| ${reset}${line_text(line_to_pos(info.line - 1))}`);
+    console.log(`${dim}${info.line}| ${reset}${line_text(info.start)}`);
+    console.log(`${red}${'-'.repeat(digit_count(info.line) + 2 + info.offset)}^${reset}`);
+  } else {
+    return [
+      `\nError: ${err.file}`,
+      `\nLine ${info.line}:${info.offset}: ${err.msg}\n`,
+      `${info.line - 1}| ${line_text(line_to_pos(info.line - 1))}`,
+      `${info.line}| ${line_text(info.start)}`,
+      `${'-'.repeat(digit_count(info.line) + 2 + info.offset)}^`
+    ].join('\n');
+  }
+}
 
 const adom_runtime = `
 var $$processed = [];
@@ -1419,17 +1458,15 @@ function $$e (par, type, props, children, state) {
     if (!node) {
         node = $$create(type, props);
         par.appendChild(node);
+    } else if (type === 'text' && node.nodeType === Node.TEXT_NODE) {
+        node.nodeValue = props;
+    } else if (node.tagName && (type === node.tagName.toLowerCase())) {
+        $$attr(node, props);
+        if ($$firstSync && props.events) $$addEventListeners(node, props.events);
     } else {
-        if (type === 'text' && node.nodeType === Node.TEXT_NODE) {
-            node.nodeValue = props;
-        } else if (node.tagName && (type === node.tagName.toLowerCase())) {
-            $$attr(node, props);
-            if ($$firstSync && props.events) $$addEventListeners(node, props.events);
-        } else {
-            var out = node;
-            node = $$create(type, props);
-            par.replaceChild(node, out);
-        }
+        var out = node;
+        node = $$create(type, props);
+        par.replaceChild(node, out);
     }
     if (node.__adomState) {
         state = node.__adomState;
@@ -1498,16 +1535,7 @@ Adom.prototype.generate_sync = function (ops, input_state) {
   }
 
   function stringify_object(obj) {
-    let keys = Object.keys(obj);
-    return (
-      "{" +
-      keys
-        .map(function(k, i) {
-          return '"' + k + '": ' + print_expression(obj[k]);
-        })
-        .join(", ") +
-      "}"
-    );
+    return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
   }
 
   /*
@@ -1564,7 +1592,7 @@ Adom.prototype.generate_sync = function (ops, input_state) {
 
   while (ptr < ops.length) {
     let op = ops[ptr++];
-    if (tags.length) console.log(op);
+    //if (tags.length) console.log(op);
     switch (op.type) {
       case 'set': {
       } break;
@@ -1582,9 +1610,9 @@ Adom.prototype.generate_sync = function (ops, input_state) {
         break;
       case "iterate":
         break;
-      case "push_props":
+      case "begin_custom_tag":
         break;
-      case "pop_props":
+      case "end_custom_tag":
         break;
       case "if":
         break;
@@ -1677,9 +1705,7 @@ Adom.prototype.render = function(file, input_state) {
     }
   } catch (e) {
     if (e.origin === 'adom') {
-      console.log("Error: ", e.file);
-      console.log(e.msg);
-      console.log(this.get_error_text(this.files[e.file], e.pos));
+      this.print_error(e);
     } else {
       console.log(e);
     }
@@ -1698,8 +1724,7 @@ Adom.prototype.mount = function (sel, str) {
     window.eval(out.runtime);
   } catch (e) {
     if (e.origin === 'adom') {
-      document.querySelector(sel).innerHTML = '<pre>' + e.msg + '\n' +
-        this.get_error_text(str, e.pos) + '</pre>';
+      document.querySelector(sel).innerHTML = '<pre>' + this.print_error(e, true) + '</pre>';
     } else {
       console.log(e);
     }
