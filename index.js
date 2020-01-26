@@ -571,6 +571,8 @@ Adom.prototype.parse = function(tokens) {
     };
   }
 
+  const UID = this.uid;
+
   function parse_attributes() {
     let attr = {};
     let events = [];
@@ -589,7 +591,7 @@ Adom.prototype.parse = function(tokens) {
           }
           root_idx = ops.length;
           root_found = true;
-          attr.id = { type: 'string', data: [{ type: 'chunk', data: 'adom-root' }] };
+          attr.id = { type: 'string', data: [{ type: 'chunk', data: `adom-root-${UID}` }] };
         }
       } else if (accept("ident")) {
         if (accept("=")) {
@@ -1183,9 +1185,17 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
             let t = open_tags.pop();
             html += fmt() + "</" + t.name + ">";
             if (t.user_runtime) {
-              runtime_full = `(function () { var $$adom_init = ${JSON.stringify({
-                state: state
-              })}; ${adom_runtime + sync + t.user_runtime} })()`
+              runtime_full = `
+(function () {
+var $$adom_state = ${JSON.stringify(state)};
+${adom_runtime}
+(function (${Object.keys(state).join(', ')}) {
+${sync}
+${t.user_runtime}
+$sync();
+})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})
+})()
+`
               if (!mount) html += fmt() + `<script>${runtime_full}${end_script()}`;
             }
           }
@@ -1326,8 +1336,8 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
   }
 };
 
-Adom.prototype.print_error = function (err, textOnly) {
-  let prog = this.files[err.file];
+Adom.prototype.print_error = function (err, textOnly, str) {
+  let prog = str || this.files[err.file];
   let index = err.pos;
 
   function get_line_info (index) {
@@ -1465,7 +1475,7 @@ function $$e (par, type, props, events, state, children) {
     var index = $$processed[$$processed.length - 1]++;
     var node = par.childNodes[index];
     if (!node) {
-        node = $$create(type, props);
+        node = $$create(type, props, events);
         par.appendChild(node);
     } else if (type === 'text' && node.nodeType === Node.TEXT_NODE) {
         node.nodeValue = props;
@@ -1474,7 +1484,7 @@ function $$e (par, type, props, events, state, children) {
         if ($$firstSync && events) $$addEventListeners(node, events);
     } else {
         var out = node;
-        node = $$create(type, props);
+        node = $$create(type, props, events);
         par.replaceChild(node, out);
     }
     if (node.__adomState) {
@@ -1498,13 +1508,14 @@ Adom.prototype.generate_sync = function (ops, input_state) {
   let tags = [];
   let custom_tags = [];
   let sync_body = [];
-  let prop_depth = 0;
-  let tag_events;
+  let prop_depth = -1;
+
+  const UID = this.uid;
 
   function sync_func () {
     return `
 function $sync() {
-    var par = window["adom-root"];
+    var par = window["adom-root-${UID}"];
     $$processed.push(0);
 ${sync_body.join('\n')}
     $$clean(par);
@@ -1570,11 +1581,12 @@ ${sync_body.join('\n')}
   }
 
   function indents() {
-    return '    '.repeat(tags.length + 1);
+    return '    '.repeat(tags.length);
   }
 
   function event (e) {
-    return `"${e.type}": function ($e) { if($e.target.__adomState) { var $this = $e.target.__adomState; } ${e.handler}; $sync(); }`;
+    let s = e.sync ? '(); $sync();' : ';'
+    return `"${e.type}": function ($e) { if($e.target.__adomState) { var $this = $e.target.__adomState; } ${e.handler}${s} }`;
   }
 
   function event_object (events) {
@@ -1582,75 +1594,28 @@ ${sync_body.join('\n')}
     else return null;
   }
 
-  /*
-    function $sync() {
-        var par = window['adom-root'];
-        $$processed.push(0);
-        $$each([1, 2], function () {
-            $$e(par, 'div', {}, function (par, $state) {
-                $$e(par, 'ul', {}, function (par) {
-                    $$each($state.items, function (i) {
-                        $$e(par, 'li', { events: { 'click': function ($e) {
-                            if ($e.target.__adomState) {
-                                var $state = $e.target.__adomState;
-                            }
-                            $state.value += 'a'
-                            $sync()
-                        } }}, function (par, $state) {
-                            $$e(par, 'text', $state.value);
-                        }, { value: i });
-                    });
-                });
-                $$e(par, 'button', { events: {
-                    'click': function ($e) {
-                        $state.items.push(Math.random());
-                        $sync();
-                    }
-                }}, function (par) {
-                    $$e(par, 'text', 'add');
-                });
-                $$e(par, 'button', { events: {
-                    'click': function ($e) {
-                        $state.items.splice(3, 1);
-                        console.log($state.items)
-                        $sync();
-                    }
-                }}, function (par) {
-                    $$e(par, 'text', 'remove');
-                });
-            }, { items: JSON.parse(JSON.stringify(items)) });
-        });
-        $$e(par, 'p', {}, function (par) {
-            $$e(par, 'span', {}, function (par) {
-                $$e(par, 'text', 'hi');
-            });
-        });
-        $$clean(par);
-        $$processed.pop();
-        $$firstSync = false;
-    }
-  */
-
   while (ptr < ops.length) {
     let op = ops[ptr++];
     switch (op.type) {
       case 'set': {
       } break;
       case "begin_tag":
-        if (op.data.is_root || tags.length) {
+        if (op.data.is_root) {
+          tags.push({ name: op.data.name, root: true });
+        } else if (tags.length) {
           let props = stringify_object(op.data.attributes);
           if (op.data.self_close) {
             sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, null);`);
           } else {
             sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, null, function (par, $this) {`);
-            tags.push({ name: op.data.name, root: op.data.is_root });
+            tags.push({ name: op.data.name });
           }
         }
         break;
       case "end_tag":
         if (tags.length) {
-          tags.pop();
-          sync_body.push(`${indents()}});`);
+          let t = tags.pop();
+          if (!t.root) sync_body.push(`${indents()}});`);
         }
         break;
       case "textnode":
@@ -1659,8 +1624,17 @@ ${sync_body.join('\n')}
         }
         break;
       case "each":
+        if (tags.length) {
+          var it = op.data.iterators;
+          sync_body.push(`${indents()}$$each(${print_expression(op.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
+          tags.push({});
+        }
         break;
       case "iterate":
+        if (tags.length) {
+          tags.pop();
+          sync_body.push(`${indents()}});`);
+        }
         break;
       case "begin_custom_tag":
         if (tags.length) {
@@ -1676,17 +1650,30 @@ ${sync_body.join('\n')}
         }
         break;
       case "if":
+        if (tags.length) {
+          sync_body.push(`${indents()}$$if(${print_expression(op.data.condition)}, function () {`);
+          tags.push({});
+        }
         break;
       case "else":
+        if (tags.length) {
+          tags.pop();
+          sync_body.push(`${indents()}}, function () {`);
+          tags.push({});
+        }
         break;
       case "end_if":
+        if (tags.length) {
+          tags.pop();
+          sync_body.push(`${indents()}});`);
+        }
         break;
       default:
         break;
     }
   }
-  console.log(sync_func());
-  return 'function $sync() {}';
+
+  return sync_func();
 };
 
 Adom.prototype.getPath = function (p) {
@@ -1748,14 +1735,13 @@ Adom.prototype.render = function(file, input_state) {
     let cacheKey = this.getPath(file);
     if (this.cache && this.opcode_cache[cacheKey]) {
       let cached = this.opcode_cache[cacheKey];
-      return this.execute(cached.ops, input_state || {}, cached.runtime);
+      return this.execute(cached.ops, input_state || {}, cached.sync);
     } else {
       let fileData = this.openFile(file);
       let f = fileData[1];
       let tokens = this.tokenize(fileData[0], f);
       tokens = this.resolve_imports(tokens);
       let ops = this.parse(tokens);
-      console.log(JSON.stringify(ops, null, 2));
       let sync = this.generate_sync(ops, input_state || {});
       let html = this.execute(ops, input_state || {}, sync);
       if (this.cache) {
@@ -1784,7 +1770,7 @@ Adom.prototype.mount = function (sel, str) {
     window.eval(out.runtime);
   } catch (e) {
     if (e.origin === 'adom') {
-      document.querySelector(sel).innerHTML = '<pre>' + this.print_error(e, true) + '</pre>';
+      document.querySelector(sel).innerHTML = '<pre>' + this.print_error(e, true, str) + '</pre>';
     } else {
       console.log(e);
     }
