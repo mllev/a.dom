@@ -1203,15 +1203,20 @@ $sync();
         case "set":
           {
             let dst = op.data.dst;
-            if (constVars[dst.data] != null || state[dst.data] != null) {
-              throw_adom_error({ msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file });
-            }
             if (tag_locals.length > 0) {
+              if (tag_locals[tag_locals.length - 1][dst.data] !== undefined) {
+                throw_adom_error({ msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file });
+              }
               tag_locals[tag_locals.length - 1][dst.data] = evaluate(op.data.val);
-            } else if (op.data.isConst) {
-              constVars[dst.data] = evaluate(op.data.val);
             } else {
-              state[dst.data] = evaluate(op.data.val);
+              if (constVars[dst.data] !== undefined || state[dst.data] !== undefined) {
+                throw_adom_error({ msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file });
+              }
+              if (op.data.isConst) {
+                constVars[dst.data] = evaluate(op.data.val);
+              } else {
+                state[dst.data] = evaluate(op.data.val);
+              }
             }
           }
           break;
@@ -1507,6 +1512,7 @@ Adom.prototype.generate_sync = function (ops, input_state) {
   let custom_tags = [];
   let sync_body = [];
   let prop_depth = -1;
+  let tag_local = {};
 
   const UID = this.uid;
 
@@ -1596,16 +1602,21 @@ ${sync_body.join('\n')}
     let op = ops[ptr++];
     switch (op.type) {
       case 'set': {
+        if (custom_tags.length) {
+          tag_local[op.data.dst.data] = op.data.val;
+        }
       } break;
       case "begin_tag":
         if (op.data.is_root) {
           tags.push({ name: op.data.name, root: true });
         } else if (tags.length) {
           let props = stringify_object(op.data.attributes);
+          let state = Object.keys(tag_local).length ? stringify_object(tag_local) : null;
+          tag_local = {};
           if (op.data.self_close) {
-            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, null);`);
+            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${state});`);
           } else {
-            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, null, function (par, $this) {`);
+            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${state}, function (par${state ? ', $this' : ''}) {`);
             tags.push({ name: op.data.name });
           }
         }
