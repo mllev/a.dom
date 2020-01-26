@@ -1336,7 +1336,7 @@ $sync();
   }
 };
 
-Adom.prototype.print_error = function (err, textOnly, str) {
+Adom.prototype.print_error = function (err, str) {
   let prog = str || this.files[err.file];
   let index = err.pos;
 
@@ -1375,27 +1375,25 @@ Adom.prototype.print_error = function (err, textOnly, str) {
 
   let info = get_line_info(index);
 
-  if (!textOnly) {
-    const red = '\x1b[31m'
-    const dim = '\x1b[2m'
-    const highlight = '\x1b[47m'
-    const yellow = '\x1b[33m'
-    const reset = '\x1b[0m'
+  const red = '\x1b[31m';
+  const dim = '\x1b[2m';
+  const yellow = '\x1b[33m';
+  const reset = '\x1b[0m';
+  const bright = '\x1b[1m';
 
-    console.log(`\n${red}Error: ${highlight}${err.file}${reset}`);
-    console.log(`\nLine ${info.line}:${info.offset}: ${yellow}${err.msg}${reset}\n`);
-    console.log(`${dim}${info.line - 1}| ${reset}${line_text(line_to_pos(info.line - 1))}`);
-    console.log(`${dim}${info.line}| ${reset}${line_text(info.start)}`);
-    console.log(`${red}${'-'.repeat(digit_count(info.line) + 2 + info.offset)}^${reset}`);
-  } else {
-    return [
-      `\nError: ${err.file}`,
-      `\nLine ${info.line}:${info.offset}: ${err.msg}\n`,
-      `${info.line - 1}| ${line_text(line_to_pos(info.line - 1))}`,
-      `${info.line}| ${line_text(info.start)}`,
-      `${'-'.repeat(digit_count(info.line) + 2 + info.offset)}^`
-    ].join('\n');
-  }
+  console.log(`\n${red}Error: ${bright}${err.file}${reset}`);
+  console.log(`\nLine ${info.line}:${info.offset}: ${yellow}${err.msg}${reset}\n`);
+  console.log(`${dim}${info.line - 1}| ${reset}${line_text(line_to_pos(info.line - 1))}`);
+  console.log(`${dim}${info.line}| ${reset}${line_text(info.start)}`);
+  console.log(`${red}${'-'.repeat(digit_count(info.line) + 2 + info.offset)}^${reset}`);
+
+  return [
+    `\nError: ${err.file}`,
+    `\nLine ${info.line}:${info.offset}: ${err.msg}\n`,
+    `${info.line - 1}| ${line_text(line_to_pos(info.line - 1))}`,
+    `${info.line}| ${line_text(info.start)}`,
+    `${'-'.repeat(digit_count(info.line) + 2 + info.offset)}^`
+  ].join('\n');
 }
 
 const adom_runtime = `
@@ -1585,7 +1583,7 @@ ${sync_body.join('\n')}
   }
 
   function event (e) {
-    let s = e.sync ? '(); $sync();' : ';'
+    let s = e.sync ? '($e); $sync();' : ';'
     return `"${e.type}": function ($e) { if($e.target.__adomState) { var $this = $e.target.__adomState; } ${e.handler}${s} }`;
   }
 
@@ -1731,6 +1729,7 @@ Adom.prototype.resolve_imports = function(tokens) {
 };
 
 Adom.prototype.render = function(file, input_state) {
+  let html;
   try {
     let cacheKey = this.getPath(file);
     if (this.cache && this.opcode_cache[cacheKey]) {
@@ -1743,7 +1742,7 @@ Adom.prototype.render = function(file, input_state) {
       tokens = this.resolve_imports(tokens);
       let ops = this.parse(tokens);
       let sync = this.generate_sync(ops, input_state || {});
-      let html = this.execute(ops, input_state || {}, sync);
+      html = this.execute(ops, input_state || {}, sync);
       if (this.cache) {
         this.opcode_cache[f] = { ops: ops, sync: sync };
       }
@@ -1751,11 +1750,11 @@ Adom.prototype.render = function(file, input_state) {
     }
   } catch (e) {
     if (e.origin === 'adom') {
-      this.print_error(e);
+      html = `<pre>${this.print_error(e)}</pre>`;
     } else {
       console.log(e);
     }
-    return "";
+    return html;
   }
 };
 
@@ -1770,7 +1769,7 @@ Adom.prototype.mount = function (sel, str) {
     window.eval(out.runtime);
   } catch (e) {
     if (e.origin === 'adom') {
-      document.querySelector(sel).innerHTML = '<pre>' + this.print_error(e, true, str) + '</pre>';
+      document.querySelector(sel).innerHTML = '<pre>' + this.print_error(e, str) + '</pre>';
     } else {
       console.log(e);
     }
