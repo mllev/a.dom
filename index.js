@@ -1104,7 +1104,7 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
               it.object[it.list[it.index]] : it.index;
           }
         }
-        if (tag_locals[tag_locals.length - 1][v] !== undefined) return tag_locals[tag_locals.length - 1][v];
+        if (tag_locals.length && tag_locals[tag_locals.length - 1][v] !== undefined) return tag_locals[tag_locals.length - 1][v];
         if (state[v] !== undefined) return state[v];
         if (constVars[v] !== undefined) return constVars[v];
         throw_adom_error({ msg: v + ' is undefined.', pos: expr.pos, file: expr.file });
@@ -1368,12 +1368,12 @@ Adom.prototype.print_error = function (err, textOnly) {
   if (!textOnly) {
     const red = '\x1b[31m'
     const dim = '\x1b[2m'
-    const underline = '\x1b[4m'
     const highlight = '\x1b[47m'
+    const yellow = '\x1b[33m'
     const reset = '\x1b[0m'
 
     console.log(`\n${red}Error: ${highlight}${err.file}${reset}`);
-    console.log(`\nLine ${info.line}:${info.offset}: ${underline}${err.msg}${reset}\n`);
+    console.log(`\nLine ${info.line}:${info.offset}: ${yellow}${err.msg}${reset}\n`);
     console.log(`${dim}${info.line - 1}| ${reset}${line_text(line_to_pos(info.line - 1))}`);
     console.log(`${dim}${info.line}| ${reset}${line_text(info.start)}`);
     console.log(`${red}${'-'.repeat(digit_count(info.line) + 2 + info.offset)}^${reset}`);
@@ -1633,16 +1633,18 @@ ${sync_body.join('\n')}
 
   while (ptr < ops.length) {
     let op = ops[ptr++];
-    //if (tags.length) console.log(op);
     switch (op.type) {
       case 'set': {
-      //  if (tags.length) console.log(op.data)
       } break;
       case "begin_tag":
         if (op.data.is_root || tags.length) {
           let props = stringify_object(op.data.attributes);
-          sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, null, function (par, $this) {`);
-          tags.push(op.data.name);
+          if (op.data.self_close) {
+            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, null);`);
+          } else {
+            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, null, function (par, $this) {`);
+            tags.push({ name: op.data.name, root: op.data.is_root });
+          }
         }
         break;
       case "end_tag":
@@ -1669,9 +1671,7 @@ ${sync_body.join('\n')}
         break;
       case "end_custom_tag":
         if (tags.length) {
-          console.log(custom_tags.pop());
           prop_depth--;
-          console.log(tags)
           sync_body.push(`${indents()}$$pop_props();`);
         }
         break;
@@ -1755,6 +1755,7 @@ Adom.prototype.render = function(file, input_state) {
       let tokens = this.tokenize(fileData[0], f);
       tokens = this.resolve_imports(tokens);
       let ops = this.parse(tokens);
+      console.log(JSON.stringify(ops, null, 2));
       let sync = this.generate_sync(ops, input_state || {});
       let html = this.execute(ops, input_state || {}, sync);
       if (this.cache) {
