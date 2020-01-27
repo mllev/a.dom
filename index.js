@@ -616,17 +616,9 @@ Adom.prototype.parse = function(tokens) {
         let evt = tok.data;
         expect("ident");
         expect("=");
-        if (peek('string')) {
-          handler = parse_strict_string();
-          sync = false;
-        } else {
-          expect("{");
-          handler = tok.data
-          sync = true;
-          expect("ident");
-          expect("}");
-        }
-        events.push({ type: evt, handler: handler, sync: sync });
+        handler = parse_strict_string();
+        sync = false;
+        events.push({ type: evt, handler: handler });
       } else {
         break;
       }
@@ -1042,7 +1034,7 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
   let ptr = 0;
   let state = initial_state;
   let open_tags = [];
-  let pretty = true;
+  let pretty = false;
   let props = [];
   let iterators = [];
   let constVars = {};
@@ -1486,7 +1478,8 @@ function $$e (par, type, props, events, state, children) {
     } else if (type === 'text' && node.nodeType === Node.TEXT_NODE) {
         node.nodeValue = props(node.__adomState || state);
     } else if (node.tagName && (type === node.tagName.toLowerCase())) {
-        $$attr(node, props(node.__adomState || state));
+        if (state && !node.__adomState) node.__adomState = state;
+        $$attr(node, props(node.__adomState));
         if ($$firstSync && events) $$addEventListeners(node, events);
     } else {
         var out = node;
@@ -1518,7 +1511,7 @@ Adom.prototype.generate_sync = function (ops, input_state) {
     return `
 function $sync() {
     var par = window["adom-root-${UID}"];
-    var $this = undefined;
+    var $ = undefined;
     $$processed.push(0);
 ${sync_body.join('\n')}
     $$clean(par);
@@ -1540,10 +1533,10 @@ ${sync_body.join('\n')}
     let ctx = local_context();
     if (ctx) {
       if (expr.type === 'ident' && ctx[expr.data]) {
-        return `$this.${print_expression(expr)}`;
+        return `$.${print_expression(expr)}`;
       }
       if (expr.type === 'accumulator' && ctx[expr.data[0].data]) {
-        return `$this.${print_expression(expr)}`;
+        return `$.${print_expression(expr)}`;
       }
     }
     return print_expression(expr);
@@ -1609,8 +1602,7 @@ ${sync_body.join('\n')}
   }
 
   function event (e) {
-    let s = e.sync ? '($e); $sync();' : ';';
-    return `"${e.type}": function ($e) {  (function ($this) { ${e.handler}${s}; })($e.target.__adomState || $this); }`;
+    return `"${e.type}": function ($e) {  (function ($) { ${e.handler}; $sync(); })($e.target.__adomState || $); }`;
   }
 
   function event_object (events) {
@@ -1632,11 +1624,11 @@ ${sync_body.join('\n')}
           tags.push({ name: op.data.name, root: true });
         } else if (tags.length) {
           let state = Object.keys(tag_local).length ? stringify_object(tag_local) : null;
-          let props = `function (${state ? '$this' : ''}) { return ${stringify_object(op.data.attributes)}; }`;
+          let props = `function (${state ? '$' : ''}) { return ${stringify_object(op.data.attributes)}; }`;
           if (op.data.self_close) {
             sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${state});`);
           } else {
-            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${state}, function (par${state ? ', $this' : ''}) {`);
+            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${state}, function (par${state ? ', $' : ''}) {`);
             tags.push({ name: op.data.name });
           }
           if (state) {
