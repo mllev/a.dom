@@ -1025,7 +1025,7 @@ Adom.prototype.parse = function(tokens) {
 
   if (root_idx > -1) {
     ops[root_idx].data.is_root = true;
-    ops[root_idx].data.runtime = runtime;
+    ops[root_idx].data.runtime = runtime || ' ';
   }
 
   return ops;
