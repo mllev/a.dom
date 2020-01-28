@@ -1546,14 +1546,6 @@ ${sync_body.join('\n')}
     `
   }
 
-  function local_context () {
-    let l = custom_tags.length;
-    if (l && Object.keys(custom_tags[l - 1].locals)) {
-      return custom_tags[l - 1].locals;
-    }
-    return null;
-  }
-
   function print_expression (expr) {
     switch (expr.type) {
       case 'ident':
@@ -1621,18 +1613,23 @@ ${sync_body.join('\n')}
     return l === 1 ? (pref + k) : (l > 1 ? k.map(_k => pref + _k).join(',') : '');
   }
 
-  function update (state) {
+  function update (state, reverse) {
     if (!state) return '{}';
-    return '{ ' + Object.keys(state).map(k => `$.${k} = ${k}; `).join('') + '}';
+    let p1 = '$.', p2 = '';
+    if (reverse) {
+      p1 = '';
+      p2 = '$.'
+    }
+    return '{ ' + Object.keys(state).map(k => `${p1}${k} = ${p2}${k}; `).join('') + '}';
   }
 
   function event (e, state) {
-    let ex = expand(state, '$.'), u = true;
+    let ex = expand(state, '$.'), r = false;
     if (e.handler.indexOf('this') !== -1) {
-      u = false;
+      r = true;
       ex = '';
     }
-    return `"${e.type}": function ($e) {  (function ($) { (function (${expand(state)}) { ${e.handler}; ${u && update(tags[tags.length - 1].state)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
+    return `"${e.type}": function ($e) {  (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(tags[tags.length - 1].state, r)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
   }
 
   function event_object (events, state) {
