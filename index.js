@@ -768,7 +768,7 @@ Adom.prototype.parse = function(tokens) {
         expect("]");
         let end_ret = cursor;
         set_tok(custom.pos);
-        emit("begin_custom_tag", { name: name, props: attr, events: events });
+        emit("begin_custom_tag", { name: name, props: attr, events: events, bind: custom.bind });
         tag_scopes.push(custom.scope);
         yield_stack.push(function(y) {
           set_tok(ret);
@@ -889,10 +889,12 @@ Adom.prototype.parse = function(tokens) {
   function parse_custom_tag() {
     expect("tag");
     let tag = tok.data;
+    let bind = accept('#');
+    if (bind) tag = tok.data;
     expect("ident");
     expect("[");
     dont_emit = true;
-    files[files.length - 1].tags[tag] = { pos: cursor, scope: files[files.length - 1] };
+    files[files.length - 1].tags[tag] = { pos: cursor, scope: files[files.length - 1], bind: bind };
     parse_custom_tag_body();
     dont_emit = false;
     expect("]");
@@ -1438,7 +1440,11 @@ function $$each (list, fn) {
 function $$clean (node) {
     var num = $$processed[$$processed.length - 1];
     while (node.childNodes[num]) {
-        node.removeChild(node.childNodes[num]);
+        var out = node.childNodes[num];
+        if (out.__adomState && out.__adomState.unmount) {
+          out.__adomState.unmount();
+        }
+        node.removeChild(out);
     }
 }
 
@@ -1447,9 +1453,14 @@ function $$create (type, props, events, state) {
     if (type === 'text') node = document.createTextNode(props(state));
     else {
         node = document.createElement(type);
-        $$attr(node, props(props));
+        $$attr(node, props(state));
     }
-    if (state) node.__adomState = state;
+    if (state) {
+      node.__adomState = state;
+      if (state.mount) {
+        state.mount();
+      }
+    }
     if (events) $$addEventListeners(node, events);
     return node;
 }
@@ -1469,6 +1480,14 @@ function $$attr (node, props) {
     });
 }
 
+function $$class (C, obj) {
+  var i = new C();
+  Object.keys(obj).forEach(function (k) {
+    i[k] = obj[k];
+  });
+  return i;
+}
+
 function $$e (par, type, props, events, state, children) {
     var index = $$processed[$$processed.length - 1]++;
     var node = par.childNodes[index];
@@ -1484,6 +1503,9 @@ function $$e (par, type, props, events, state, children) {
     } else {
         var out = node;
         node = $$create(type, props, events, state);
+        if (out.__adomState && out.__adomState.unmount) {
+          out.__adomState.unmount();
+        }
         par.replaceChild(node, out);
     }
     if (children) {
@@ -1504,6 +1526,7 @@ Adom.prototype.generate_sync = function (ops, input_state) {
   let sync_body = [];
   let prop_depth = -1;
   var tag_local = {};
+  var do_bind = undefined;
 
   const UID = this.uid;
 
@@ -1512,10 +1535,12 @@ Adom.prototype.generate_sync = function (ops, input_state) {
 function $sync() {
     var par = window["adom-root-${UID}"];
     var $ = undefined;
+    //console.time('sync');
     $$processed.push(0);
 ${sync_body.join('\n')}
     $$clean(par);
     $$processed.pop();
+    //console.timeEnd('sync');
     $$firstSync = false;
  }
     `
@@ -1529,19 +1554,6 @@ ${sync_body.join('\n')}
     return null;
   }
 
-  function do_print_expression (expr) {
-    let ctx = local_context();
-    if (ctx) {
-      if (expr.type === 'ident' && ctx[expr.data]) {
-        return `$.${print_expression(expr)}`;
-      }
-      if (expr.type === 'accumulator' && ctx[expr.data[0].data]) {
-        return `$.${print_expression(expr)}`;
-      }
-    }
-    return print_expression(expr);
-  }
-
   function print_expression (expr) {
     switch (expr.type) {
       case 'ident':
@@ -1553,38 +1565,38 @@ ${sync_body.join('\n')}
         return `"${expr.data.replace(/"/g, '\\"').replace(/(\r\n|\n|\r)/gm, '\\n')}"`
       case 'string': {
         return `${expr.data.map(function (c) {
-           return do_print_expression(c)
+           return print_expression(c)
         }).join(' + ')}`;
       } break;
       case 'accumulator': {
         let val = print_expression(expr.data[0]);
         if (val === 'props') val = `$$props[${prop_depth}]`;
         for (let i = 1; i < expr.data.length; i++) {
-          val += `[${do_print_expression(expr.data[i])}]`;
+          val += `[${print_expression(expr.data[i])}]`;
         }
         return val;
       } break;
       case 'array': {
         return `[${expr.data.map(function (i) {
-          return do_print_expression(i);
+          return print_expression(i);
         }).join(', ')}]`
       } break;
       case 'object': {
         let keys = Object.keys(expr.data);
         return `{ ${keys.map(function (k) {
-          return `"${k}": ${do_print_expression(expr.data[k])}`;
+          return `"${k}": ${print_expression(expr.data[k])}`;
         }).join(', ')} }`;
       } break;
       case 'ternary': {
         let v = expr.data;
-        let v1 = do_print_expression(v[0]);
-        let v2 = do_print_expression(v[1]);
-        let v3 = do_print_expression(v[2]);
+        let v1 = print_expression(v[0]);
+        let v2 = print_expression(v[1]);
+        let v3 = print_expression(v[2]);
         return `(${v1} ? ${v2} : ${v3})`;
       } break;
       case 'comparison': {
-        let v1 = do_print_expression(expr.data[0]);
-        let v2 = do_print_expression(expr.data[1]);
+        let v1 = print_expression(expr.data[0]);
+        let v2 = print_expression(expr.data[1]);
         return `(${v1} ${expr.op} ${v2})`;
       } break;
       case 'parenthetical': {
@@ -1594,19 +1606,39 @@ ${sync_body.join('\n')}
   }
 
   function stringify_object(obj) {
-    return `{${Object.keys(obj).map((k, i) => `"${k}": ${do_print_expression(obj[k])}`).join(', ')}}`
+    return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
   }
 
   function indents() {
     return '    '.repeat(tags.length);
   }
 
-  function event (e) {
-    return `"${e.type}": function ($e) {  (function ($) { ${e.handler}; $sync(); })($e.target.__adomState || $); }`;
+  function expand (state, pref) {
+    if (!state) return '';
+    let k = Object.keys(state);
+    let l = k.length;
+    if (!pref) pref = '';
+    return l === 1 ? (pref + k) : (l > 1 ? k.map(_k => pref + _k).join(',') : '');
   }
 
-  function event_object (events) {
-    if (events.length) return `{${events.map(event).join(',')}}`;
+  function update (state) {
+    if (!state) return '{}';
+    return '{ ' + Object.keys(state).map(k => `$.${k} = ${k}; `).join('') + '}';
+  }
+
+  function event (e, state) {
+    let ex = expand(state, '$.'), u = true;
+    if (e.handler.indexOf('this') !== -1) {
+      u = false;
+      ex = '';
+    }
+    return `"${e.type}": function ($e) {  (function ($) { (function (${expand(state)}) { ${e.handler}; ${u && update(tags[tags.length - 1].state)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
+  }
+
+  function event_object (events, state) {
+    if (events.length) return `{${events.map(function (e) {
+      return event(e, state);
+    }).join(',')}}`;
     else return null;
   }
 
@@ -1624,34 +1656,36 @@ ${sync_body.join('\n')}
           tags.push({ name: op.data.name, root: true });
         } else if (tags.length) {
           let state = Object.keys(tag_local).length ? stringify_object(tag_local) : null;
-          let props = `function (${state ? '$' : ''}) { return ${stringify_object(op.data.attributes)}; }`;
+          let new_state = !do_bind ? state : `$$class(${do_bind}, ${state})`;
+          let props = `function ($) { return ${stringify_object(op.data.attributes)}; }`;
           if (op.data.self_close) {
-            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${state});`);
+            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${new_state});`);
           } else {
-            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${state}, function (par${state ? ', $' : ''}) {`);
-            tags.push({ name: op.data.name });
+            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events, tag_local)}, ${new_state}, function (par${state ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
+            tags.push({ name: op.data.name, state: tag_local });
           }
           if (state) {
             custom_tags[custom_tags.length - 1].locals = tag_local;
             tag_local = {};
+            do_bind = undefined;
           }
         }
         break;
       case "end_tag":
         if (tags.length) {
           let t = tags.pop();
-          if (!t.root) sync_body.push(`${indents()}});`);
+          if (!t.root) sync_body.push(`${indents()}})(${expand(t.state, '$.')}); });`);
         }
         break;
       case "textnode":
         if (tags.length) {
-          sync_body.push(`${indents()}$$e(par, "text", function () { return ${do_print_expression(op.data)}; })`);
+          sync_body.push(`${indents()}$$e(par, "text", function () { return ${print_expression(op.data)}; })`);
         }
         break;
       case "each":
         if (tags.length) {
           var it = op.data.iterators;
-          sync_body.push(`${indents()}$$each(${do_print_expression(op.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
+          sync_body.push(`${indents()}$$each(${print_expression(op.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
           tags.push({});
         }
         break;
@@ -1664,6 +1698,7 @@ ${sync_body.join('\n')}
       case "begin_custom_tag":
         if (tags.length) {
           sync_body.push(`${indents()}$$push_props(${stringify_object(op.data.props)});`);
+          if (op.data.bind) do_bind = op.data.name;
           custom_tags.push({ name: op, locals: {} });
           prop_depth++;
         }
@@ -1677,7 +1712,7 @@ ${sync_body.join('\n')}
         break;
       case "if":
         if (tags.length) {
-          sync_body.push(`${indents()}$$if(${do_print_expression(op.data.condition)}, function () {`);
+          sync_body.push(`${indents()}$$if(${print_expression(op.data.condition)}, function () {`);
           tags.push({});
         }
         break;
