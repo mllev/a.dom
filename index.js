@@ -298,6 +298,8 @@ Adom.prototype.parse = function(tokens) {
   let root_found = false;
   let root_idx = -1;
   let in_tag = false;
+  let implicit_class = undefined;
+  let global_styles = '';
 
   function new_context() {
     files.push({
@@ -552,6 +554,13 @@ Adom.prototype.parse = function(tokens) {
 
   function parse_class_list() {
     let classes = [];
+    if (implicit_class) {
+      classes.push({
+        type: 'string',
+        data: [{ type: 'chunk', data: implicit_class }]
+      });
+      implicit_class = undefined;
+    }
     while (true) {
       if (!accept(".")) break;
       classes.push({
@@ -612,7 +621,7 @@ Adom.prototype.parse = function(tokens) {
         }
       } else if (accept("on")) {
         expect(":");
-        let handler, sync;
+        let handler;
         let evt = tok.data;
         expect("ident");
         expect("=");
@@ -693,17 +702,37 @@ Adom.prototype.parse = function(tokens) {
   ]
   */
 
-  function transform_to_css (styles) {
-    let str = '';
-    let ptr = styles;
-    while (true) {
-      ptr.rules.forEach(function (rule) {
-        str += (`${rule[0]}:${rule[1]};`);
-      });
-      break;
+  function create_selector (sel) {
+    let str = sel[0];
+    for (let i = 1; i < sel.length; i++) {
+      let s = sel[i].trim();
+      if (s.indexOf('&') !== -1) {
+        str = s.replace('&', str);
+      } else {
+        str += ` ${s}`;
+      }
     }
-    
     return str;
+  }
+
+  function transform_to_css (styles) {
+    let rules = [];
+    let selector = [];
+
+    function visit (node) {
+      let ruleset = node.rules.map(rule => `${rule[0]}:${rule[1]};`);
+      selector.push(node.sel);
+      rules.push(`${create_selector(selector)} { ${ruleset} }`);
+
+      node.children.forEach(child => {
+        visit(child);
+      });
+
+      selector.pop();
+    }
+
+    visit(styles);
+    global_styles += rules.join('')
   }
 
   function parse_scoped_style_rules (sel) {
@@ -880,7 +909,12 @@ Adom.prototype.parse = function(tokens) {
     } else if (in_tag && accept('css')) {
       // make sure inside of at least 1 tag
       expect('[');
-      let styles = parse_scoped_style_rules(rand_class());
+      let c = rand_class();
+      let styles = parse_scoped_style_rules(`.${c}`);
+      if (!dont_emit) {
+        transform_to_css(styles);
+        implicit_class = c;
+      }
       expect(']');
       parse_tag_list();
     }
@@ -1026,6 +1060,7 @@ Adom.prototype.parse = function(tokens) {
   if (root_idx > -1) {
     ops[root_idx].data.is_root = true;
     ops[root_idx].data.runtime = runtime || ' ';
+    ops[root_idx].data.styles = global_styles;
   }
 
   return ops;
@@ -1172,7 +1207,11 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
             } else {
               let a = op.data.attributes;
               html += ">";
-              open_tags.push({ name: op.data.name, user_runtime: op.data.runtime });
+              open_tags.push({
+                name: op.data.name,
+                user_runtime: op.data.runtime,
+                styles: op.data.styles
+              });
             }
           }
           break;
@@ -1192,7 +1231,8 @@ $sync();
 })(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})
 })()
 `
-              if (!mount) html += fmt() + `<script>${runtime_full}${end_script()}`;
+              if (!mount) html += `${fmt()}<script>${runtime_full}${end_script()}`;
+              if (t.styles) html += `${fmt()}<style>${t.styles}</style>`;
             }
           }
           break;
