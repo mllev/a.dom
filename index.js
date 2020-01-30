@@ -1703,9 +1703,11 @@ ${sync_body.join('\n')}
           }
           if (state) {
             custom_tags[custom_tags.length - 1].locals = tag_local;
-            tag_local = {};
-            do_bind = undefined;
           }
+          // both will get applied to the first element after the custom tag declaration
+          // so it's cool to reset them here
+          tag_local = {};
+          do_bind = undefined;
         }
         break;
       case "end_tag":
@@ -1745,6 +1747,8 @@ ${sync_body.join('\n')}
           custom_tags.pop();
           prop_depth--;
           sync_body.push(`${indents()}$$pop_props();`);
+          tag_local = {};
+          do_bind = undefined;
         }
         break;
       case "if":
