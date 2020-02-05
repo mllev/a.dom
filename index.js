@@ -720,9 +720,9 @@ Adom.prototype.parse = function(tokens) {
     let selector = [];
 
     function visit (node) {
-      let ruleset = node.rules.map(rule => `${rule[0]}:${rule[1]};`);
+      let ruleset = node.rules.map(rule => `${rule[0]}:${rule[1]}; `).join('');
       selector.push(node.sel);
-      rules.push(`${create_selector(selector)} { ${ruleset} }`);
+      rules.push(`${create_selector(selector)} { ${ruleset} } `);
 
       node.children.forEach(child => {
         visit(child);
@@ -764,13 +764,9 @@ Adom.prototype.parse = function(tokens) {
     }
   }
 
+  let class_id = 0;
   function rand_class () {
-    let c = '';
-    let count = 8;
-    while (count--) {
-      c += 'abcdefghijklmnopqrstuvwxyz1234567890'[Math.floor(Math.random() * 36)];
-    }
-    return c;
+    return `adom-c-${class_id++}`;
   }
 
   function parse_custom_tag_body () {
@@ -1197,11 +1193,10 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
           break;
         case "begin_tag":
           {
-            html +=
-              fmt() +
-              "<" +
-              op.data.name +
-              assemble_attributes(op.data.attributes);
+            if (op.data.styles) {
+              html += `${fmt()}<style>${op.data.styles}</style>`;
+            }
+            html += `${fmt()}<${op.data.name}${assemble_attributes(op.data.attributes)}`;
             if (op.data.self_close) {
               html += ">"; // configure based on doctype
             } else {
@@ -1209,8 +1204,7 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
               html += ">";
               open_tags.push({
                 name: op.data.name,
-                user_runtime: op.data.runtime,
-                styles: op.data.styles
+                user_runtime: op.data.runtime
               });
             }
           }
@@ -1232,7 +1226,6 @@ $sync();
 })()
 `
               if (!mount) html += `${fmt()}<script>${runtime_full}${end_script()}`;
-              if (t.styles) html += `${fmt()}<style>${t.styles}</style>`;
             }
           }
           break;
