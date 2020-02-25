@@ -1,9 +1,19 @@
 var Adom = (function () {
 
 let _c = 0;
-const op_ = _c++;
 
-function Adom(config) {
+const _file = _c++;
+const _export = _c++;
+const _doctype = _c++;
+const _if = _c++;
+const _each = _c++;
+const _tag = _c++;
+const _custom = _c++;
+const _yield = _c++;
+const _textnode = _c++;
+const _set = _c++;
+
+function Adom (config) {
   config = config || {};
   this.opcode_cache = {};
   this.cache = config.cache || false;
@@ -13,16 +23,24 @@ function Adom(config) {
   this.uid = Math.floor(Math.random() * 10000);
 }
 
+function ASTNode (type, data) {
+  this.type = type;
+  this.data = data;
+  this.children = [];
+}
+
+ASTNode.prototype.addChild = function (node) {
+  this.children.push(node);
+};
+
 function throw_adom_error (err) {
   err.origin = 'adom';
   throw err;
 };
 
 Adom.prototype.tokenize = function(prog, file, offset) {
-  let cursor = 0,
-    end_pos = prog.length - 1;
+  let cursor = 0, end_pos = prog.length - 1;
   let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
-
   let keywords = [
     "tag",
     "doctype",
@@ -58,8 +76,7 @@ Adom.prototype.tokenize = function(prog, file, offset) {
     ",",
     ">",
     "<",
-    "?",
-    "@"
+    "?"
   ];
 
   function is_newline (c) {
@@ -290,47 +307,24 @@ Adom.prototype.parse = function(tokens) {
   let cursor = 0;
   let files = [];
   let pending = [];
-  let ops = [];
-  let dont_emit = false;
-  let yield_stack = [];
-  let tag_scopes = [];
   let runtime = '';
   let root_found = false;
-  let root_idx = -1;
   let in_tag = false;
   let implicit_class = undefined;
   let global_styles = '';
+  let ast = new ASTNode('root', {});
+  let parent = ast;
 
-  function new_context() {
-    files.push({
-      tags: {},
-      exports: []
-    });
-  }
-
-  function get_custom_tag(name) {
-    let t = files[files.length - 1].tags[name];
-    if (!t && tag_scopes.length > 0) {
-      t = tag_scopes[tag_scopes.length - 1].tags[name];
-    }
-    return t;
-  }
-
-  function emit(op, data) {
-    if (dont_emit) return;
-    let i = { type: op };
-    if (data) i.data = data;
-    ops.push(i);
-    return ops.length - 1;
+  function ast_node(type, data) {
+    let node = new ASTNode(type, data);
+    parent.addChild(node);
+    return node;
   }
 
   function next() {
     tok = tokens[++cursor];
-  }
-
-  function set_tok(i) {
-    cursor = i - 1;
-    next();
+    if (cursor === tokens.length) return 0;
+    return 1;
   }
 
   function unexpected() {
@@ -420,15 +414,6 @@ Adom.prototype.parse = function(tokens) {
       peek('!=') ||
       peek('>') ||
       peek('<');
-  }
-
-  function emit_textnode (d) {
-    let o = ops[ops.length - 1]
-    if (o && o.type === 'textnode') {
-      o.data.data = o.data.data.concat(d);
-    } else {
-      emit("textnode", d);
-    }
   }
 
   function parse_variable () {
@@ -590,18 +575,15 @@ Adom.prototype.parse = function(tokens) {
       if (accept("root")) {
         let pos = tok.pos;
         let file = tok.file;
-        if (!dont_emit) {
-          if (root_found === true) {
-            throw_adom_error({
-              msg: 'root node already declared',
-              pos: pos,
-              file: file
-            });
-          }
-          root_idx = ops.length;
-          root_found = true;
-          attr.id = { type: 'string', data: [{ type: 'chunk', data: `adom-root-${UID}` }] };
+        if (root_found === true) {
+          throw_adom_error({
+            msg: 'root node already declared',
+            pos: pos,
+            file: file
+          });
         }
+        root_found = true;
+        attr.id = { type: 'string', data: [{ type: 'chunk', data: `adom-root-${UID}` }] };
       } else if (accept("ident")) {
         if (accept("=")) {
           if (accept("{")) {
@@ -626,7 +608,6 @@ Adom.prototype.parse = function(tokens) {
         expect("ident");
         expect("=");
         handler = parse_strict_string();
-        sync = false;
         events.push({ type: evt, handler: handler });
       } else {
         break;
@@ -634,73 +615,6 @@ Adom.prototype.parse = function(tokens) {
     }
     return [attr, events];
   }
-
-  function end_tag(name, attr, events) {
-    if (accept(";")) {
-      emit("begin_tag", {
-        name: name,
-        self_close: true,
-        attributes: attr,
-        events: events
-      });
-    } else if (accept("[")) {
-      emit("begin_tag", { name: name, attributes: attr, events: events });
-      parse_tag_list();
-      expect("]");
-      emit("end_tag");
-    } else if (peek("string")) {
-      let str = parse_string();
-      emit("begin_tag", { name: name, attributes: attr, events: events });
-      if (str.data.length > 1 || str.data[0] !== '') {
-        emit_textnode(str);
-      }
-      emit("end_tag");
-    } else {
-      unexpected();
-    }
-  }
-
-  /*
-
-  [ 
-    { key: '', value: '' },
-    { sel: 'selector', rules: [] }
-
-    [
-      rule1
-
-      sel1 [
-        rule2
-      ]
-
-      @media1 [
-        rule3
-      ]
-
-      sel2 [
-        rule4
-        sel3 [
-          rule5
-          sel4 [
-            rule6    
-          ]
-        ]
-
-        @media2 [
-          rule7
-        ]
-      ]
-    ]
-
-    .a1s2d3f4 { rule1 }
-    .a1s2d3f4 sel1 { rule2 }
-    .a1s2d3f4 sel2 { rule4 }
-    .a1s2d3f4 sel2 sel3 { rule5 }
-    .a1s2d3f4 sel2 sel3 sel4 { rule6 }
-    @media1 { .a1s2d3f4 { rule3 } }
-    @media2 { .a2s2d3f4 sel2 { rule7 } }
-  ]
-  */
 
   function create_selector (sel) {
     let str = sel[0];
@@ -721,8 +635,12 @@ Adom.prototype.parse = function(tokens) {
 
     function visit (node) {
       let ruleset = node.rules.map(rule => `${rule[0]}:${rule[1]}; `).join('');
-      selector.push(node.sel);
-      rules.push(`${create_selector(selector)} { ${ruleset} } `);
+      if (node.sel.indexOf('@') > -1) {
+        rules.push(`${node.sel} { ${create_selector(selector)} { ${ruleset} } } `);
+      } else {
+        selector.push(node.sel);
+        rules.push(`${create_selector(selector)} { ${ruleset} } `);
+      }
 
       node.children.forEach(child => {
         visit(child);
@@ -782,63 +700,45 @@ Adom.prototype.parse = function(tokens) {
     let attr_data = parse_attributes();
     let events = attr_data[1];
     let attr = attr_data[0];
-    let custom = get_custom_tag(name);
     if (classlist.data.length > 0) attr.class = classlist;
-    if (custom && !dont_emit) {
-      if (accept("[")) {
-        let ret = cursor;
-        dont_emit = true;
-        parse_custom_tag_body();
-        dont_emit = false;
-        expect("]");
-        let end_ret = cursor;
-        set_tok(custom.pos);
-        emit("begin_custom_tag", { name: name, props: attr, events: events, bind: custom.bind });
-        tag_scopes.push(custom.scope);
-        yield_stack.push(function(y) {
-          set_tok(ret);
-          parse_tag_list();
-          expect("]");
-          set_tok(y);
-        });
-        parse_custom_tag_body();
-        yield_stack.pop();
-        tag_scopes.pop();
-        emit("end_custom_tag", name);
-        set_tok(end_ret);
-      } else {
-        expect(";");
-        let ret = cursor;
-        set_tok(custom.pos);
-        emit("begin_custom_tag", { name: name, props: attr, events: events });
-        yield_stack.push(null);
-        tag_scopes.push(custom.scope);
-        parse_custom_tag_body();
-        yield_stack.pop();
-        tag_scopes.pop();
-        emit("end_custom_tag", name);
-        set_tok(ret);
-      }
+    let node = ast_node(_tag, {
+      name: name,
+      attributes: attr,
+      events: events
+    });
+    let current = parent;
+    parent = node;
+    if (accept("[")) {
+      parse_tag_list();
+      expect("]");
+    } else if (peek("string")) {
+      let str = parse_string();
+      ast_node(_textnode, str);
     } else {
-      end_tag(name, attr, events);
+      unexpected();
     }
+    parent = current;
   }
 
   function parse_if_statement() {
     expect("(");
     let condition = parse_expr();
     expect(")");
-    let op = emit("if", { condition: condition, jmp: 0 });
+    let current = parent;
+    let node = ast_node(_if, condition);
+    parent = node;
+    let pass = ast_node(_block);
+    parent = pass;
     if (accept("[")) {
       parse_tag_list();
       expect("]");
     } else {
       parse_tag();
     }
-    let jmp = emit("jump", 0);
-    if (!dont_emit) ops[op].data.jmp = ops.length - 1 - op;
-    emit("else");
     if (accept("else")) {
+      parent = node;
+      let fail = ast_node(_block);
+      parent = fail;
       if (accept("[")) {
         parse_tag_list();
         expect("]");
@@ -848,56 +748,52 @@ Adom.prototype.parse = function(tokens) {
         parse_tag();
       }
     }
-    if (!dont_emit) ops[jmp].data = ops.length - 1 - jmp;
-    emit("end_if");
+    parent = current;
   }
 
   function parse_tag_list() {
     let list;
     if (accept("doctype")) {
+      ast_node(_doctype, tok.data);
       expect("ident");
-      emit("doctype");
       parse_tag_list();
     } else if (accept("if")) {
       parse_if_statement();
       parse_tag_list();
     } else if (accept("each")) {
       expect("(");
-      let iter1,
-        iter0 = tok.data;
+      let it1, it0 = tok.data;
       expect("ident");
-      let op = emit("each", {});
       if (accept(",")) {
-        iter1 = tok.data;
+        it1 = tok.data;
         expect("ident");
       }
-      if (!dont_emit) ops[op].data.iterators = [iter0, iter1];
       expect("in");
-      list = parse_expr();
-      if (!dont_emit) ops[op].data.list = list;
+      let list = parse_expr();
+      let node = ast_node(_each, {
+        list: list,
+        iterators: [it0, it1]
+      });
       expect(")");
+      let current = parent;
+      parent = node;
       if (accept("[")) {
         parse_tag_list();
         expect("]");
       } else {
         parse_tag();
       }
-      // iterate back to one instruction after the each instruction
-      emit("iterate", op - ops.length);
-      if (!dont_emit) ops[op].data.jmp = ops.length - 1 - op;
+      parent = current;
       parse_tag_list();
     } else if (peek("ident")) {
       parse_tag();
       parse_tag_list();
     } else if (peek("string")) {
       let str = parse_string();
-      if (str.data.length > 1 || str.data[0] !== '') {
-        emit_textnode(str);
-      }
+      ast_node(_textnode, str);
       parse_tag_list();
     } else if (accept("yield")) {
-      let y = yield_stack[yield_stack.length - 1];
-      if (y) y(cursor);
+      ast_node(_yield);
       parse_tag_list();
     } else if (in_tag && (peek('var') || peek('const'))) {
       parse_assignment();
@@ -907,10 +803,8 @@ Adom.prototype.parse = function(tokens) {
       expect('[');
       let c = rand_class();
       let styles = parse_scoped_style_rules(`.${c}`);
-      if (!dont_emit) {
-        transform_to_css(styles);
-        implicit_class = c;
-      }
+      transform_to_css(styles);
+      implicit_class = c;
       expect(']');
       parse_tag_list();
     }
@@ -923,10 +817,11 @@ Adom.prototype.parse = function(tokens) {
     if (bind) tag = tok.data;
     expect("ident");
     expect("[");
-    dont_emit = true;
-    files[files.length - 1].tags[tag] = { pos: cursor, scope: files[files.length - 1], bind: bind };
+    let node = ast_node(_custom, tag);
+    let current = parent;
+    parent = node;
     parse_custom_tag_body();
-    dont_emit = false;
+    parent = current;
     expect("]");
   }
 
@@ -947,23 +842,8 @@ Adom.prototype.parse = function(tokens) {
   function parse_rhs (to_runtime) {
     let val;
     if (accept("file")) {
-      let f = [];
-      if (accept('[')) {
-        while (true) {
-          if (!peek('string')) break;
-          f.push(parse_strict_string());
-        }
-        expect(']');
-      } else {
-        f.push(parse_strict_string());
-      }
-      pending.push({
-        name: f,
-        op: ops.length,
-        runtime: to_runtime
-      });
       // the file will be resolved to a string later
-      val = { pos: tok.pos, file: tok.file };
+      val = { pos: tok.pos, file: tok.file, type: 'file', name: parse_strict_string() };
     } else {
       val = parse_expr();
     }
@@ -980,33 +860,30 @@ Adom.prototype.parse = function(tokens) {
     next();
     expect("=");
     let val = parse_rhs();
-    emit("set", { dst: dst, val: val, isConst: isConst });
+    ast_node(_set, {
+      lhs: dst,
+      rhs: val,
+      const: isConst
+    });
   }
 
-  function parse_file() {
+  const parse_file = () => {
     while (true) {
       if (tok.type === "file_begin") {
-        new_context();
         next();
       } else if (tok.type === "eof") {
-        let fctx = files.pop();
-        fctx.exports.forEach(function(ex) {
-          let e = ex.val;
-          if (!fctx.tags[e])
-            throw_adom_error({ msg: "no such tag", pos: ex.pos, file: ex.file });
-          if (fctx.tags[e]) files[files.length - 1].tags[e] = fctx.tags[e];
-        });
-        if (files.length === 0) {
+        if (!next()) {
           break;
-        } else {
-          next();
         }
+      } else if (accept('import')) {
+        let path = parse_strict_string();
+        let fileData = this.openFile(path);
+        let toks = this.tokenize(fileData[0], fileData[1]);
+        let _ast = this.parse(toks, fileData[1]);
+        ast_node(_file, _ast);
       } else if (accept("export")) {
-        files[files.length - 1].exports.push({
-          val: tok.data,
-          pos: tok.pos,
-          file: tok.file
-        });
+        let id = tok.data;
+        ast_node(_export, id);
         expect("ident");
       } else if (tok.type === "ident" || tok.type === "doctype") {
         parse_tag_list();
@@ -1017,62 +894,59 @@ Adom.prototype.parse = function(tokens) {
       } else if (peek('module_body')) {
         runtime += tok.data;
         next();
-      } else if (accept('@')) {
-        let id = tok.data;
-        let pos = tok.pos;
-        let file = tok.file;
-        expect('ident');
-        if (id !== 'runtime') {
-          throw_adom_error({ msg: "unknown system variable: " + id, pos: pos, file: file });
-        }
-        expect('=');
-        parse_rhs(true);
       } else {
         throw_adom_error({ msg: "unexpected: " + tok.type, pos: tok.pos, file: tok.file });
       }
     }
   }
 
-  const openFileArray = (a) => {
-    let txt = '';
-    for (let i = 0; i < a.length; i++) {
-      txt += this.openFile(a[i])[0];
-    }
-    return txt;
-  }
-
   parse_file();
 
-  for (let i = 0; i < pending.length; i++) {
-    let file = pending[i];
-    if (file.runtime) {
-      runtime = openFileArray(file.name);
-    } else {
-      ops[file.op].data.val.type = 'string';
-      ops[file.op].data.val.data = [ { type: 'chunk', data: openFileArray(file.name) } ];
-    }
-  }
+  ast.data.runtime = runtime;
+  ast.data.styles = global_styles;
 
-  if (root_idx > -1) {
-    ops[root_idx].data.is_root = true;
-    ops[root_idx].data.runtime = runtime || ' ';
-    ops[root_idx].data.styles = global_styles;
-  }
+  // resolve file imports
+  // generate sync here
 
-  return ops;
+  return ast;
 };
 
-Adom.prototype.execute = function(ops, initial_state, sync, mount) {
+Adom.prototype.execute = function(ast, initial_state, sync, mount) {
   let html = "";
-  let ptr = 0;
   let state = initial_state;
-  let open_tags = [];
   let pretty = false;
   let props = [];
   let iterators = [];
   let constVars = {};
   let runtime_full;
   let tag_locals = [];
+  let custom_tags = {};
+
+  const void_tags = [
+    'area',
+    'base',
+    'basefont',
+    'bgsound',
+    'br',
+    'col',
+    'command',
+    'embed',
+    'frame',
+    'hr',
+    'image',
+    'img',
+    'input',
+    'isindex',
+    'keygen',
+    'link',
+    'menuitem',
+    'meta',
+    'nextid',
+    'param',
+    'source',
+    'track',
+    'wbr'
+  ];
 
   function escapeHTML (txt) {
     return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1170,10 +1044,37 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
     }
   }
 
+  function end_script () {
+    return ['<', '/', 'script', '>'].join('')
+  }
+
   function fmt() {
     return pretty ? `\n${'    '.repeat(open_tags.length)}` : '';
   }
 
+  function children (r) {
+    r.children.forEach(walk);
+  }
+
+  function walk (r) {
+    switch (r.type) {
+      case _tag: {
+        html += `<${r.data.name}${assemble_attributes(r.data.attributes)}>`;
+        children(r);
+        html += `</${r.data.name}>`;
+        break;
+      }
+      default: {
+        children(r);
+        break;
+      }
+    }
+  }
+
+  walk(ast);
+
+  console.log(html);
+/*
   function exec() {
     let iter;
 
@@ -1181,9 +1082,6 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
       return open_tags[open_tags.length - 1];
     }
 
-    function end_script () {
-      return ['<', '/', 'script', '>'].join('')
-    }
 
     while (ptr < ops.length) {
       let op = ops[ptr++];
@@ -1214,17 +1112,17 @@ Adom.prototype.execute = function(ops, initial_state, sync, mount) {
             let t = open_tags.pop();
             html += fmt() + "</" + t.name + ">";
             if (t.user_runtime) {
-              runtime_full = `
-(function () {
-var $$adom_state = ${JSON.stringify(state)};
-${adom_runtime}
-(function (${Object.keys(state).join(', ')}) {
-${sync}
-${t.user_runtime}
-$sync();
-})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})
-})()
-`
+              runtime_full = [
+                `(function () {`,
+                `var $$adom_state = ${JSON.stringify(state)};`,
+                `${adom_runtime}`,
+                `(function (${Object.keys(state).join(', ')}) {`,
+                `${sync}`,
+                `${t.user_runtime}`,
+                `$sync();`,
+                `})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})`,
+                `})()`
+              ].join('\n');
               if (!mount) html += `${fmt()}<script>${runtime_full}${end_script()}`;
             }
           }
@@ -1359,7 +1257,7 @@ $sync();
   }
 
   exec();
-
+*/
   if (mount) {
     return {
       html: html,
@@ -1551,7 +1449,6 @@ function $$e (par, type, props, events, state, children) {
 
 `;
 
-
 Adom.prototype.generate_sync = function (ops, input_state) {
   let ptr = 0;
   let tags = [];
@@ -1651,7 +1548,7 @@ ${sync_body.join('\n')}
     let p1 = '$.', p2 = '';
     if (reverse) {
       p1 = '';
-      p2 = '$.'
+      p2 = '$.';
     }
     return '{ ' + Object.keys(state).map(k => `${p1}${k} = ${p2}${k}; `).join('') + '}';
   }
@@ -1662,7 +1559,7 @@ ${sync_body.join('\n')}
       r = true;
       ex = '';
     }
-    return `"${e.type}": function ($e) {  (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(tags[tags.length - 1].state, r)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
+    return `"${e.type}": function ($e) { (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(tags[tags.length - 1].state, r)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
   }
 
   function event_object (events, state) {
@@ -1797,34 +1694,6 @@ Adom.prototype.openFile = function(p) {
   return [t, f];
 };
 
-Adom.prototype.resolve_imports = function(tokens) {
-  let out_toks = [];
-  let ptr = 0;
-
-  while (ptr < tokens.length) {
-    switch (tokens[ptr].type) {
-      case "import":
-        {
-          ptr+=2;
-          let path = tokens[ptr].data;
-          let fileData = this.openFile(path);
-          let f = fileData[1];
-          let toks = this.resolve_imports(this.tokenize(fileData[0], f), f);
-          toks.forEach(function(t) {
-            out_toks.push(t);
-          });
-        }
-        break;
-      default:
-        out_toks.push(tokens[ptr]);
-        break;
-    }
-    ptr++;
-  }
-
-  return out_toks;
-};
-
 Adom.prototype.render = function(file, input_state) {
   let html;
   try {
@@ -1836,10 +1705,9 @@ Adom.prototype.render = function(file, input_state) {
       let fileData = this.openFile(file);
       let f = fileData[1];
       let tokens = this.tokenize(fileData[0], f);
-      tokens = this.resolve_imports(tokens);
-      let ops = this.parse(tokens);
-      let sync = this.generate_sync(ops, input_state || {});
-      html = this.execute(ops, input_state || {}, sync);
+      let ast = this.parse(tokens);
+      this.execute(ast, input_state)
+      return '';
       if (this.cache) {
         this.opcode_cache[f] = { ops: ops, sync: sync };
       }
