@@ -12,6 +12,7 @@ const _custom = _c++;
 const _yield = _c++;
 const _textnode = _c++;
 const _set = _c++;
+const _block = _c++;
 
 function Adom (config) {
   config = config || {};
@@ -883,7 +884,11 @@ Adom.prototype.parse = function(tokens) {
         ast_node(_file, _ast);
       } else if (accept("export")) {
         let id = tok.data;
-        ast_node(_export, id);
+        ast_node(_export, {
+          name: id,
+          pos: tok.pos,
+          file: tok.file
+        });
         expect("ident");
       } else if (tok.type === "ident" || tok.type === "doctype") {
         parse_tag_list();
@@ -913,14 +918,9 @@ Adom.prototype.parse = function(tokens) {
 
 Adom.prototype.execute = function(ast, initial_state, sync, mount) {
   let html = "";
-  let state = initial_state;
-  let pretty = false;
-  let props = [];
-  let iterators = [];
-  let constVars = {};
-  let runtime_full;
-  let tag_locals = [];
-  let custom_tags = {};
+  let state = [initial_state];
+  let custom_tags = [{}];
+  let file_ctx = [];
 
   const void_tags = [
     'area',
@@ -947,6 +947,47 @@ Adom.prototype.execute = function(ast, initial_state, sync, mount) {
     'track',
     'wbr'
   ];
+
+  // runtime_full = [
+  //   `(function () {`,
+  //   `var $$adom_state = ${JSON.stringify(state)};`,
+  //   `${adom_runtime}`,
+  //   `(function (${Object.keys(state).join(', ')}) {`,
+  //   `${sync}`,
+  //   `${t.user_runtime}`,
+  //   `$sync();`,
+  //   `})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})`,
+  //   `})()`
+  // ].join('\n');
+
+  function push_ctx () {
+    file_ctx.push({
+      exports: [],
+      custom_tags: {}
+    });
+  }
+
+  function pop_ctx () {
+    let ctx = file_ctx.pop();
+    ctx.exports.forEach(e => {
+      if (ctx.custom_tags[e]) {
+        add_custom_tag(e, ctx.custom_tags[e]);
+      }
+    })
+  }
+
+  function add_export (e) {
+    let ctx = file_ctx[file_ctx.length - 1];
+    if (!ctx.custom_tags[e.name]) {
+      throw_adom_error({ msg: 'undefined tag: ' + e.name, pos: e.pos, file: e.file });
+    } else {
+      ctx.exports.push(e.name);
+    }
+  }
+
+  function add_custom_tag (n, t) {
+    file_ctx[file_ctx.length - 1].custom_tags[n] = t;
+  }
 
   function escapeHTML (txt) {
     return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -991,28 +1032,14 @@ Adom.prototype.execute = function(ast, initial_state, sync, mount) {
       } break;
       case 'ident': {
         let v = expr.data;
-        if (v === 'props') {
-          return props[props.length - 1]
+        let max = state.length - 1;
+        for (let i = max; i >= 0; i--) {
+          if (state[i][v] !== undefined) return state[i][v];
         }
-        for (let i = iterators.length - 1; i >= 0; i--) {
-          let it = iterators[i];
-          if (it.iterators[0] === v) {
-            return it.list[it.index];
-          }
-          if (it.iterators[1] === v) {
-            return it.type === 'object' ?
-              it.object[it.list[it.index]] : it.index;
-          }
-        }
-        if (tag_locals.length && tag_locals[tag_locals.length - 1][v] !== undefined) return tag_locals[tag_locals.length - 1][v];
-        if (state[v] !== undefined) return state[v];
-        if (constVars[v] !== undefined) return constVars[v];
         throw_adom_error({ msg: v + ' is undefined.', pos: expr.pos, file: expr.file });
       } break;
       case 'array': {
-        return expr.data.map(function (i) {
-          return evaluate(i);
-        })
+        return expr.data.map(evaluate);
       } break;
       case 'object': {
         let keys = Object.keys(expr.data);
@@ -1048,224 +1075,133 @@ Adom.prototype.execute = function(ast, initial_state, sync, mount) {
     return ['<', '/', 'script', '>'].join('')
   }
 
-  function fmt() {
-    return pretty ? `\n${'    '.repeat(open_tags.length)}` : '';
+  function children (r, y) {
+    r.children.forEach(c => {
+      walk(c, y);
+    });
   }
 
-  function children (r) {
-    r.children.forEach(walk);
+  function eval_object (obj) {
+    let ctx = {};
+    Object.keys(obj).forEach(function(k) {
+      ctx[k] = evaluate(obj[k]);
+    });
+    return ctx;
   }
 
-  function walk (r) {
+  function set_state (dst, v) {
+    let k = dst.data;
+    let last = state[state.length - 1];
+    if (last[k] === undefined) {
+      last[k] = evaluate(v);
+    } else {
+      throw_adom_error({ msg: k + ' is already defined', pos: dst.pos, file: dst.file });
+    }
+  }
+
+  function loop (data, fn) {
+    let list = evaluate(data);
+    if (Array.isArray(list)) {
+      list.forEach((it, i) => {
+        fn(it, i);
+      })
+    } else if (typeof list === 'object') {
+      Object.keys(list).forEach(k => {
+        fn(k, list[k]);
+      });
+    } else {
+      throw_adom_error({ msg: data.data + ' is not iterable', pos: data.pos, file: data.file });
+    }
+  }
+
+  function custom_tag (name) {
+    return file_ctx[file_ctx.length - 1].custom_tags[name] || undefined;
+  }
+
+  function walk (r, yieldfn) {
     switch (r.type) {
+      case _doctype: {
+        html += '<!DOCTYPE html>';
+        break;
+      }
       case _tag: {
-        html += `<${r.data.name}${assemble_attributes(r.data.attributes)}>`;
-        children(r);
-        html += `</${r.data.name}>`;
+        let n = r.data.name;
+        let t = custom_tag(n);
+        if (t) {
+          state.push({ props: eval_object(r.data.attributes) });
+          children(t, function () {
+            children(r, yieldfn);
+          });
+          state.pop();
+          break;
+        }
+        html += `<${n}${assemble_attributes(r.data.attributes)}>`;
+        if (void_tags.indexOf(n) === -1) {
+          children(r, yieldfn);
+          html += `</${n}>`;
+        }
+        break;
+      }
+      case _custom: {
+        add_custom_tag(r.data, r);
+        break;
+      }
+      case _textnode: {
+        html += escapeHTML(evaluate(r.data));
+        break;
+      }
+      case _set: {
+        set_state(r.data.lhs, r.data.rhs);
+        break;
+      }
+      case _if: {
+        let pass = r.children[0];
+        let fail = r.children[1];
+        if (evaluate(r.data)) {
+          children(pass, yieldfn);
+        } else if (fail) {
+          children(fail, yieldfn);
+        }
+        break;
+      }
+      case _each: {
+        let i0 = r.data.iterators[0];
+        let i1 = r.data.iterators[1];
+        let scope = {};
+        state.push(scope);
+        loop(r.data.list, function (v0, v1) {
+          scope[i0] = v0;
+          if (i1) scope[i1] = v1;
+          children(r, yieldfn);
+        });
+        state.pop();
+        break;
+      }
+      case _yield: {
+        if (yieldfn) yieldfn();
+        break;
+      }
+      case _export: {
+        add_export(r.data);
+        break;
+      }
+      case _file: {
+        push_ctx();
+        children(r.data, yieldfn);
+        pop_ctx();
         break;
       }
       default: {
-        children(r);
+        children(r, yieldfn);
         break;
       }
     }
   }
 
+  push_ctx();
   walk(ast);
 
-  console.log(html);
-/*
-  function exec() {
-    let iter;
-
-    function current_tag () {
-      return open_tags[open_tags.length - 1];
-    }
-
-
-    while (ptr < ops.length) {
-      let op = ops[ptr++];
-      switch (op.type) {
-        case "doctype":
-          html += '<!DOCTYPE html>';
-          break;
-        case "begin_tag":
-          {
-            if (op.data.styles) {
-              html += `${fmt()}<style>${op.data.styles}</style>`;
-            }
-            html += `${fmt()}<${op.data.name}${assemble_attributes(op.data.attributes)}`;
-            if (op.data.self_close) {
-              html += ">"; // configure based on doctype
-            } else {
-              let a = op.data.attributes;
-              html += ">";
-              open_tags.push({
-                name: op.data.name,
-                user_runtime: op.data.runtime
-              });
-            }
-          }
-          break;
-        case "end_tag":
-          {
-            let t = open_tags.pop();
-            html += fmt() + "</" + t.name + ">";
-            if (t.user_runtime) {
-              runtime_full = [
-                `(function () {`,
-                `var $$adom_state = ${JSON.stringify(state)};`,
-                `${adom_runtime}`,
-                `(function (${Object.keys(state).join(', ')}) {`,
-                `${sync}`,
-                `${t.user_runtime}`,
-                `$sync();`,
-                `})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})`,
-                `})()`
-              ].join('\n');
-              if (!mount) html += `${fmt()}<script>${runtime_full}${end_script()}`;
-            }
-          }
-          break;
-        case "set":
-          {
-            let dst = op.data.dst;
-            if (tag_locals.length > 0) {
-              if (tag_locals[tag_locals.length - 1][dst.data] !== undefined) {
-                throw_adom_error({ msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file });
-              }
-              tag_locals[tag_locals.length - 1][dst.data] = evaluate(op.data.val);
-            } else {
-              if (constVars[dst.data] !== undefined || state[dst.data] !== undefined) {
-                throw_adom_error({ msg: dst.data + ' is already defined', pos: dst.pos, file: dst.file });
-              }
-              if (op.data.isConst) {
-                constVars[dst.data] = evaluate(op.data.val);
-              } else {
-                state[dst.data] = evaluate(op.data.val);
-              }
-            }
-          }
-          break;
-        case "textnode":
-          {
-            if (current_tag().name === 'script') {
-              html += fmt() + evaluate(op.data);
-            } else {
-              html += fmt() + escapeHTML(evaluate(op.data));
-            }
-          }
-          break;
-        case "begin_custom_tag":
-          {
-            let pctx = {};
-            Object.keys(op.data.props).forEach(function(k) {
-              pctx[k] = evaluate(op.data.props[k]);
-            });
-            props.push(pctx);
-            tag_locals.push({});
-          }
-          break;
-        case "end_custom_tag":
-          {
-            props.pop();
-            tag_locals.pop();
-          }
-          break;
-        case "if":
-          {
-            if (!evaluate(op.data.condition)) {
-              ptr += op.data.jmp;
-            }
-          }
-          break;
-        case "jump":
-          {
-            ptr += op.data;
-          }
-          break;
-        case "each":
-          {
-            let list = evaluate(op.data.list);
-            if (Array.isArray(list)) {
-              if (list.length === 0) {
-                ptr += op.data.jmp;
-                break;
-              }
-              iter = {
-                type: "array",
-                iterators: op.data.iterators,
-                list: list,
-                index: 0,
-                data: {}
-              };
-              iter.data[op.data.iterators[0]] = list[0];
-              if (op.data.iterators[1] != null)
-                iter.data[op.data.iterators[1]] = 0;
-              iterators.push(iter);
-            } else if (typeof list === "object" && list !== null) {
-              let keys = Object.keys(list);
-              if (keys.length === 0) {
-                ptr += op.data.jmp;
-                break;
-              }
-              iter = {
-                type: "object",
-                list: keys,
-                iterators: op.data.iterators,
-                object: list,
-                index: 0,
-                data: {}
-              };
-              iter.data[op.data.iterators[0]] = keys[0];
-              if (op.data.iterators.length > 1)
-                iter.data[op.data.iterators[1]] = iter.object[iter.list[0]];
-              iterators.push(iter);
-            } else {
-              throw_adom_error({
-                msg: "each statements can only operate on arrays or objects",
-                pos: op.data.list.pos,
-                file: op.data.list.file
-              });
-            }
-          }
-          break;
-        case "iterate":
-          {
-            iter = iterators[iterators.length - 1];
-            if (iter.index < iter.list.length - 1) {
-              if (iter.type === "array") {
-                iter.data[iter.iterators[0]] = iter.list[++iter.index];
-                if (iter.iterators[1] != null)
-                  iter.data[iter.iterators[1]] = iter.index;
-              } else {
-                iter.data[iter.iterators[0]] = iter.list[++iter.index];
-                if (iter.iterators[1] != null)
-                  iter.data[iter.iterators[1]] =
-                    iter.object[iter.data[iter.iterators[0]]];
-              }
-              ptr += op.data;
-            } else {
-              iterators.pop();
-            }
-          }
-          break;
-        default:
-          break;
-      }
-    }
-  }
-
-  exec();
-*/
-  if (mount) {
-    return {
-      html: html,
-      runtime: runtime_full
-    }
-  } else {
-    return html;
-  }
+  return html;
 };
 
 Adom.prototype.print_error = function (err, str) {
@@ -1706,11 +1642,7 @@ Adom.prototype.render = function(file, input_state) {
       let f = fileData[1];
       let tokens = this.tokenize(fileData[0], f);
       let ast = this.parse(tokens);
-      this.execute(ast, input_state)
-      return '';
-      if (this.cache) {
-        this.opcode_cache[f] = { ops: ops, sync: sync };
-      }
+      let html = this.execute(ast, input_state);
       return html;
     }
   } catch (e) {
