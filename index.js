@@ -313,7 +313,7 @@ Adom.prototype.parse = function(tokens) {
   let in_tag = false;
   let implicit_class = undefined;
   let global_styles = '';
-  let ast = new ASTNode('root', {});
+  let ast = new ASTNode(_file, {});
   let parent = ast;
 
   function ast_node(type, data) {
@@ -584,6 +584,7 @@ Adom.prototype.parse = function(tokens) {
           });
         }
         root_found = true;
+        attr.root = true;
         attr.id = { type: 'string', data: [{ type: 'chunk', data: `adom-root-${UID}` }] };
       } else if (accept("ident")) {
         if (accept("=")) {
@@ -818,7 +819,7 @@ Adom.prototype.parse = function(tokens) {
     if (bind) tag = tok.data;
     expect("ident");
     expect("[");
-    let node = ast_node(_custom, tag);
+    let node = ast_node(_custom, { name: tag, bind: bind });
     let current = parent;
     parent = node;
     parse_custom_tag_body();
@@ -881,7 +882,12 @@ Adom.prototype.parse = function(tokens) {
         let fileData = this.openFile(path);
         let toks = this.tokenize(fileData[0], fileData[1]);
         let _ast = this.parse(toks, fileData[1]);
-        ast_node(_file, _ast);
+        runtime += _ast.data.runtime;
+        global_styles += _ast.data.styles;
+        delete _ast.data.runtime;
+        delete _ast.data.styles;
+        let node = ast_node(_file);
+        node.children = _ast.children;
       } else if (accept("export")) {
         let id = tok.data;
         ast_node(_export, {
@@ -919,7 +925,6 @@ Adom.prototype.parse = function(tokens) {
 Adom.prototype.execute = function(ast, initial_state, sync, mount) {
   let html = "";
   let state = [initial_state];
-  let custom_tags = [{}];
   let file_ctx = [];
 
   const void_tags = [
@@ -995,7 +1000,7 @@ Adom.prototype.execute = function(ast, initial_state, sync, mount) {
 
   function assemble_attributes(attr) {
     return Object.keys(attr).map(function (k) {
-      if (k === 'events') return '';
+      if (k === 'root') return '';
       let v = evaluate(attr[k]);
       if (v === false || v == null) return '';
       return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
@@ -1143,7 +1148,7 @@ Adom.prototype.execute = function(ast, initial_state, sync, mount) {
         break;
       }
       case _custom: {
-        add_custom_tag(r.data, r);
+        add_custom_tag(r.data.name, r);
         break;
       }
       case _textnode: {
@@ -1187,7 +1192,7 @@ Adom.prototype.execute = function(ast, initial_state, sync, mount) {
       }
       case _file: {
         push_ctx();
-        children(r.data, yieldfn);
+        children(r, yieldfn);
         pop_ctx();
         break;
       }
@@ -1198,7 +1203,6 @@ Adom.prototype.execute = function(ast, initial_state, sync, mount) {
     }
   }
 
-  push_ctx();
   walk(ast);
 
   return html;
@@ -1382,24 +1386,18 @@ function $$e (par, type, props, events, state, children) {
         $$processed.pop();
     }
 }
-
 `;
 
-Adom.prototype.generate_sync = function (ops, input_state) {
-  let ptr = 0;
+Adom.prototype.generate_sync = function (ast) {
   let tags = [];
-  let custom_tags = [];
   let sync_body = [];
   let prop_depth = -1;
-  var tag_local = {};
-  var do_bind = undefined;
+  let custom_tags = {};
 
-  const UID = this.uid;
-
-  function sync_func () {
+  const sync_func = () => {
     return `
 function $sync() {
-    var par = window["adom-root-${UID}"];
+    var par = window["adom-root-${this.uid}"];
     var $ = undefined;
     //console.time('sync');
     $$processed.push(0);
@@ -1505,103 +1503,89 @@ ${sync_body.join('\n')}
     else return null;
   }
 
-  while (ptr < ops.length) {
-    let op = ops[ptr++];
-    switch (op.type) {
-      case 'set': {
-        if (custom_tags.length) {
-          let k = op.data.dst.data;
-          tag_local[k] = op.data.val;
+  function children (r, y) {
+    r.children.forEach(c => {
+      walk(c, y);
+    });
+  }
+
+  function find_root (n) {
+    if (n.type === _custom) {
+      let t = { node: n, state: {}, bind: n.data.bind };
+      n.children.forEach(c => {
+        if (c.type === _set) {
+          t.state[c.data.lhs.data] = c.data.rhs;
         }
-      } break;
-      case "begin_tag":
-        if (op.data.is_root) {
-          tags.push({ name: op.data.name, root: true });
-        } else if (tags.length) {
-          let state = Object.keys(tag_local).length ? stringify_object(tag_local) : null;
-          let new_state = !do_bind ? state : `$$class(${do_bind}, ${state})`;
-          let props = `function ($) { return ${stringify_object(op.data.attributes)}; }`;
-          if (op.data.self_close) {
-            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${new_state});`);
-          } else {
-            sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events, tag_local)}, ${new_state}, function (par${state ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
-            tags.push({ name: op.data.name, state: tag_local });
-          }
-          if (state) {
-            custom_tags[custom_tags.length - 1].locals = tag_local;
-          }
-          // both will get applied to the first element after the custom tag declaration
-          // so it's cool to reset them here
-          tag_local = {};
-          do_bind = undefined;
-        }
-        break;
-      case "end_tag":
-        if (tags.length) {
-          let t = tags.pop();
-          if (!t.root) sync_body.push(`${indents()}})(${expand(t.state, '$.')}); });`);
-        }
-        break;
-      case "textnode":
-        if (tags.length) {
-          sync_body.push(`${indents()}$$e(par, "text", function () { return ${print_expression(op.data)}; })`);
-        }
-        break;
-      case "each":
-        if (tags.length) {
-          var it = op.data.iterators;
-          sync_body.push(`${indents()}$$each(${print_expression(op.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
-          tags.push({});
-        }
-        break;
-      case "iterate":
-        if (tags.length) {
-          tags.pop();
-          sync_body.push(`${indents()}});`);
-        }
-        break;
-      case "begin_custom_tag":
-        if (tags.length) {
-          sync_body.push(`${indents()}$$push_props(${stringify_object(op.data.props)});`);
-          if (op.data.bind) do_bind = op.data.name;
-          custom_tags.push({ name: op, locals: {} });
-          prop_depth++;
-        }
-        break;
-      case "end_custom_tag":
-        if (tags.length) {
-          custom_tags.pop();
-          prop_depth--;
-          sync_body.push(`${indents()}$$pop_props();`);
-          tag_local = {};
-          do_bind = undefined;
-        }
-        break;
-      case "if":
-        if (tags.length) {
-          sync_body.push(`${indents()}$$if(${print_expression(op.data.condition)}, function () {`);
-          tags.push({});
-        }
-        break;
-      case "else":
-        if (tags.length) {
-          tags.pop();
-          sync_body.push(`${indents()}}, function () {`);
-          tags.push({});
-        }
-        break;
-      case "end_if":
-        if (tags.length) {
-          tags.pop();
-          sync_body.push(`${indents()}});`);
-        }
-        break;
-      default:
-        break;
+      });
+      custom_tags[n.data.name] = t;
+    } else if (n.type === _tag && n.data.attributes.root) {
+      return n;
+    } else {
+      for (let i = 0; i < n.children.length; i++) {
+        let r = find_root(n.children[i]);
+        if (r) return r;
+      }
+      return null;
     }
   }
 
-  return sync_func();
+  function walk (r, yieldfn) {
+    switch (r.type) {
+      case _tag: {
+        if (custom_tags[r.data.name]) {
+          children(custom_tags[r.data.name].node, () => {
+            children(r, yieldfn);
+          })
+        } else {
+          children(r, yieldfn);
+        }
+        break;
+      }
+      case _textnode: {
+        break;
+      }
+      case _if: {
+        break;
+      }
+      case _each: {
+        break;
+      }
+      case _yield: {
+        if (yieldfn) yieldfn();
+        break;
+      }
+      default: {
+        children(r, yieldfn);
+        break;
+      }
+    }
+  }
+
+  let root = find_root(ast);
+  if (root) children(root);
+
+  return '';
+
+  // tag
+  let state = Object.keys(tag_local).length ? stringify_object(tag_local) : null;
+  let new_state = !do_bind ? state : `$$class(${do_bind}, ${state})`;
+  let props = `function ($) { return ${stringify_object(op.data.attributes)}; }`;
+   // self close
+  sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${new_state});`);
+  sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events, tag_local)}, ${new_state}, function (par${state ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
+  sync_body.push(`${indents()}})(${expand(t.state, '$.')}); });`);
+  // textnode
+  sync_body.push(`${indents()}$$e(par, "text", function () { return ${print_expression(op.data)}; })`);
+  // each
+  sync_body.push(`${indents()}$$each(${print_expression(op.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
+  sync_body.push(`${indents()}});`);
+  // custom tag
+  sync_body.push(`${indents()}$$push_props(${stringify_object(op.data.props)});`);
+  sync_body.push(`${indents()}$$pop_props();`);
+  // if
+  sync_body.push(`${indents()}$$if(${print_expression(op.data.condition)}, function () {`);
+  sync_body.push(`${indents()}}, function () {`);
+  sync_body.push(`${indents()}});`);
 };
 
 Adom.prototype.getPath = function (p) {
@@ -1642,6 +1626,7 @@ Adom.prototype.render = function(file, input_state) {
       let f = fileData[1];
       let tokens = this.tokenize(fileData[0], f);
       let ast = this.parse(tokens);
+      let sync = this.generate_sync(ast);
       let html = this.execute(ast, input_state);
       return html;
     }
@@ -1657,13 +1642,7 @@ Adom.prototype.render = function(file, input_state) {
 
 Adom.prototype.mount = function (sel, str) {
   try {
-    let tokens = this.tokenize(str, 'main');
-    tokens = this.resolve_imports(tokens);
-    let ops = this.parse(tokens);
-    let sync = this.generate_sync(ops, {}, true);
-    let out = this.execute(ops, {}, sync, true);
-    document.querySelector(sel).innerHTML = out.html;
-    window.eval(out.runtime);
+    // mount to dom
   } catch (e) {
     if (e.origin === 'adom') {
       document.querySelector(sel).innerHTML = '<pre>' + this.print_error(e, str) + '</pre>';
