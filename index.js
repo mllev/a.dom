@@ -39,6 +39,32 @@ function throw_adom_error (err) {
   throw err;
 };
 
+const void_tags = [
+  'area',
+  'base',
+  'basefont',
+  'bgsound',
+  'br',
+  'col',
+  'command',
+  'embed',
+  'frame',
+  'hr',
+  'image',
+  'img',
+  'input',
+  'isindex',
+  'keygen',
+  'link',
+  'menuitem',
+  'meta',
+  'nextid',
+  'param',
+  'source',
+  'track',
+  'wbr'
+];
+
 Adom.prototype.tokenize = function(prog, file, offset) {
   let cursor = 0, end_pos = prog.length - 1;
   let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
@@ -754,7 +780,6 @@ Adom.prototype.parse = function(tokens) {
   }
 
   function parse_tag_list() {
-    let list;
     if (accept("doctype")) {
       ast_node(_doctype, tok.data);
       expect("ident");
@@ -916,52 +941,23 @@ Adom.prototype.parse = function(tokens) {
   ast.data.runtime = runtime;
   ast.data.styles = global_styles;
 
-  // resolve file imports
-  // generate sync here
-
   return ast;
 };
 
-Adom.prototype.execute = function(ast, initial_state, sync, mount) {
+Adom.prototype.execute = function(ast, initial_state) {
   let html = "";
   let state = [initial_state];
   let file_ctx = [];
 
-  const void_tags = [
-    'area',
-    'base',
-    'basefont',
-    'bgsound',
-    'br',
-    'col',
-    'command',
-    'embed',
-    'frame',
-    'hr',
-    'image',
-    'img',
-    'input',
-    'isindex',
-    'keygen',
-    'link',
-    'menuitem',
-    'meta',
-    'nextid',
-    'param',
-    'source',
-    'track',
-    'wbr'
-  ];
-
   // runtime_full = [
   //   `(function () {`,
-  //   `var $$adom_state = ${JSON.stringify(state)};`,
-  //   `${adom_runtime}`,
-  //   `(function (${Object.keys(state).join(', ')}) {`,
-  //   `${sync}`,
-  //   `${t.user_runtime}`,
-  //   `$sync();`,
-  //   `})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})`,
+  //   `  var $$adom_state = ${JSON.stringify(state)};`,
+  //   `  ${adom_runtime}`,
+  //   `  (function (${Object.keys(state).join(', ')}) {`,
+  //     `  ${sync}`,
+  //     `  ${t.user_runtime}`,
+  //     `  $sync();`,
+  //     `})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})`,
   //   `})()`
   // ].join('\n');
 
@@ -1389,10 +1385,10 @@ function $$e (par, type, props, events, state, children) {
 `;
 
 Adom.prototype.generate_sync = function (ast) {
-  let tags = [];
   let sync_body = [];
   let prop_depth = -1;
   let custom_tags = {};
+  let indents = 0;
 
   const sync_func = () => {
     return `
@@ -1465,8 +1461,8 @@ ${sync_body.join('\n')}
     return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
   }
 
-  function indents() {
-    return '    '.repeat(tags.length);
+  function fmt() {
+    return '    '.repeat(indents);
   }
 
   function expand (state, pref) {
@@ -1493,7 +1489,7 @@ ${sync_body.join('\n')}
       r = true;
       ex = '';
     }
-    return `"${e.type}": function ($e) { (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(tags[tags.length - 1].state, r)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
+    return `"${e.type}": function ($e) { (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(state, r)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
   }
 
   function event_object (events, state) {
@@ -1532,22 +1528,77 @@ ${sync_body.join('\n')}
   function walk (r, yieldfn) {
     switch (r.type) {
       case _tag: {
-        if (custom_tags[r.data.name]) {
-          children(custom_tags[r.data.name].node, () => {
+        let t = custom_tags[r.data.name];
+        if (t) {
+          for (let i = 0; i < t.node.children.length; i++) {
+            if (t.node.children[i].type === _tag) {
+              t.node.children[i].data.component = {
+                bind: t.bind,
+                state: t.state
+              };
+              break;
+            }
+          }
+          sync_body.push(`${fmt()}$$push_props(${stringify_object(r.data.attributes)});`);
+          prop_depth++;
+          children(t.node, () => {
             children(r, yieldfn);
-          })
+          });
+          sync_body.push(`${fmt()}$$pop_props();`);
+          prop_depth--;
         } else {
+          let n = r.data.name;
+          let props = `function ($) { return ${stringify_object(r.data.attributes)}; }`;
+          let state = null, tag_local = {};
+
+          if (r.data.component) {
+            let c = r.data.component;
+            let s = Object.keys(c.state);
+            tag_local = c.state;
+            if (c.bind) {
+              state = `$$class(${n}, ${s})`;
+            } else {
+              state = stringify_object(tag_local);
+            }
+          }
+
+          if (void_tags.indexOf(n) !== -1) {
+            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events)}, ${state});`);
+          } else {
+            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, tag_local)}, ${state}, function (par${tag_local ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
+          }
+          indents++;
           children(r, yieldfn);
+          indents--;
+          sync_body.push(`${fmt()}})(${expand(tag_local, '$.')}); });`);
         }
         break;
       }
       case _textnode: {
+        sync_body.push(`${fmt()}$$e(par, "text", function () { return ${print_expression(r.data)}; })`);
         break;
       }
       case _if: {
+        sync_body.push(`${fmt()}$$if(${print_expression(r.data)}, function () {`);
+        indents++;
+        children(r.children[0]);
+        indents--;
+        if (r.children[1]) {
+          sync_body.push(`${fmt()}}, function () {`);
+          indents++;
+          children(r.children[1]);
+          indents--;
+        }
+        sync_body.push(`${fmt()}});`);
         break;
       }
       case _each: {
+        let it = r.data.iterators;
+        sync_body.push(`$$each(${print_expression(r.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
+        indents++;
+        children(r);
+        indents--;
+        sync_body.push(`});`);
         break;
       }
       case _yield: {
@@ -1564,28 +1615,9 @@ ${sync_body.join('\n')}
   let root = find_root(ast);
   if (root) children(root);
 
-  return '';
+  console.log(sync_body);
 
-  // tag
-  let state = Object.keys(tag_local).length ? stringify_object(tag_local) : null;
-  let new_state = !do_bind ? state : `$$class(${do_bind}, ${state})`;
-  let props = `function ($) { return ${stringify_object(op.data.attributes)}; }`;
-   // self close
-  sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events)}, ${new_state});`);
-  sync_body.push(`${indents()}$$e(par, "${op.data.name}", ${props}, ${event_object(op.data.events, tag_local)}, ${new_state}, function (par${state ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
-  sync_body.push(`${indents()}})(${expand(t.state, '$.')}); });`);
-  // textnode
-  sync_body.push(`${indents()}$$e(par, "text", function () { return ${print_expression(op.data)}; })`);
-  // each
-  sync_body.push(`${indents()}$$each(${print_expression(op.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
-  sync_body.push(`${indents()}});`);
-  // custom tag
-  sync_body.push(`${indents()}$$push_props(${stringify_object(op.data.props)});`);
-  sync_body.push(`${indents()}$$pop_props();`);
-  // if
-  sync_body.push(`${indents()}$$if(${print_expression(op.data.condition)}, function () {`);
-  sync_body.push(`${indents()}}, function () {`);
-  sync_body.push(`${indents()}});`);
+  return '';
 };
 
 Adom.prototype.getPath = function (p) {
