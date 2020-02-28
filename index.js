@@ -22,7 +22,12 @@ function Adom (config) {
   this.runtimeTransform = config.runtimeTransform;
   this.files = {};
   this.uid = Math.floor(Math.random() * 10000);
+  this._c = 0;
 }
+
+Adom.prototype.rand_class = function () {
+  return `adom-c-${this._c++}`;
+};
 
 function ASTNode (type, data) {
   this.type = type;
@@ -710,11 +715,6 @@ Adom.prototype.parse = function(tokens) {
     }
   }
 
-  let class_id = 0;
-  function rand_class () {
-    return `adom-c-${class_id++}`;
-  }
-
   function parse_custom_tag_body () {
     in_tag = true;
     parse_tag_list();
@@ -779,7 +779,7 @@ Adom.prototype.parse = function(tokens) {
     parent = current;
   }
 
-  function parse_tag_list() {
+  const parse_tag_list = () => {
     if (accept("doctype")) {
       ast_node(_doctype, tok.data);
       expect("ident");
@@ -828,7 +828,7 @@ Adom.prototype.parse = function(tokens) {
     } else if (in_tag && accept('css')) {
       // make sure inside of at least 1 tag
       expect('[');
-      let c = rand_class();
+      let c = this.rand_class();
       let styles = parse_scoped_style_rules(`.${c}`);
       transform_to_css(styles);
       implicit_class = c;
@@ -904,9 +904,9 @@ Adom.prototype.parse = function(tokens) {
         }
       } else if (accept('import')) {
         let path = parse_strict_string();
-        let fileData = this.openFile(path);
-        let toks = this.tokenize(fileData[0], fileData[1]);
-        let _ast = this.parse(toks, fileData[1]);
+        let file = this.openFile(path);
+        let toks = this.tokenize(file.text, file.name);
+        let _ast = this.parse(toks, file.name);
         runtime += _ast.data.runtime;
         global_styles += _ast.data.styles;
         delete _ast.data.runtime;
@@ -949,17 +949,18 @@ Adom.prototype.execute = function(ast, initial_state) {
   let state = [initial_state];
   let file_ctx = [];
 
-  // runtime_full = [
-  //   `(function () {`,
-  //   `  var $$adom_state = ${JSON.stringify(state)};`,
-  //   `  ${adom_runtime}`,
-  //   `  (function (${Object.keys(state).join(', ')}) {`,
-  //     `  ${sync}`,
-  //     `  ${t.user_runtime}`,
-  //     `  $sync();`,
-  //     `})(${Object.keys(state).map(k => `$$adom_state.${k}`).join(', ')})`,
-  //   `})()`
-  // ].join('\n');
+  function runtime () {
+    return [
+      `window.onload = function () {`,
+      `  var $$adom_state = ${JSON.stringify(state[0])};`,
+      `  ${adom_runtime}`,
+      `  (function (${Object.keys(state[0]).join(', ')}) {`,
+        `  ${ast.data.runtime}`,
+        `  $sync();`,
+        `})(${Object.keys(state[0]).map(k => `$$adom_state.${k}`).join(', ')})`,
+      `}`
+    ].join('\n');
+  }
 
   function push_ctx () {
     file_ctx.push({
@@ -1135,6 +1136,10 @@ Adom.prototype.execute = function(ast, initial_state) {
           });
           state.pop();
           break;
+        }
+        if (r.data.attributes.root) {
+          html += `<script>${runtime()}${end_script()}`;
+          html += `<style>${ast.data.styles}</style>`;
         }
         html += `<${n}${assemble_attributes(r.data.attributes)}>`;
         if (void_tags.indexOf(n) === -1) {
@@ -1388,7 +1393,8 @@ Adom.prototype.generate_sync = function (ast) {
   let sync_body = [];
   let prop_depth = -1;
   let custom_tags = {};
-  let indents = 0;
+  let indents = 1;
+  let tag_states = [];
 
   const sync_func = () => {
     return `
@@ -1533,7 +1539,7 @@ ${sync_body.join('\n')}
           for (let i = 0; i < t.node.children.length; i++) {
             if (t.node.children[i].type === _tag) {
               t.node.children[i].data.component = {
-                bind: t.bind,
+                bind: t.bind ? r.data.name : false,
                 state: t.state
               };
               break;
@@ -1552,26 +1558,31 @@ ${sync_body.join('\n')}
 
           if (r.data.component) {
             let c = r.data.component;
-            let s = Object.keys(c.state);
+            let s = stringify_object(c.state);
             tag_local = c.state;
             if (c.bind) {
-              state = `$$class(${n}, ${s})`;
+              state = `$$class(${c.bind}, ${s})`;
             } else {
-              state = stringify_object(tag_local);
+              state = s;
             }
+            tag_states.push(c.state);
           }
 
-          let props = `function ($) { (function (${expand(tag_local)}) { return ${stringify_object(r.data.attributes)}; }).call($, ${expand(tag_local, '$.')}) }`;
+          let ctx = tag_states.length ? tag_states[tag_states.length - 1] : null;
+          let props = `function ($) { return (function (${expand(tag_local)}) { return ${stringify_object(r.data.attributes)}; }).call($, ${expand(tag_local, '$.')}); }`;
 
           if (void_tags.indexOf(n) !== -1) {
-            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events)}, ${state});`);
+            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, ctx)}, ${state});`);
+            if (state) tag_states.pop();
+            break;
           } else {
-            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, tag_local)}, ${state}, function (par${tag_local ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
+            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, ctx)}, ${state}, function (par${tag_local ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
           }
           indents++;
           children(r, yieldfn);
           indents--;
           sync_body.push(`${fmt()}})(${expand(tag_local, '$.')}); });`);
+          if (state) tag_states.pop();
         }
         break;
       }
@@ -1642,25 +1653,28 @@ Adom.prototype.openFile = function(p) {
 
   this.files[f] = t;
 
-  return [t, f];
+  return {
+    name: f,
+    text: t
+  };
+};
+
+Adom.prototype.finalize = function (ast) {
+  let sync = this.generate_sync(ast);
+  ast.data.runtime = sync + '\n' + ast.data.runtime;
 };
 
 Adom.prototype.render = function(file, input_state) {
   let html;
   try {
     let cacheKey = this.getPath(file);
-    if (this.cache && this.opcode_cache[cacheKey]) {
-      let cached = this.opcode_cache[cacheKey];
-      return this.execute(cached.ops, input_state || {}, cached.sync);
-    } else {
-      let fileData = this.openFile(file);
-      let f = fileData[1];
-      let tokens = this.tokenize(fileData[0], f);
-      let ast = this.parse(tokens);
-      let sync = this.generate_sync(ast);
-      let html = this.execute(ast, input_state);
-      return html;
-    }
+    let f = this.openFile(file);
+    let tokens = this.tokenize(f.text, f.name);
+    this._c = 0;
+    let ast = this.parse(tokens);
+    this.finalize(ast);
+    let html = this.execute(ast, input_state);
+    return html;
   } catch (e) {
     if (e.origin === 'adom') {
       html = `<pre>${this.print_error(e)}</pre>`;
