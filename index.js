@@ -1548,7 +1548,6 @@ ${sync_body.join('\n')}
           prop_depth--;
         } else {
           let n = r.data.name;
-          let props = `function ($) { return ${stringify_object(r.data.attributes)}; }`;
           let state = null, tag_local = {};
 
           if (r.data.component) {
@@ -1561,6 +1560,8 @@ ${sync_body.join('\n')}
               state = stringify_object(tag_local);
             }
           }
+
+          let props = `function ($) { (function (${expand(tag_local)}) { return ${stringify_object(r.data.attributes)}; }).call($, ${expand(tag_local, '$.')}) }`;
 
           if (void_tags.indexOf(n) !== -1) {
             sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events)}, ${state});`);
@@ -1615,9 +1616,7 @@ ${sync_body.join('\n')}
   let root = find_root(ast);
   if (root) children(root);
 
-  console.log(sync_body);
-
-  return '';
+  return sync_func();
 };
 
 Adom.prototype.getPath = function (p) {
