@@ -1576,7 +1576,7 @@ ${sync_body.join('\n')}
             if (state) tag_states.pop();
             break;
           } else {
-            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, ctx)}, ${state}, function (par${tag_local ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
+            sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, ctx)}, ${state}, function (par${state ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
           }
           indents++;
           children(r, yieldfn);
