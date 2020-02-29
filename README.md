@@ -8,420 +8,404 @@
 
 Advanced Data Oriented Markup
 
-ADOM is a templating language with extremely advanced features.
+ADOM is a revolutionary tool that combines the simplicity of the early web with the power of the modern web.
 
-In just 2k lines of code, with no dependencies, and a single function API, ADOM packs in:
+In less than 2k lines of code, with no dependencies, and a single function API, ADOM packs in:
 
 - an extremely terse templating language with no whitespace sensitivity
 - a high speed reactive UI engine using plain Javascript, with no modifications made to your code (making it fully compatible with Javascript preprocessors, and the full ecosystem of tools)
 - server side rendering that is simpler, faster, and *far* easier to understand than all modern solutions
-- code separation and bundling via simple import/export semantics
+- flexible code separation and project structure
 
-#### GETTING STARTED
+#### CONCEPTS
+ADOM fits safely into the following two categories: compiler-based reactive framework and server-rendered templating engine. This allows for an extreme simplification of the modern web development environment. ADOM makes large dependencies like Babel and Webpack nice-to-haves rather than absolutely requirements.
 
-Getting started with ADOM is very easy.
-
+#### INSTALLATION AND USAGE
 ```
 npm install adom-js
 ```
 
-First, create a basic node server.
-```js
-require('http').createServer((req, res) => {
-    res.writeHead(200, { 'Content-type': 'text/html' });
-    res.end('<h1>Hello!</h1>');
-}).listen(5000);
+Unlike other templating engines, ADOM does not generate a javascript file. Production mode only requires that `cache` is set to `true`.
+```javascript
+const Adom = require('adom-js');
+const compiler = new Adom({ cache: true });
+const html = compiler.render('index.adom');
 ```
+If `cache` is set to `false`, the entire ADOM source tree will be recompiled on each call to `render`. This allows for a smooth development experience that doesn't require additional tools to watch your files.
 
-Next, create an instance of the ADOM compiler.
-```js
-const adom = require('adom-js');
-const A = new adom({
-    rootDir: '.' // tell adom where to look for adom files
+ADOM will search the current directory for 'index.adom', in the above example. You can specify a new directory with the `root` flag.
+```javascript
+const Adom = require('adom-js');
+const compiler = new Adom({
+  cache: true,
+  root: 'src'
 });
-
-require('http').createServer((req, res) => {
-    res.writeHead(200, { 'Content-type': 'text/html' });
-    res.end('<h1>Hello!</h1>');
-}).listen(5000);
+const html = compiler.render('index.adom');
 ```
 
-Then, create an `index.adom` file in the same directory as your server file.
-```js
-doctype html5
+#### SYNTAX
+Tags in ADOM begin with the tag name, use the same attribute syntax as HTML, and are ended with a set of brackets (where the children go). Self closing tags are ended the same way as other tags.
 
-html [
-    head []
-    body [
-        h1 "Welcome back, {{name}}!"
-    ]
+```javascript
+div [
+  div []
+]
+h1 []
+p [ span [] ]
+span []
+a href='/' []
+
+// the programmer doesn't need to know which tags self close
+input type='text' []
+```
+
+Strings are used to denote textnodes. Strings can be either single or double quoted.
+
+```javascript
+a href='/' [
+  'homepage'
 ]
 ```
 
-Finally, serve your `index.adom` file.
-```js
-const adom = require('adom-js');
-const A = new adom({
-    rootDir: '.' // tell adom where to look for adom files
-});
+If a textnode is the only child of a tag, the bracks may be omitted.
 
-require('http').createServer((req, res) => {
-    res.writeHead(200, { 'Content-type': 'text/html' });
-    res.end(A.render('index.adom', { name: 'Matt' }));
-}).listen(5000);
+``` javascript
+a href='/' 'homepage'
 ```
 
-#### GUIDE
-##### SYNTAX
-
-Tags in ADOM look like this:
-```js
-div attr1='val1' attr2='val2' [
-    div []
-    div []
-]
+Doctype is defined using the `doctype` keyword.
+```javascript
+doctype html
 ```
-ADOM has no whitespace sensitivity at all:
-```js
-div
-    attr1='val1'
-    attr2='val2' [ div [] div [] ]
-```
-Attribute syntax is largely the same as HTML. Each attribute takes the form `<attribute> '=' <string>`. ADOM supports both single and double quote strings for attributes.
-```js
-div attr1="val1" attr2="val2" []
-```
-You can use the `.` shorthand for classes:
+ADOM supports class shorthand.
 ```
 div.class1.class2 []
 ```
-Self-closing tags are ended with semicolons instead of brackets:
-```js
-img src="/img.png";
-```
-String are used to denote text nodes:
-```js
-h1 [
-    "I AM SOME TEXT!"
-]
-```
-If a textnode is the only child of a tag, the brackets may be omitted:
-```
-h1 "I AM SOME TEXT!"
-```
-##### FEATURES
 
-As demonstrated above, data can be passed to an ADOM template from the server:
-```js
-// server.js
-const adom = require('adom-js');
-const A = new adom({
-    rootDir: '.' // tell adom where to look for adom files
+#### DATA
+Data can be easily passed to an ADOM template for rendering.
+```javascript
+const Adom = require('adom-js');
+
+const compiler = new Adom({ root: './src' });
+
+const html = compiler.render('index.adom', {
+  name: 'Matt'
 });
 
-require('http').createServer((req, res) => {
-    res.writeHead(200, { 'Content-type': 'text/html' });
-    res.end(A.render('index.adom', { name: 'Matt' }));
-}).listen(5000);
+console.log(html);
 ```
-The `name` variable is now available for interpolation:
-```js
-// index.adom
-doctype html5
-
+Interpolation is done using double braces.
+```javascript
 html [
-    head []
-    body [
-        h1 "Welcome back, {{name}}!"
-    ]
+  head []
+  body [
+    h1 "Hello {{ name }}"
+  ]
 ]
 ```
-Data can also be declared directly in the file:
-```js
-const name = 'matt'
-
-doctype html5
+Data can be declared directly in the file too.
+```javascript
+const name = 'Matt'
 
 html [
-    head []
-    body [
-        h1 "Welcome back, {{name}}!"
-    ]
+  head []
+  body [
+    h1 "Hello {{ name }}"
+  ]
 ]
 ```
-ADOM supports the following data types:
-```js
-const isHuman = true // boolean
-const name = 'matt' // string
-const age = 100 // numbers
-
-// object
-const person = {
-    name: 'matt'
+ADOM supports strings, booleans, numbers, arrays, objects and ternaries
+```javascript
+const name = 'Bob' // string
+const alive = true // boolean
+const age = 300
+const weight = [ '200', 'lbs' ]
+const location = {
+  country: 'US',
+  state: 'CA'
 }
-
-// array
-const people = [
-    'matt',
-    'bob'
-]
-
-doctype html5
+const happy = alive == true ? false : true
+```
+Data can be interpolated into strings using double brackets or used directly as values.
+```javascript
+const name1 = { text: 'Matt' }
+const name2 = name1.text
 
 html [
-    head []
-    body [
-        h1 "Welcome back, {{name}}!"
-    ]
+  head []
+  body [
+    "Welcome back, {{name2}}"     
+  ]
 ]
-```
-Data must be declared in the top level of the document. The following will not work:
-```js
-div [
-    var x = 5
-    span "{{x}}"
-]
-```
-ADOM supports control flow:
-```js
-doctype html5
 
+```
+To use data as an attribute value you can interpolate into a string or use single braces.
+```javascript
+div attr1={val1} attr2='some text {{val2}}' []
+```
+
+#### CONTROL FLOW
+ADOM supports conditionals and loops.
+```javascript
 const items = [
-    'walk dog',
-    'feed dog',
-    'buy dog food'
+  'walk dog',
+  'feed dog',
+  'go to work'
 ]
 
 html [
-    head []
-    body [
-        h1 "TODO LIST"
-        ul [
-            each (item in items) [
-                li "{{item}}"
-            ]
-        ]
-        if (items.length == 0) [
-            p "Good job!"
-        ] else [
-            p "Lots of work to do..."
-        ]
+  head []
+  body [
+    ul [
+      // an optional second argument provides the index
+      each (i, idx in items) [
+        li "{{ i }}"
+      ]
     ]
+  ]
 ]
 ```
-`each` can take an optional second argument:
-```js
-each (item, i in items) [
-    // i is the index
-]
-```
-`each` can loop over objects too:
-```js
-doctype html5
-
-const items = {
-    item1: 'walk dog',
-    item2: 'feed dog',
-    item3: 'buy dog food'
+`each` can operate on objects too.
+```javascript
+const person = {
+  name: 'Bob',
+  age: 300
 }
 
 html [
-    head []
-    body [
-        h1 "TODO LIST"
-        ul [
-            each (key, value in items) [
-                li "{{key}}: {{value}}"
-            ]
-        ]
-    ]
-]
-```
-Data can come from external files too:
-```js
-doctype html5
-
-const styles = file 'style.css'
-
-html [
-    head [
-        style "{{styles}}"
-    ]
-    body [
-        // ...
-    ]
-]
-```
-ADOM supports custom tags using the `tag` keyword. Props are passed to tags using the attribute syntax documented above, and are used from within the tag using the `props` keyword:
-```js
-doctype html5
-
-tag ListItem [
-    li "{{props.item}}"
-]
-
-tag TodoList [
+  head []
+  body [
+    h2 "Person Details"
     ul [
-        each (item in props.items) [
-            ListItem item={item};
-        ]
+      each (key, val in person) [
+        li "{{ key }}: {{ val }}"
+      ]
     ]
+  ]
+]
+```
+Conditionals look like this:
+```javascript
+const isLoggedIn = true
+
+html [
+  head []
+  body [
+    div [
+      if (isLoggedIn) [
+        p "Welcome back!"
+      ] else [
+        p "Please sign in."
+      ]
+    ]
+  ]
+]
+```
+If conditionals or loops only have a single tag in their body, the brackets may be omitted.
+
+#### CUSTOM TAGS
+
+ADOM supports the creation of custom tags using the `tag` keyword.
+
+```javascript
+tag MyButton [
+  button "click me"
 ]
 
 html [
-    head []
-    body [
-        h1 "TODO LIST"
-        TodoList items={[
-            'walk dog',
-            'feed dog'
-        ]};
-    ]
+  head []
+  body [
+    MyButton[]
+  ]
 ]
 ```
-Tags can either be self-closed using `;` if they don't have children, or they can contain children. If you would like to add children to a tag, you use the `yield` keyword:
-```js
-doctype html5
+You can pass props to tags as regular attributes, and then access them using the `props` keyword.
+```javascript
+tag MyButton [
+  a href={props.link} [
+    button "click me"
+  ]
+]
 
-tag TestTag [
-    p "inside the tag 1"
+html [
+  head []
+  body [
+    MyButton link='/' []
+  ]
+]
+```
+You can display children in custom tags using the `yield` keyword.
+```javascript
+tag MyTag [
+  div [
     yield
-    p "inside the tag 2"
+  ]
 ]
 
 html [
-    head []
-    body [
-        TestTag [
-            p "tag child"
-        ]
+  head []
+  body [
+    MyTag [
+      p "tag child"
     ]
+  ]
 ]
 ```
-This compiles to the following html:
+Will produce the following HTML.
 ```html
-<!DOCTYPE html>
 <html>
-    <head></head>
-    <body>
-        <p>inside the tag 1</p>
-        <p>tag child</p>
-        <p>inside the tag 2</p>
-    </body>
+  <head></head>
+  <body>
+    <div>
+      <p>tag child</p>
+    </div>
+  </body>
 </html>
 ```
-#### REACTIVITY
-ADOM supports changing the state of your data at runtime.
+Tags can be imported and exported from external ADOM files. Importing is done using paths relative to the current ADOM file, much like in javascript. Any exported tags are made available to the file doing the importing.
 
-Let's take the following example and make it reactive:
-```js
-doctype html5
+```javascript
+// index.adom
 
-const name = 'matt'
+import 'buttons.adom'
 
-html [
-    head []
-    body [
-        h1 "Hello, {{name}}!"
-        input;
-    ]
-]
-```
-Let's say our goal is to update `name` in real time as you type. First, we have to create a block of javascript, and change `const` to `var`. By changing the type to `var` we are telling adom that this variable should be available for runtime modification.
-```js
-doctype html5
-
-var name = 'matt'
-
---
-    // all javascript code goes here
---
+doctype html
 
 html [
-    head []
-    body [
-        h1 "Hello, {{name}}!"
-        input;
-    ]
+  head []
+  body [
+    Primary text='click' []
+  ]
+]
+
+```
+```javascript
+// buttons.adom
+
+tag Primary [
+  button.btn-primary "{{ props.text }}"
+]
+
+export Primary
+
+```
+STYLES
+Regular CSS can be used in the classic way using long strings (triple quotes).
+```
+const styles = """
+body {
+  background: blue;
+}
+"""
+html [
+  head [
+    style "{{styles}}"
+  ]
 ]
 ```
-Now create a root node for your application:
-```js
-doctype html5
-
-var name = 'matt'
-
---
-    // all javascript code goes here
---
+Of course, long strings can be used directly as textnodes.
+```
+html [
+  head [
+    style """
+      body {
+        background: blue;
+      }
+    """
+  ]
+]
+```
+A more preferrable way to work with CSS files is to import them into variables using the `file` keyword.
+```javascript
+const styles = file 'main.css'
 
 html [
-    head []
-    body root [
-        h1 "Hello, {{name}}!"
-        input;
-    ]
+  head [
+    style "{{styles}}"
+  ]
 ]
 ```
-Attach an `input` event to the input tag, and put write your handler:
-```js
-doctype html5
+ADOM supports transormations on imported files. In this example, we will use Stylus to transform our stylus files into CSS.
+```javascript
+// server.js
+const stylus = require('stylus');
 
-var name = 'matt'
-
---
-    function updateName (e) {
-        // update code
+// filters are specified here in the ADOM constructor
+const compiler = new Adom({
+  root: 'src',
+  filters: {
+    stylus: function (text) {
+      return stylus(text);
     }
---
+  }
+});
+
+const html = compiler.render('index.adom');
+```
+To use the filter, simply specify it after the `file` keyword.
+```javascript
+// index.adom
+const styles = file stylus 'main.styl'
 
 html [
-    head []
-    body root [
-        h1 "Hello, {{name}}!"
-        input on:input='updateName($e)';
-    ]
+  head [
+    style "{{styles}}"
+  ]
 ]
 ```
-Finally, updating the state is as simple as updating the variable directly. And when you're ready to sync your document with the data, you call `$sync()`:
-```js
-doctype html5
-
-var name = 'matt'
-
---
-    function updateName (e) {
-        name = e.target.value
-        $sync()
+To use asynchronous filters, only a small change needs to be made. And no changes need to be made to your ADOM files.
+```javascript
+// filters are specified here in the ADOM constructor
+const compiler = new Adom({
+  root: 'src',
+  filters: {
+    asyncFilter: function (text, callback) {
+      someAsyncFilter(text, function (transformedText) {
+        callback(transformedText);
+      });
     }
---
+  }
+});
 
-html [
-    head []
-    body root [
-        h1 "Hello, {{name}}!"
-        input on:input='updateName($e)';
-    ]
+compiler.renderAsync('index.adom', function (html) {
+  console.log(html);
+});
+```
+
+Tag specific styles are achieved using the special `css` tag at the top of your tags.
+```javascript
+tag Primary [
+  css [
+    background 'grey'
+    padding '5px 15px'
+    border-radius '3px'
+  ]
+  button.btn-primary "{{ props.text }}"
 ]
 ```
-If you would like `$sync` to be called automatically after your event handler, you can rewrite your `on:input` like so:
-```js
-doctype html5
+Style attributes are written normally, values are written in strings, and no colons or semicolons are used. All rules are applied to the tag's root element. To style a sub-element, selectors are used.
+```javascript
+tag Tile [
+  css [
+    width '500px'
+    height '500px'
+    background 'grey'
 
-var name = 'matt'
-
---
-    function updateName (e) {
-        name = e.target.value
-    }
---
-
-html [
-    head []
-    body root [
-        h1 "Hello, {{name}}!"
-        input on:input={updateName};
+    '& > div' [
+      box-sizing 'border-box' 
+      width '100%'
+      height '100%'
+      padding '20px'
+      background 'white'
+    ] 
+  ]
+  div [
+    div [
+      h4 "{{props.title}}"
+      p "{{props.body}}"
     ]
+  ]
 ]
-
-````
+```
+Selectors are written in strings, and follow the same basic rules as other CSS preprocessors.
