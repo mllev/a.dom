@@ -290,7 +290,7 @@ tag Primary [
 export Primary
 
 ```
-STYLES
+#### STYLES
 Regular CSS can be used in the classic way using long strings (triple quotes).
 ```
 const styles = """
