@@ -17,8 +17,11 @@ In less than 2k lines of code, with no dependencies, and a single function API, 
 - server side rendering that is simpler, faster, and *far* easier to understand than all modern solutions
 - flexible code separation and project structure
 
+#### STARTING POINT
+The only thing you need to understand before continuing is how an HTML document is constructed. If you're comfortable creating a basic application in a single HTML file using `<script>` tags and `<style>` tags, you're ready to begin learning ADOM.
+
 #### CONCEPTS
-ADOM fits safely into the following two categories: compiler-based reactive framework and server-rendered templating engine. This allows for an extreme simplification of the modern web development environment. ADOM makes large dependencies like Babel and Webpack nice-to-haves rather than absolutely requirements.
+ADOM fits safely into the following two categories: compiler-based reactive framework and server-rendered templating engine. This allows for an extreme simplification of the modern web development environment. ADOM makes large dependencies like Babel and Webpack optional rather than absolutely requirements for a decent development experience.
 
 #### INSTALLATION AND USAGE
 ```
@@ -359,18 +362,17 @@ To use asynchronous filters, only a small change needs to be made. And no change
 // filters are specified here in the ADOM constructor
 const compiler = new Adom({
   root: 'src',
+  async: true,
   filters: {
     asyncFilter: function (text, callback) {
-      someAsyncFilter(text, function (transformedText) {
-        callback(transformedText);
-      });
+      callback(transformedText);
     }
   }
 });
 
-compiler.renderAsync('index.adom', function (html) {
+compiler.render('index.adom').then(html => {
   console.log(html);
-});
+})
 ```
 
 Tag specific styles are achieved using the special `css` tag at the top of your tags.
@@ -554,8 +556,17 @@ tag Counter [
   ]
 ]
 
+html [
+  head []
+  body [
+    div root [
+      Counter []
+    ]
+  ]
+]
+
 ```
-This is how *classical* components are achieved using ADOM. To execute code on the creation or destruction of these class instances, simply add a `mount` or `unmount` method, or both.
+This is how *classical* components are achieved using ADOM. You can add an optional `mount` and `unmount` if you need to keep track of when the elements themselves are created or destroyed.
 ```javascript
 --
 class Counter {
@@ -563,10 +574,10 @@ class Counter {
     this.count++
   }
   mount () {
-    alert('created!')
+    alert('created')
   }
   unmount () {
-    alert('destroyed!')
+    alert('destroyed')
   }
 }
 --
@@ -576,6 +587,15 @@ tag Counter [
   div [
     h2 "Counter: {{ count }}"
     button on:click="this.increment()" "increment"
+  ]
+]
+
+html [
+  head []
+  body [
+    div root [
+      Counter []
+    ]
   ]
 ]
 

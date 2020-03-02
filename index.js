@@ -16,7 +16,7 @@ var Adom = (function () {
   function Adom (config = {}) {
     this.ast_cache = {};
     this.cache = config.cache || false;
-    this.dirname = config.rootDir || "";
+    this.dirname = config.root || "";
     this.runtimeFilter = config.runtimeFilter;
     this.filters = config.filters || {};
     this.files = {};
@@ -1352,6 +1352,7 @@ var Adom = (function () {
   }
 
   function $$class (C, obj) {
+    if (!C) return obj;
     var i = new C();
     Object.keys(obj).forEach(function (k) {
       i[k] = obj[k];
@@ -1538,7 +1539,7 @@ var Adom = (function () {
             for (let i = 0; i < t.node.children.length; i++) {
               if (t.node.children[i].type === _tag) {
                 t.node.children[i].data.component = {
-                  bind: t.bind ? r.data.name : false,
+                  bind: r.data.name,
                   state: t.state
                 };
                 break;
@@ -1559,10 +1560,11 @@ var Adom = (function () {
               let c = r.data.component;
               let s = stringify_object(c.state);
               tag_local = c.state;
+              // for now, this is always true
+              // this may cause bugs where adom tries to bind to something its not supposed to
+              // in that case, go back to making it explicit with #
               if (c.bind) {
-                state = `$$class(${c.bind}, ${s})`;
-              } else {
-                state = s;
+                state = `$$class(typeof ${c.bind} === 'function' ? ${c.bind} : null, ${s})`;
               }
               tag_states.push(c.state);
             }
