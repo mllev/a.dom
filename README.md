@@ -408,4 +408,192 @@ tag Tile [
   ]
 ]
 ```
-Selectors are written in strings, and follow the same basic rules as other CSS preprocessors.
+Selectors are written in strings, and follow the same basic rules as other CSS preprocessors regarding media queries and the `&` character. The `&` is substituted for the outer selector (or implicit selector in the top level's case).
+
+#### REACTIVITY
+In ADOM, client-side javascript is written between sets of dashes `--`. All chunks of javascript are executed together in the same context when the window loads. This allows for complete flexibility about how your code is structured. To activate client-side functionality, all you must do is choose an element to be the `root` element of the app.
+```javascript
+--
+alert('hello from the client');
+--
+
+html [
+  head []
+  body [
+    div root []
+  ]
+]
+```
+ADOM adds two simple things to your client side context:
+
+1. Access to all data variables used by your UI
+2. a `$sync()` function that updates your UI to reflect the current state of the data. This function is called automatically after event handlers are called. More on that later.
+
+In order for a variable to be accessible from javascript, we must tell ADOM that it will be modified. We do this by declaring a `var` instead of a `const`. `const` should be used for static data that won't be modified. Events are attached to elements using the `on` directive.
+```javascript
+var name = 'Matt'
+
+--
+function updateName (e) {
+  name = e.target.value;
+}
+--
+
+html [
+  head []
+  body [
+    div root [
+      h1 "Hello, {{name}}"
+      input on:input='updateName($e)' []
+    ]
+  ]
+]
+```
+In the above example, a call to `$sync()` was not needed because it was called implicitly after the javascript in the event handler. The above example can even be shorted:
+```javascript
+var name = 'Matt'
+
+html [
+  head []
+  body [
+    div root [
+      h1 "Hello, {{name}}"
+      input on:input='name = $e.target.name' []
+    ]
+  ]
+]
+```
+Understanding the above example, teaches you virtually all you need to know about ADOM. The only API call provided to the client is `$sync()`, and the only other bit of context that the programmer needs to memorize is `$e`, which is the event object of the current handler.
+
+#### COMPONENTS
+Let's take the counter below and componentize it.
+```javascript
+var count = 0
+
+--
+function increment () {
+  count++
+}
+--
+
+html [
+  head []
+  body [
+    div root [
+      h2 "Counter: {{ count }}"
+      button on:click="increment()" "increment" 
+    ]
+  ]
+]
+```
+The following will not work just yet. The problem is that javascript is not gonna know what `count` is, because it's local to a tag.
+```javascript
+--
+function increment () {
+  count++
+}
+--
+
+tag Counter [
+  var count = 0
+  div [
+    h2 "Counter: {{ count }}"
+    button on:click="increment()" "increment"
+  ]
+]
+
+html [
+  head []
+  body [
+    div root [
+      Counter []
+    ]
+  ]
+]
+```
+The first thing we can do is pass the context to the function itself.
+```javascript
+--
+function increment (counter) {
+  counter.count++
+}
+--
+
+tag Counter [
+  var count = 0
+  div [
+    h2 "Counter: {{ count }}"
+    button on:click="increment(this)" "increment"
+  ]
+]
+
+html [
+  head []
+  body [
+    div root [
+      Counter []
+    ]
+  ]
+]
+```
+The next thing we can do is attach the state of the tag to an instance of a class. To do this all we must do is define a class with the same name as the tag.
+```javascript
+--
+class Counter {
+  increment() {
+    this.count++
+  }
+}
+--
+
+tag Counter [
+  var count = 0
+  div [
+    h2 "Counter: {{ count }}"
+    button on:click="this.increment()" "increment"
+  ]
+]
+
+```
+This is how *classical* components are achieved using ADOM. To execute code on the creation or destruction of these class instances, simply add a `mount` or `unmount` method, or both.
+```javascript
+--
+class Counter {
+  increment() {
+    this.count++
+  }
+  mount () {
+    alert('created!')
+  }
+  unmount () {
+    alert('destroyed!')
+  }
+}
+--
+
+tag Counter [
+  var count = 0
+  div [
+    h2 "Counter: {{ count }}"
+    button on:click="this.increment()" "increment"
+  ]
+]
+
+```
+The final way do manipulate tag specific data is by directly manipulating it.
+```javascript
+tag Counter [
+  var count = 0
+  div [
+    h2 "Counter: {{ count }}"
+    button on:click="count++" "increment"
+  ]
+]
+
+html [
+  head []
+  body [
+    div root [ Counter[] ]
+  ]
+]
+```
