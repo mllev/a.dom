@@ -70,7 +70,7 @@ a href='/' [
 ]
 ```
 
-If a textnode is the only child of a tag, the bracks may be omitted.
+If a textnode is the only child of a tag, the brackets may be omitted.
 
 ``` javascript
 a href='/' 'homepage'
@@ -130,7 +130,8 @@ const location = {
 }
 const happy = alive == true ? false : true
 ```
-Data can be interpolated into strings using double brackets or used directly as values.
+
+Data can be interpolated into strings using double braces or used directly as values.
 ```javascript
 const name1 = { text: 'Matt' }
 const name2 = name1.text
@@ -143,6 +144,7 @@ html [
 ]
 
 ```
+
 To use data as an attribute value you can interpolate into a string or use single braces.
 ```javascript
 div attr1={val1} attr2='some text {{val2}}' []
