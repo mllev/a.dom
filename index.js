@@ -1013,7 +1013,7 @@ var Adom = (function () {
 
     function assemble_attributes(attr) {
       return Object.keys(attr).map(function (k) {
-        if (k === 'root') return '';
+        if (k === 'root' || k === 'innerHTML') return '';
         let v = evaluate(attr[k]);
         if (v === false || v == null) return '';
         return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
@@ -1157,10 +1157,15 @@ var Adom = (function () {
             html += `<script>${runtime()}${end_script()}`;
             html += `<style>${ast.data.styles}</style>`;
           }
-          html += `<${n}${assemble_attributes(r.data.attributes)}>`;
-          if (void_tags.indexOf(n) === -1) {
-            children(r, yieldfn);
-            html += `</${n}>`;
+          if (r.data.attributes.innerHTML) {
+            let a = r.data.attributes;
+            html += `<${n}${assemble_attributes(a)}>${evaluate(a.innerHTML)}</${n}>`;
+          } else {
+            html += `<${n}${assemble_attributes(r.data.attributes)}>`;
+            if (void_tags.indexOf(n) === -1) {
+              children(r, yieldfn);
+              html += `</${n}>`;
+            }
           }
           break;
         }
@@ -1589,7 +1594,7 @@ var Adom = (function () {
             let ctx = tag_states.length ? tag_states[tag_states.length - 1] : null;
             let props = `function ($) { return (function (${expand(tag_local)}) { return ${stringify_object(r.data.attributes)}; }).call($, ${expand(tag_local, '$.')}); }`;
 
-            if (void_tags.indexOf(n) !== -1) {
+            if (void_tags.indexOf(n) !== -1 || r.children.length <= 0) {
               sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, ctx)}, ${state});`);
               if (state) tag_states.pop();
               break;
