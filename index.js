@@ -624,6 +624,12 @@ var Adom = (function () {
           attr.root = true;
           attr.id = { type: 'string', data: [{ type: 'chunk', data: `adom-root-${UID}` }] };
         } else if (accept("ident")) {
+          // allow ':' in attribute names
+          while (accept(':')) {
+            key += ':'
+            key += tok.data;
+            expect('ident');
+          }
           if (accept("=")) {
             if (accept("{")) {
               attr[key] = parse_expr();
