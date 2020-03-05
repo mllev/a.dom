@@ -18,7 +18,7 @@ var Adom = (function () {
     this.cache = config.cache || false;
     this.dirname = config.root || "";
     this.runtimeFilter = config.runtimeFilter;
-    this.filters = config.filters || {};
+    this.filters = Object.assign(default_filters, config.filters || {});
     this.files = {};
     this.uid = Math.floor(Math.random() * 10000);
     this._c = 0; // only used for rand_class - will remove soon
@@ -41,6 +41,12 @@ var Adom = (function () {
   function throw_adom_error (err) {
     err.origin = 'adom';
     throw err;
+  };
+
+  const default_filters = {
+    json: function (text) {
+      return JSON.parse(text);
+    }
   };
 
   const void_tags = [
@@ -107,7 +113,8 @@ var Adom = (function () {
       ",",
       ">",
       "<",
-      "?"
+      "?",
+      "|"
     ];
 
     function is_newline (c) {
@@ -865,11 +872,15 @@ var Adom = (function () {
       return data;
     }
 
-    function parse_rhs (to_runtime) {
+    function parse_rhs () {
       let val;
       if (accept("file")) {
         // the file will be resolved to a string later
         val = { pos: tok.pos, file: tok.file, type: 'file', name: parse_strict_string() };
+        if (accept('|')) {
+          val.filter = { name: tok.data, pos: tok.pos, file: tok.file };
+          expect('ident'); 
+        }
       } else {
         val = parse_expr();
       }
@@ -1660,34 +1671,39 @@ var Adom = (function () {
     };
   };
 
-  /*
-  todo
-  parser updates:
-  error if a tag uses styles or data AND has more than one root node
-  */
-
   Adom.prototype.finalize = function (ast) {
     let sync = this.generate_sync(ast);
-    // tranform user runtime
+    if (this.runtimeFilter) {
+      ast.data.runtime = this.runtimeFilter(ast.data.runtime);
+    }
     ast.data.runtime = sync + '\n' + ast.data.runtime;
-    // import all files and perform tansforms if specified
     let pending = [];
     const walk = (n) => {
       if (n.type === _set) {
         let dst = n.data.rhs;
         if (dst.type === 'file') {
-          pending.push({ file: dst.name, node: n });
+          pending.push({ file: dst.name, node: n, filter: dst.filter });
         }
       }
-      n.children.forEach(c => {
-        walk(c);
-      });
+      n.children.forEach(walk);
     }
     walk(ast);
     pending.forEach(p => {
-      let f = this.openFile(p.file);
+      let file = this.openFile(p.file);
+      let f = p.filter; 
+      if (f) {
+        if (this.filters[f.name]) {
+          try {
+            file.text = this.filters[f.name](file.text);
+          } catch (e) {
+            throw_adom_error({ msg: f.name + ' filter error: ' + e.toString(), pos: f.pos, file: f.file });
+          }
+        } else {
+          throw_adom_error({ msg: 'unknown filter: ' + f.name, pos: f.pos, file: f.file });
+        }
+      }
       p.node.data.rhs.type = 'string'
-      p.node.data.rhs.data = [{ type: 'chunk', data: f.text }];
+      p.node.data.rhs.data = [{ type: 'chunk', data: file.text }];
     });
   };
 

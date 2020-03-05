@@ -348,10 +348,10 @@ const compiler = new Adom({
 
 const html = compiler.render('index.adom');
 ```
-To use the filter, simply specify it after the `file` keyword.
+To use the filter, simply pipe your file output into it. Currently only files support pipes.
 ```javascript
 // index.adom
-const styles = file stylus 'main.styl'
+const styles = file 'main.styl' | stylus
 
 html [
   head [
