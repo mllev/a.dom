@@ -1727,7 +1727,7 @@ var Adom = (function () {
       let tokens = this.tokenize(f.text, f.name);
       let ast = this.parse(tokens);
       this.finalize(ast);
-      let html = this.execute(ast, input_state);
+      let html = this.execute(ast, input_state || {});
       return html;
     } catch (e) {
       if (e.origin === 'adom') {
