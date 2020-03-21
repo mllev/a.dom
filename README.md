@@ -21,18 +21,56 @@ In less than 2k lines of code, with no dependencies, and a single function API, 
 The only thing you need to understand before continuing is how an HTML document is constructed. If you're comfortable creating a basic application in a single HTML file using `<script>` tags and `<style>` tags, you're ready to begin learning ADOM.
 
 #### CONCEPTS
-ADOM fits safely into the following two categories: compiler-based reactive framework and server-rendered templating engine. This allows for an extreme simplification of the modern web development environment. ADOM makes large dependencies like Babel and Webpack optional rather than absolutely requirements for a decent development experience.
+ADOM fits safely into the following two categories: compiler-based reactive framework and server-rendered templating engine. This allows for an extreme simplification of the modern web development environment. ADOM makes large dependencies like Babel and Webpack optional rather than absolute requirements for a decent development experience.
 
 #### INSTALLATION AND USAGE
+ADOM can be used as either a library or as a global compiler/development server. Both options are extremely simple. This guide will assume that you are using ADOM as a library, so all the features can be covered.
+
+First, create a basic server.
+```javascript
+require('http').createServer(function (req, res) {
+  res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
+  res.end('<h1>Hey!</h1>');
+}).listen(8000, function () {
+  console.log('Listening on port 8000');
+})
+```
+Then install ADOM.
 ```
 npm install adom-js
 ```
+Now create a basic ADOM file.
+```javascript
+html [
+  head []
+  body [
+    h1 "Hello!"
+  ]
+]
+```
+Using ADOM is a simple as creating an instance of the compiler, and compiling your ADOM files on each request. This is ADOM's development configuration, as there is no need to server restarts.
+```javascript
+const Adom = require('adom-js');
+const compiler = new Adom();
 
+require('http').createServer(function (req, res) {
+  res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
+  res.end(compiler.render('index.adom');
+}).listen(8000, function () {
+  console.log('Listening on port 8000');
+})
+```
 Unlike other templating engines, ADOM does not generate a javascript file. Production mode only requires that `cache` is set to `true`.
 ```javascript
 const Adom = require('adom-js');
 const compiler = new Adom({ cache: true });
-const html = compiler.render('index.adom');
+
+require('http').createServer(function (req, res) {
+  res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
+  res.end(compiler.render('index.adom'));
+}).listen(8000, function () {
+  console.log('Listening on port 8000');
+});
 ```
 If `cache` is set to `false`, the entire ADOM source tree will be recompiled on each call to `render`. This allows for a smooth development experience that doesn't require additional tools to watch your files.
 
@@ -43,7 +81,13 @@ const compiler = new Adom({
   cache: true,
   root: 'src'
 });
-const html = compiler.render('index.adom');
+
+require('http').createServer(function (req, res) {
+  res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
+  res.end(compiler.render('index.adom'));
+}).listen(8000, function () {
+  console.log('Listening on port 8000');
+});
 ```
 
 #### SYNTAX
@@ -89,14 +133,16 @@ div.class1.class2 []
 Data can be easily passed to an ADOM template for rendering.
 ```javascript
 const Adom = require('adom-js');
-
 const compiler = new Adom({ root: './src' });
 
-const html = compiler.render('index.adom', {
-  name: 'Matt'
+require('http').createServer(function (req, res) {
+  res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
+  res.end(compiler.render('index.adom', {
+    name: 'Matt'
+  }));
+}).listen(8000, function () {
+  console.log('Listening on port 8000');
 });
-
-console.log(html);
 ```
 Interpolation is done using double braces.
 ```javascript
@@ -345,8 +391,6 @@ const compiler = new Adom({
     }
   }
 });
-
-const html = compiler.render('index.adom');
 ```
 To use the filter, simply pipe your file output into it. Currently only files support pipes.
 ```javascript
@@ -359,24 +403,6 @@ html [
   ]
 ]
 ```
-To use asynchronous filters, only a small change needs to be made. And no changes need to be made to your ADOM files.
-```javascript
-// filters are specified here in the ADOM constructor
-const compiler = new Adom({
-  root: 'src',
-  async: true,
-  filters: {
-    asyncFilter: function (text, callback) {
-      callback(transformedText);
-    }
-  }
-});
-
-compiler.render('index.adom').then(html => {
-  console.log(html);
-})
-```
-
 Tag specific styles are achieved using the special `css` tag at the top of your tags.
 ```javascript
 tag Primary [
