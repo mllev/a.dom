@@ -48,7 +48,7 @@ html [
   ]
 ]
 ```
-Using ADOM is a simple as creating an instance of the compiler, and compiling your ADOM files on each request. This is ADOM's development configuration, as there is no need to server restarts.
+Using ADOM is a simple as creating an instance of the compiler, and compiling your ADOM files on each request. This is ADOM's development configuration, as there is no need for server restarts.
 ```javascript
 const Adom = require('adom-js');
 const compiler = new Adom();
