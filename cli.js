@@ -22,16 +22,16 @@ usage: adom [options]
 for (let i = 0; i < process.argv.length; i++) {
   switch (process.argv[i]) {
     case '-o':
-      config.out = process.argv[i+1]
+      config.out = process.argv[++i]
       break
     case '-d':
-      config.root = process.argv[i+1]
+      config.root = process.argv[++i]
       break
     case '-p':
-      config.devPort = process.argv[i+1]
+      config.devPort = process.argv[++i]
       break
     case '-r':
-      let route = process.argv[i+1];
+      let route = process.argv[++i];
       let parts = route.split('=');
       if (parts.length === 2) {
         routes[parts[0]] = parts[1];
@@ -88,6 +88,7 @@ if (!config.dev) {
   if (!config.file || !config.out) {
     console.log(help);
   } else {
+    console.log(config);
     fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file))
   }
 } else {
