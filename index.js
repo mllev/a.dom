@@ -1312,7 +1312,7 @@ var Adom = (function () {
 
   function $$if (cond, condIf, condElse) {
       if (cond) condIf();
-      else condElse();
+      else if (condElse) condElse();
   }
 
   function $$each (list, fn) {
