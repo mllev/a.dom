@@ -5,35 +5,84 @@ let fs = require('fs')
 let path = require('path')
 let config = {}
 let dir = process.cwd()
+let routes = {};
 let help = `
-usage: adom -i <input> -o <output> [options]
+usage: adom [options]
   options:
-    -r <dir>   root directory - omit if your adom source tree begins in the current directory
-    -p <port>  development server port - defaults to 5000
-    --dev      start a development server
-      
+    <input>     input file name
+    -o <output> output file name
+                example: adom index.adom -o index.html
+    --dev       start a development server that statically serves the current directory
+    -p <port>   development server port - defaults to 5000
+    -r <route>  a route so the development server knows how to map adom files to urls
+                example: adom --dev -r /=index.adom -r /home=home.adom
+    -d <dir>    directory location of adom files - omit if in current directory
 `
 
 for (let i = 0; i < process.argv.length; i++) {
   switch (process.argv[i]) {
-    case '-i':
-      config.file = process.argv[i+1]
-      break
     case '-o':
       config.out = process.argv[i+1]
       break
-    case '-r':
+    case '-d':
       config.root = process.argv[i+1]
       break
     case '-p':
       config.devPort = process.argv[i+1]
+      break
+    case '-r':
+      let route = process.argv[i+1];
+      let parts = route.split('=');
+      if (parts.length === 2) {
+        routes[parts[0]] = parts[1];
+      }
+      break
     case '--dev':
       config.dev = true
+      break
+    default:
+      config.file = process.argv[i]
       break
   }
 }
 
-let c = new Adom({ rootDir: path.resolve(dir, config.root || '') })
+let mimeTypes = {
+  html:  'text/html',
+  ico: 'image/vnd.microsoft.icon',
+  jpeg: 'image/jpeg',
+  jpg:  'image/jpeg',
+  js:  'text/javascript',
+  json:  'application/json',
+  jsonld:  'application/ld+json',
+  mjs: 'text/javascript',
+  mp3: 'audio/mpeg',
+  mpeg:  'video/mpeg',
+  ico: 'image/vnd.microsoft.icon',
+  gz: 'application/gzip',
+  gif: 'image/gif',
+  rar: 'application/vnd.rar',
+  rtf: 'application/rtf',
+  svg: 'image/svg+xml',
+  tar: 'application/x-tar',
+  tif: 'image/tiff',
+  tiff:  'image/tiff',
+  ttf: 'TrueType Font  font/ttf',
+  txt: 'text/plain',
+  vsd: 'application/vnd.visio',
+  wav: 'audio/wav',
+  weba:  'audio/webm',
+  webm:  'video/webm',
+  webp:  'image/webp',
+  woff:  'font/woff',
+  woff2: 'font/woff2',
+  xhtml: 'application/xhtml+xml',
+  xls: 'application/vnd.ms-excel',
+  xlsx:  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xml: 'text/xml',
+  zip: 'application/zip'
+}
+
+let c = new Adom({ root: path.resolve(dir, config.root || '') })
 
 if (!config.dev) {
   if (!config.file || !config.out) {
@@ -44,9 +93,27 @@ if (!config.dev) {
 } else {
   let port = config.devPort || 5000
   require('http').createServer(function (req, res) {
-    res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' })
-    res.end(c.render(config.file))
+    let url = req.url;
+    console.log(req.method, url);
+    if (routes[url]) {
+      res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
+      res.end(c.render(routes[url]));
+      return;
+    } else {
+      try {
+        let file = url[0] === '/' ? url.slice(1) : url;
+        let parts = file.split('.');
+        let ext = parts[parts.length - 1];
+        let mime = mimeTypes[ext] || 'text/plain';
+        let data = fs.readFileSync(file);
+        res.writeHead(200, { 'Content-type': `${mime}; charset=utf-8` });
+        res.end(data);
+      } catch (e) {
+        res.writeHead(404, { 'Content-type': 'text/html; charset=utf-8' });
+        res.end('<h4>not found</h4>');
+      }
+    }
   }).listen(port, function () {
-    console.log('Development server running on port: ' + port)
-  })
+    console.log('Development server running on port: ' + port);
+  });
 }
