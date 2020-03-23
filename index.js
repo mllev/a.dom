@@ -1305,8 +1305,13 @@ var Adom = (function () {
 
   function $$addEventListeners (node, events) {
       var keys = Object.keys(events);
+      if (!node.__eventRefs) node.__eventRefs = {};
       keys.forEach(function (event) {
+          if (node.__eventRefs[event]) {
+            node.removeEventListener(event, node.__eventRefs[event]);
+          }
           node.addEventListener(event, events[event]);
+          node.__eventRefs[event] = events[event];
       })
   }
 
@@ -1362,7 +1367,7 @@ var Adom = (function () {
       Object.keys(props).forEach(function (p) {
           var a = props[p];
           if (p === 'events') return;
-          var v = a.constructor === Array ? a.join(' ') : a;
+          var v = (a && a.constructor === Array) ? a.join(' ') : a;
           if (p in node) {
               node[p] = v;
           } else if (v === false || v == null) {
@@ -1393,7 +1398,7 @@ var Adom = (function () {
       } else if (node.tagName && (type === node.tagName.toLowerCase())) {
           if (state && !node.__adomState) node.__adomState = state;
           $$attr(node, props(node.__adomState));
-          if ($$firstSync && events) $$addEventListeners(node, events);
+          if (events) $$addEventListeners(node, events);
       } else {
           var out = node;
           node = $$create(type, props, events, state);
