@@ -24,6 +24,9 @@ for (let i = 0; i < process.argv.length; i++) {
     case '-o':
       config.out = process.argv[++i]
       break
+    case '-f':
+      config.forceWrite = true;
+      break
     case '-d':
       config.root = process.argv[++i]
       break
@@ -38,7 +41,7 @@ for (let i = 0; i < process.argv.length; i++) {
       }
       break
     case '--dev':
-      config.dev = true
+      config.dev = true;
       break
     default:
       config.file = process.argv[i]
@@ -88,8 +91,12 @@ if (!config.dev) {
   if (!config.file || !config.out) {
     console.log(help);
   } else {
-    console.log(config);
-    fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file))
+    let p = path.resolve(dir, config.out);
+    if (fs.existsSync(p) && !config.forceWrite) {
+      console.log('Error: file already exists:', p);
+    } else {
+      fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file));
+    }
   }
 } else {
   let port = config.devPort || 5000
