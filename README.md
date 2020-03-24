@@ -487,7 +487,9 @@ html [
   ]
 ]
 ```
-In the above example, a call to `$sync()` was not needed because it was called implicitly after the javascript in the event handler. The above example can even be shorted:
+In the above example, a call to `$sync()` was not needed because it was called implicitly after the javascript in the event handler. If you would like to prevent `$sync` from being called after the handler, use the `nosync` keyword after the handler like this: `input on:input='updateName($e)' nosync []`
+
+The above example can even be shorted:
 ```javascript
 var name = 'Matt'
 

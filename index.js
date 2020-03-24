@@ -94,7 +94,8 @@ var Adom = (function () {
       "var",
       "const",
       "root",
-      "css"
+      "css",
+      "nosync"
     ];
 
     let symbols = [
@@ -653,7 +654,8 @@ var Adom = (function () {
           expect("ident");
           expect("=");
           handler = parse_strict_string();
-          events.push({ type: evt, handler: handler });
+          let nosync = accept('nosync');
+          events.push({ type: evt, handler: handler, sync: !nosync });
         } else {
           break;
         }
@@ -1522,7 +1524,7 @@ var Adom = (function () {
         r = true;
         ex = '';
       }
-      return `"${e.type}": function ($e) { (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(state, r)}; $sync(); }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
+      return `"${e.type}": function ($e) { (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(state, r)}; ${e.sync ? '$sync()' : ''} }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
     }
 
     function event_object (events, state) {
