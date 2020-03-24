@@ -11,12 +11,16 @@ usage: adom [options]
   options:
     <input>     input file name
     -o <output> output file name
-                example: adom index.adom -o index.html
+    -f          force write if the output file already exists
+                example: adom index.adom -o index.html -f
+
     --dev       start a development server that statically serves the current directory
     -p <port>   development server port - defaults to 5000
     -r <route>  a route so the development server knows how to map adom files to urls
-                example: adom --dev -r /=index.adom -r /home=home.adom
+                example: adom --dev -r /=index.adom -r /home=home.adom -p 8080
+
     -d <dir>    directory location of adom files - omit if in current directory
+                example: adom -d src index.adom -o index.html -f
 `
 
 for (let i = 0; i < process.argv.length; i++) {
