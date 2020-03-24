@@ -10,10 +10,10 @@ Advanced Data Oriented Markup
 
 ADOM is a revolutionary tool that combines the simplicity of the early web with the power of the modern web.
 
-In less than 2k lines of code, with no dependencies, and a single function API, ADOM packs in:
+In less than 2k lines of code, with no dependencies whatsoever, ADOM includes:
 
-- an extremely terse templating language with no whitespace sensitivity
-- a high speed reactive UI engine using plain Javascript, with no modifications made to your code (making it fully compatible with Javascript preprocessors, and the full ecosystem of tools)
+- an extremely terse templating language with data declaration, control flow, custom tags, and no whitespace sensitivity
+- a lightweight, high speed reactive UI engine exposed as a single API call to your Javascript
 - server side rendering that is simpler, faster, and *far* easier to understand than all modern solutions
 - flexible code separation and project structure
 
@@ -24,7 +24,15 @@ The only thing you need to understand before continuing is how an HTML document 
 ADOM fits safely into the following two categories: compiler-based reactive framework and server-rendered templating engine. This allows for an extreme simplification of the modern web development environment. ADOM makes large dependencies like Babel and Webpack optional rather than absolute requirements for a decent development experience.
 
 #### INSTALLATION AND USAGE
-ADOM can be used as either a library or as a global compiler/development server. Both options are extremely simple. This guide will assume that you are using ADOM as a library, so all the features can be covered.
+ADOM can be used as either a library or as a global compiler/development server. Both options are extremely simple. 
+
+If you would like to use the built-in development server instead, use the following commands:
+```
+npm install -g adom-js
+touch index.adom
+adom --dev -r /=index.adom
+```
+Now you can edit `index.adom` without needing to restart the server. The rest of this guide will assume that you are using ADOM as a library, so all the features can be covered.
 
 First, create a basic server.
 ```javascript
