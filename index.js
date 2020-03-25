@@ -1487,7 +1487,7 @@ var Adom = (function () {
           return `(${v1} ${expr.op} ${v2})`;
         } break;
         case 'parenthetical': {
-          return `(${print_expression})`;
+          return `(${print_expression(expr.data)})`;
         } break;
       }
     }
