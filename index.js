@@ -742,7 +742,18 @@ var Adom = (function () {
       let attr_data = parse_attributes();
       let events = attr_data[1];
       let attr = attr_data[0];
-      if (classlist.data.length > 0) attr.class = classlist;
+      if (classlist.data.length > 0) {
+        if (attr.class) {
+          if (attr.class.type === 'array') {
+            attr.class.data = classlist.data.concat(attr.class.data); 
+          } else {
+            classlist.data.push(attr.class);
+            attr.class = classlist; 
+          }
+        } else {
+          attr.class = classlist;
+        }
+      }
       let node = ast_node(_tag, {
         name: name,
         attributes: attr,
