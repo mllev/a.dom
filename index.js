@@ -1316,6 +1316,7 @@ var Adom = (function () {
   const adom_runtime = `
   var $$processed = [];
   var $$firstSync = true;
+  var $$syncing = false;
   var $$props = [];
 
   function $$push_props (props) {
@@ -1449,16 +1450,20 @@ var Adom = (function () {
     const sync_func = () => {
       return `
   function $sync() {
+    if ($$syncing === false) {
+      $$syncing = true;
       var par = window["adom-root-${this.uid}"];
       var $ = undefined;
       //console.time('sync');
       $$processed.push(0);
-  ${sync_body.join('\n')}
+      ${sync_body.join('\n')}
       $$clean(par);
       $$processed.pop();
       //console.timeEnd('sync');
       $$firstSync = false;
-   }
+      $$syncing = false;
+    }
+  }
       `
     }
 
