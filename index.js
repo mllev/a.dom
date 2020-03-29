@@ -95,7 +95,8 @@ var Adom = (function () {
       "const",
       "root",
       "css",
-      "nosync"
+      "nosync",
+      "repeat"
     ];
 
     let symbols = [
@@ -201,7 +202,7 @@ var Adom = (function () {
           tok.data *= -1;
           tokens.pop();
         }
-      } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z")) {
+      } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === '_') {
         let i = cursor;
         tok.data = "";
         while (
@@ -568,7 +569,16 @@ var Adom = (function () {
       expect("[");
       if (!peek(']')) {
         while (true) {
-          arr.push(parse_expr());
+          if (accept('repeat')) {
+            let expr = parse_expr();
+            let count = tok.data;
+            expect('number');
+            for (let i = 0; i < count; i++) {
+              arr.push(expr);
+            }
+          } else {
+            arr.push(parse_expr());
+          }
           if (!accept(",")) break;
         }
       }
