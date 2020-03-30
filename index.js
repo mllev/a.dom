@@ -983,21 +983,21 @@ var Adom = (function () {
     return ast;
   };
 
-  Adom.prototype.execute = function(ast, initial_state) {
+  Adom.prototype.execute = function(ast, initial_state, mount) {
     let html = "";
     let state = [initial_state];
     let file_ctx = [];
 
     function runtime () {
       return [
-        `window.onload = function () {`,
+        !mount ? `window.onload = function () {` : `(function () {`,
         `  var $$adom_state = ${JSON.stringify(state[0])};`,
         `  ${adom_runtime}`,
         `  (function (${Object.keys(state[0]).join(', ')}) {`,
           `  ${ast.data.runtime}`,
           `  $sync();`,
           `})(${Object.keys(state[0]).map(k => `$$adom_state.${k}`).join(', ')})`,
-        `}`
+        !mount ? `};` : `})();`
       ].join('\n');
     }
 
@@ -1159,6 +1159,8 @@ var Adom = (function () {
       return file_ctx[file_ctx.length - 1].custom_tags[name] || undefined;
     }
 
+    let in_script = false;
+
     function walk (r, yieldfn) {
       switch (r.type) {
         case _doctype: {
@@ -1177,7 +1179,7 @@ var Adom = (function () {
             break;
           }
           if (r.data.attributes.root) {
-            html += `<script>${runtime()}${end_script()}`;
+            if (!mount) html += `<script>${runtime()}${end_script()}`;
             html += `<style>${ast.data.styles}</style>`;
           }
           if (r.data.attributes.innerHTML) {
@@ -1186,7 +1188,9 @@ var Adom = (function () {
           } else {
             html += `<${n}${assemble_attributes(r.data.attributes)}>`;
             if (void_tags.indexOf(n) === -1) {
+              if (n === 'script') in_script = true;
               children(r, yieldfn);
+              in_script = false;
               html += `</${n}>`;
             }
           }
@@ -1197,7 +1201,11 @@ var Adom = (function () {
           break;
         }
         case _textnode: {
-          html += escapeHTML(evaluate(r.data));
+          if (in_script) {
+            html += evaluate(r.data);
+          } else {
+            html += escapeHTML(evaluate(r.data));
+          }
           break;
         }
         case _set: {
@@ -1250,7 +1258,10 @@ var Adom = (function () {
 
     walk(ast);
 
-    return html;
+    return mount ? {
+      html: html,
+      runtime: runtime()
+    } : html;
   };
 
   Adom.prototype.print_error = function (err, str) {
@@ -1379,9 +1390,6 @@ var Adom = (function () {
       }
       if (state) {
         node.__adomState = state;
-        if (state.mount) {
-          state.mount();
-        }
       }
       if (events) $$addEventListeners(node, events);
       return node;
@@ -1414,15 +1422,18 @@ var Adom = (function () {
   function $$e (par, type, props, events, state, children) {
       var index = $$processed[$$processed.length - 1]++;
       var node = par.childNodes[index];
+      var isnew = false
       if (!node) {
           node = $$create(type, props, events, state);
           par.appendChild(node);
+          isnew = true;
       } else if (type === 'text' && node.nodeType === Node.TEXT_NODE) {
           node.nodeValue = props(node.__adomState || state);
       } else if (node.tagName && (type === node.tagName.toLowerCase())) {
           if (state && !node.__adomState) node.__adomState = state;
           $$attr(node, props(node.__adomState));
           if (events) $$addEventListeners(node, events);
+          if ($$firstSync) isnew = true; // make sure mount gets called on first render
       } else {
           var out = node;
           node = $$create(type, props, events, state);
@@ -1430,12 +1441,16 @@ var Adom = (function () {
             out.__adomState.unmount();
           }
           par.replaceChild(node, out);
+          isnew = true;
       }
       if (children) {
           $$processed.push(0);
           children(node, node.__adomState || null);
           $$clean(node);
           $$processed.pop();
+      }
+      if (isnew && state && state.mount) {
+        state.mount();
       }
   }
   `;
@@ -1448,7 +1463,7 @@ var Adom = (function () {
     let tag_states = [];
 
     const sync_func = () => {
-      return `
+      return sync_body.length ? `
   function $sync() {
     if ($$syncing === false) {
       $$syncing = true;
@@ -1464,7 +1479,7 @@ var Adom = (function () {
       $$syncing = false;
     }
   }
-      `
+      `: 'function $sync() {}\n';
     }
 
     function print_expression (expr) {
@@ -1772,6 +1787,26 @@ var Adom = (function () {
       return html;
     }
   };
+
+  Adom.prototype.mount = function (sel, str) {
+    try {
+      let tokens = this.tokenize(str, 'main');
+      let ast = this.parse(tokens);
+      let sync = this.generate_sync(ast);
+      ast.data.runtime = sync + '\n' + ast.data.runtime;
+      let out = this.execute(ast, {}, true);
+      document.querySelector(sel).innerHTML = out.html;
+      window.eval(out.runtime);
+    } catch (e) {
+      let html
+      if (e.origin === 'adom') {
+        html = `<pre>${this.print_error(e, str)}</pre>`;
+      } else {
+        html = `<pre>${e.toString()}</pre>`;
+      }
+      document.querySelector(sel).innerHTML = html;
+    }
+  }
 
   return Adom;
 })();

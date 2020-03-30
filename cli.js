@@ -122,7 +122,7 @@ if (!config.dev) {
         res.end(data);
       } catch (e) {
         res.writeHead(404, { 'Content-type': 'text/html; charset=utf-8' });
-        res.end('<h4>not found</h4>');
+        res.end('<p>Not found.</p>');
       }
     }
   }).listen(port, function () {
