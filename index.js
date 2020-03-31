@@ -116,7 +116,12 @@ var Adom = (function () {
       ">",
       "<",
       "?",
-      "|"
+      "|",
+      "+",
+      "/",
+      "-",
+      "*",
+      "%"
     ];
 
     function is_newline (c) {
@@ -182,8 +187,13 @@ var Adom = (function () {
         while (c !== "\n" && i <= end_pos) c = prog[++i];
         cursor = i;
         continue;
-      } else if (c >= "0" && c <= "9") {
-        let neg = tokens[tokens.length - 1].type === "-";
+      } else if ((c >= "0" && c <= "9") ||
+        (c === '-' && (prog[cursor+1] >= "0" && prog[cursor+1] <= "9"))) {
+        let neg = false
+        if (c === '-') {
+          neg = true;
+          c = prog[++cursor];
+        }
         let num = "";
         let i = cursor;
         let dot = false;
@@ -200,7 +210,6 @@ var Adom = (function () {
         tok.data = parseFloat(num);
         if (neg) {
           tok.data *= -1;
-          tokens.pop();
         }
       } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === '_') {
         let i = cursor;
@@ -252,10 +261,6 @@ var Adom = (function () {
         tok.type = "||";
         tok.data = "||";
         cursor += 2;
-      } else if (symbols.indexOf(c) !== -1) {
-        tok.type = c;
-        tok.data = c;
-        cursor++;
       } else if (
         c === '"' &&
         prog[cursor + 1] === '"' &&
@@ -309,10 +314,7 @@ var Adom = (function () {
         }
         cursor = i;
         continue;
-      } else if (
-        c === "-" &&
-        prog[cursor + 1] === "-"
-      ) {
+      } else if (c === "-" && prog[cursor + 1] === "-") {
         let i = cursor + 2;
         let found = false;
         while (i <= (end_pos - 2)) {
@@ -332,6 +334,10 @@ var Adom = (function () {
         }
         cursor = i;
         tok.type = "module_body";
+      } else if (symbols.indexOf(c) !== -1) {
+        tok.type = c;
+        tok.data = c;
+        cursor++;
       } else {
         tok.type = tok.data = c;
         cursor++;
@@ -345,8 +351,6 @@ var Adom = (function () {
   Adom.prototype.parse = function(tokens) {
     let tok = tokens[0];
     let cursor = 0;
-    let files = [];
-    let pending = [];
     let runtime = '';
     let root_found = false;
     let in_tag = false;
@@ -512,10 +516,36 @@ var Adom = (function () {
         let cmp = tok.type;
         let lhs = expr;
         next();
-        let rhs = parse_expr(2);
+        let rhs = parse_expr(4);
         expr = {
           type: 'comparison',
           op: cmp,
+          data: [ lhs, rhs ],
+          pos: expr.pos,
+          file: expr.file
+        };
+      }
+      if (prec < 4 && (peek('*') || peek('/') || peek('%'))) {
+        let op = tok.type;
+        let lhs = expr;
+        next();
+        let rhs = parse_expr(3);
+        expr = {
+          type: 'binop',
+          op: op,
+          data: [ lhs, rhs ],
+          pos: expr.pos,
+          file: expr.file
+        };
+      }
+      if (prec < 3 && (peek('+') || peek('-'))) {
+        let op = tok.type;
+        let lhs = expr;
+        next();
+        let rhs = parse_expr(2);
+        expr = {
+          type: 'binop',
+          op: op,
           data: [ lhs, rhs ],
           pos: expr.pos,
           file: expr.file
@@ -885,6 +915,7 @@ var Adom = (function () {
       parse_custom_tag_body();
       parent = current;
       expect("]");
+      return tag;
     }
 
     function parse_strict_string () {
@@ -953,16 +984,22 @@ var Adom = (function () {
           let node = ast_node(_file);
           node.children = _ast.children;
         } else if (accept("export")) {
-          let id = tok.data;
+          let id, pos = tok.pos;
+          let file = tok.file;
+          if (peek('tag')) {
+            id = parse_custom_tag();
+          } else {
+            id = tok.data;
+            expect('ident');
+          }
           ast_node(_export, {
             name: id,
-            pos: tok.pos,
-            file: tok.file
+            pos: pos,
+            file: file
           });
-          expect("ident");
         } else if (tok.type === "ident" || tok.type === "doctype") {
           parse_tag_list();
-        } else if (tok.type === "tag") {
+        } else if (peek("tag")) {
           parse_custom_tag();
         } else if (peek('var') || peek('const')) {
           parse_assignment();
@@ -1105,6 +1142,15 @@ var Adom = (function () {
           if (expr.op === '||') return v1 ||  v2;
           if (expr.op === '>' ) return v1 >   v2;
           if (expr.op === '<' ) return v1 <   v2;
+        } break;
+        case 'binop': {
+          let v1 = evaluate(expr.data[0]);
+          let v2 = evaluate(expr.data[1]);
+          if (expr.op === '+') return v1 + v2;
+          if (expr.op === '-') return v1 - v2;
+          if (expr.op === '*') return v1 * v2;
+          if (expr.op === '/') return v1 / v2;
+          if (expr.op === '%') return v1 % v2;
         } break;
         case 'parenthetical': {
           return evaluate(expr.data);
@@ -1522,6 +1568,7 @@ var Adom = (function () {
           let v3 = print_expression(v[2]);
           return `(${v1} ? ${v2} : ${v3})`;
         } break;
+        case 'binop':
         case 'comparison': {
           let v1 = print_expression(expr.data[0]);
           let v2 = print_expression(expr.data[1]);
