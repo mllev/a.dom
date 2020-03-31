@@ -88,11 +88,11 @@ var Adom = (function () {
       "import",
       "yield",
       "on",
-      "null",
       "export",
       "file",
       "var",
       "const",
+      "let",
       "root",
       "css",
       "nosync",
@@ -235,6 +235,7 @@ var Adom = (function () {
           tok.type = "bool";
           tok.data = tok.data === "true";
         } else if (tok.data === "null") {
+          tok.type = "null";
           tok.data = null;
         }
       } else if (c === "<" && prog[cursor + 1] === "=") {
@@ -480,8 +481,7 @@ var Adom = (function () {
       return v;
     }
 
-    function parse_expr (prec) {
-      if (prec == null) prec = 0;
+    function parse_operand () {
       let expr = { pos: tok.pos, file: tok.file };
       if (peek('number') || peek('bool') || peek('null')) {
         expr.type = tok.type;
@@ -512,13 +512,19 @@ var Adom = (function () {
       } else {
         unexpected();
       }
+      return expr
+    }
+
+    function parse_expr (prec) {
+      if (prec == null) prec = 0;
+      let expr = parse_operand();
       if (is_comparison()) {
         let cmp = tok.type;
         let lhs = expr;
         next();
         let rhs = parse_expr(4);
         expr = {
-          type: 'comparison',
+          type: 'binop',
           op: cmp,
           data: [ lhs, rhs ],
           pos: expr.pos,
@@ -557,7 +563,7 @@ var Adom = (function () {
         next();
         let rhs = parse_expr(1);
         expr = {
-          type: 'comparison',
+          type: 'binop',
           op: cmp,
           data: [ lhs, rhs ],
           pos: expr.pos,
@@ -887,7 +893,7 @@ var Adom = (function () {
       } else if (accept("yield")) {
         ast_node(_yield);
         parse_tag_list();
-      } else if (in_tag && (peek('var') || peek('const'))) {
+      } else if (in_tag && (peek('var') || peek('const') || peek('let'))) {
         parse_assignment();
         parse_tag_list();
       } else if (in_tag && accept('css')) {
@@ -948,10 +954,6 @@ var Adom = (function () {
     }
 
     function parse_assignment () {
-      let isConst = (tok.data === 'const');
-      if (in_tag && isConst) {
-        throw_adom_error({ msg: 'cannot use const inside of a tag', pos: tok.pos, file: tok.file })
-      }
       next();
       let dst = { data: tok.data, pos: tok.pos, file: tok.file };
       next();
@@ -959,8 +961,7 @@ var Adom = (function () {
       let val = parse_rhs();
       ast_node(_set, {
         lhs: dst,
-        rhs: val,
-        const: isConst
+        rhs: val
       });
     }
 
@@ -1001,7 +1002,7 @@ var Adom = (function () {
           parse_tag_list();
         } else if (peek("tag")) {
           parse_custom_tag();
-        } else if (peek('var') || peek('const')) {
+        } else if (peek('var') || peek('const') || peek('let')) {
           parse_assignment();
         } else if (peek('module_body')) {
           runtime += tok.data;
@@ -1047,6 +1048,7 @@ var Adom = (function () {
 
     function pop_ctx () {
       let ctx = file_ctx.pop();
+      if (!file_ctx.length) return;
       ctx.exports.forEach(e => {
         if (ctx.custom_tags[e]) {
           add_custom_tag(e, ctx.custom_tags[e]);
@@ -1131,7 +1133,7 @@ var Adom = (function () {
           let v = expr.data;
           return evaluate(v[0]) ? evaluate(v[1]) : evaluate(v[2]);
         } break;
-        case 'comparison': {
+        case 'binop': {
           let v1 = evaluate(expr.data[0]);
           let v2 = evaluate(expr.data[1]);
           if (expr.op === '==') return v1 === v2;
@@ -1142,10 +1144,6 @@ var Adom = (function () {
           if (expr.op === '||') return v1 ||  v2;
           if (expr.op === '>' ) return v1 >   v2;
           if (expr.op === '<' ) return v1 <   v2;
-        } break;
-        case 'binop': {
-          let v1 = evaluate(expr.data[0]);
-          let v2 = evaluate(expr.data[1]);
           if (expr.op === '+') return v1 + v2;
           if (expr.op === '-') return v1 - v2;
           if (expr.op === '*') return v1 * v2;
@@ -1568,8 +1566,7 @@ var Adom = (function () {
           let v3 = print_expression(v[2]);
           return `(${v1} ? ${v2} : ${v3})`;
         } break;
-        case 'binop':
-        case 'comparison': {
+        case 'binop': {
           let v1 = print_expression(expr.data[0]);
           let v2 = print_expression(expr.data[1]);
           return `(${v1} ${expr.op} ${v2})`;
