@@ -23,6 +23,9 @@ The only thing you need to understand before continuing is how an HTML document 
 #### CONCEPTS
 ADOM fits safely into the following two categories: compiler-based reactive framework and server-rendered templating engine. This allows for an extreme simplification of the modern web development environment. ADOM makes large dependencies like Babel and Webpack optional rather than absolute requirements for a decent development experience.
 
+#### TRY ONLINE
+An online playground can be found [here](https://a-dom.io).
+
 #### INSTALLATION AND USAGE
 ADOM can be used as either a library or as a global compiler/development server. Both options are extremely simple. 
 
