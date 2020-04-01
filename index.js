@@ -121,7 +121,8 @@ var Adom = (function () {
       "/",
       "-",
       "*",
-      "%"
+      "%",
+      "!"
     ];
 
     function is_newline (c) {
@@ -187,13 +188,7 @@ var Adom = (function () {
         while (c !== "\n" && i <= end_pos) c = prog[++i];
         cursor = i;
         continue;
-      } else if ((c >= "0" && c <= "9") ||
-        (c === '-' && (prog[cursor+1] >= "0" && prog[cursor+1] <= "9"))) {
-        let neg = false
-        if (c === '-') {
-          neg = true;
-          c = prog[++cursor];
-        }
+      } else if (c >= "0" && c <= "9") {
         let num = "";
         let i = cursor;
         let dot = false;
@@ -208,9 +203,6 @@ var Adom = (function () {
         cursor = i;
         tok.type = "number";
         tok.data = parseFloat(num);
-        if (neg) {
-          tok.data *= -1;
-        }
       } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === '_') {
         let i = cursor;
         tok.data = "";
@@ -481,8 +473,18 @@ var Adom = (function () {
       return v;
     }
 
-    function parse_operand () {
+    function parse_atom () {
+      let unop = tok.data;
       let expr = { pos: tok.pos, file: tok.file };
+      if (accept('!') || accept('-')) {
+        return {
+          type: 'unop',
+          op: unop,
+          data: parse_atom(),
+          pos: tok.pos,
+          file: tok.file
+        };
+      }
       if (peek('number') || peek('bool') || peek('null')) {
         expr.type = tok.type;
         expr.data = tok.data;
@@ -515,62 +517,46 @@ var Adom = (function () {
       return expr
     }
 
-    function parse_expr (prec) {
-      if (prec == null) prec = 0;
-      let expr = parse_operand();
-      if (is_comparison()) {
-        let cmp = tok.type;
-        let lhs = expr;
+    function get_precendence (op) {
+      return {
+        '||': 1,
+        '&&': 2,
+        '==': 3,
+        '!=': 3,
+        '<=': 4,
+        '>=': 4,
+        '>':  4,
+        '<':  4,
+        '+':  5,
+        '-':  5,
+        '*':  6,
+        '/':  6,
+        '%':  6 
+      }[op] || null;
+    }
+
+    function parse_expr (min_prec) {
+      if (min_prec == null) min_prec = 0;
+      let expr = parse_atom();
+
+      while (true) {
+        let op = tok.data;
+        let prec = get_precendence(op);
+
+        if (!prec || prec < min_prec) {
+          break;
+        }
+
         next();
-        let rhs = parse_expr(4);
-        expr = {
-          type: 'binop',
-          op: cmp,
-          data: [ lhs, rhs ],
-          pos: expr.pos,
-          file: expr.file
-        };
-      }
-      if (prec < 4 && (peek('*') || peek('/') || peek('%'))) {
-        let op = tok.type;
-        let lhs = expr;
-        next();
-        let rhs = parse_expr(3);
+
         expr = {
           type: 'binop',
           op: op,
-          data: [ lhs, rhs ],
-          pos: expr.pos,
-          file: expr.file
+          data: [expr, parse_expr(prec + 1)]
         };
       }
-      if (prec < 3 && (peek('+') || peek('-'))) {
-        let op = tok.type;
-        let lhs = expr;
-        next();
-        let rhs = parse_expr(2);
-        expr = {
-          type: 'binop',
-          op: op,
-          data: [ lhs, rhs ],
-          pos: expr.pos,
-          file: expr.file
-        };
-      }
-      if (prec < 2 && (peek('&&') || peek('||'))) {
-        let cmp = tok.type;
-        let lhs = expr;
-        next();
-        let rhs = parse_expr(1);
-        expr = {
-          type: 'binop',
-          op: cmp,
-          data: [ lhs, rhs ],
-          pos: expr.pos,
-          file: expr.file
-        };
-      }
-      if (prec < 1 && accept('?')) {
+
+      if (min_prec < 1 && accept('?')) {
         expr = {
           type: 'ternary',
           data: [expr],
@@ -581,6 +567,7 @@ var Adom = (function () {
         expect(':');
         expr.data.push(parse_expr());
       }
+
       return expr;
     }
 
@@ -1133,6 +1120,11 @@ var Adom = (function () {
           let v = expr.data;
           return evaluate(v[0]) ? evaluate(v[1]) : evaluate(v[2]);
         } break;
+        case 'unop': {
+          let v = evaluate(expr.data);
+          if (expr.op === '-') return -v;
+          if (expr.op === '!') return !v;
+        } break;
         case 'binop': {
           let v1 = evaluate(expr.data[0]);
           let v2 = evaluate(expr.data[1]);
@@ -1565,6 +1557,10 @@ var Adom = (function () {
           let v2 = print_expression(v[1]);
           let v3 = print_expression(v[2]);
           return `(${v1} ? ${v2} : ${v3})`;
+        } break;
+        case 'unop': {
+          let v = print_expression(expr.data);
+          return `(${expr.op}${v})`;
         } break;
         case 'binop': {
           let v1 = print_expression(expr.data[0]);
