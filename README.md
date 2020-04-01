@@ -163,7 +163,7 @@ html [
 ```
 Data can be declared directly in the file too.
 ```javascript
-const name = 'Matt'
+let name = 'Matt'
 
 html [
   head []
@@ -174,21 +174,21 @@ html [
 ```
 ADOM supports strings, booleans, numbers, arrays, objects and ternaries
 ```javascript
-const name = 'Bob' // string
-const alive = true // boolean
-const age = 300
-const weight = [ '200', 'lbs' ]
-const location = {
+let name = 'Bob' // string
+let alive = true // boolean
+let age = 300
+let weight = [ '200', 'lbs' ]
+let location = {
   country: 'US',
   state: 'CA'
 }
-const happy = alive == true ? false : true
+let happy = alive == true ? false : true
 ```
 
 Data can be interpolated into strings using double braces or used directly as values.
 ```javascript
-const name1 = { text: 'Matt' }
-const name2 = name1.text
+let name1 = { text: 'Matt' }
+let name2 = name1.text
 
 html [
   head []
@@ -199,6 +199,17 @@ html [
 
 ```
 
+You can initialize large and complex arrays using the `repeat` keyword. The following example initializes
+an array with 10 elements of value 0.
+```javascript
+let arr = [ repeat 0 10 ]
+```
+
+The following is how you would initialized a 10x10 2 dimensional array of empty objects.
+```javascript
+let arr = [ repeat [ repeat {} 10 ] 10 ]
+````
+
 To use data as an attribute value you can interpolate into a string or use single braces.
 ```javascript
 div attr1={val1} attr2='some text {{val2}}' []
@@ -207,7 +218,7 @@ div attr1={val1} attr2='some text {{val2}}' []
 #### CONTROL FLOW
 ADOM supports conditionals and loops.
 ```javascript
-const items = [
+let items = [
   'walk dog',
   'feed dog',
   'go to work'
@@ -227,7 +238,7 @@ html [
 ```
 `each` can operate on objects too.
 ```javascript
-const person = {
+let person = {
   name: 'Bob',
   age: 300
 }
@@ -246,7 +257,7 @@ html [
 ```
 Conditionals look like this:
 ```javascript
-const isLoggedIn = true
+let isLoggedIn = true
 
 html [
   head []
@@ -352,7 +363,7 @@ export Primary
 #### STYLES
 Regular CSS can be used in the classic way using long strings (triple quotes).
 ```
-const styles = """
+let styles = """
 body {
   background: blue;
 }
@@ -377,7 +388,7 @@ html [
 ```
 A more preferrable way to work with CSS files is to import them into variables using the `file` keyword.
 ```javascript
-const styles = file 'main.css'
+let styles = file 'main.css'
 
 html [
   head [
@@ -403,7 +414,7 @@ const compiler = new Adom({
 To use the filter, simply pipe your file output into it. Currently only files support pipes.
 ```javascript
 // index.adom
-const styles = file 'main.styl' | stylus
+let styles = file 'main.styl' | stylus
 
 html [
   head [
@@ -467,9 +478,9 @@ ADOM adds two simple things to your client side context:
 1. Access to all data variables used by your UI
 2. a `$sync()` function that updates your UI to reflect the current state of the data. This function is called automatically after event handlers are called. More on that later.
 
-In order for a variable to be accessible from javascript, we must tell ADOM that it will be modified. We do this by declaring a `var` instead of a `const`. `const` should be used for static data that won't be modified. Events are attached to elements using the `on` directive.
+All ADOM variables are directly accessible from Javascript. Events are attached to elements using the `on` directive.
 ```javascript
-var name = 'Matt'
+let name = 'Matt'
 
 --
 function updateName (e) {
@@ -491,7 +502,7 @@ In the above example, a call to `$sync()` was not needed because it was called i
 
 The above example can even be shorted:
 ```javascript
-var name = 'Matt'
+let name = 'Matt'
 
 html [
   head []
@@ -508,7 +519,7 @@ Understanding the above example, teaches you virtually all you need to know abou
 #### COMPONENTS
 Let's take the counter below and componentize it.
 ```javascript
-var count = 0
+let count = 0
 
 --
 function increment () {
@@ -535,7 +546,7 @@ function increment () {
 --
 
 tag Counter [
-  var count = 0
+  let count = 0
   div [
     h2 "Counter: {{ count }}"
     button on:click="increment()" "increment"
@@ -560,7 +571,7 @@ function increment (counter) {
 --
 
 tag Counter [
-  var count = 0
+  let count = 0
   div [
     h2 "Counter: {{ count }}"
     button on:click="increment(this)" "increment"
@@ -587,7 +598,7 @@ class Counter {
 --
 
 tag Counter [
-  var count = 0
+  let count = 0
   div [
     h2 "Counter: {{ count }}"
     button on:click="this.increment()" "increment"
@@ -621,7 +632,7 @@ class Counter {
 --
 
 tag Counter [
-  var count = 0
+  let count = 0
   div [
     h2 "Counter: {{ count }}"
     button on:click="this.increment()" "increment"
