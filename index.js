@@ -96,7 +96,9 @@ var Adom = (function () {
       "root",
       "css",
       "nosync",
-      "repeat"
+      "repeat",
+      "filter",
+      "map"
     ];
 
     let symbols = [
@@ -535,8 +537,7 @@ var Adom = (function () {
       }[op] || null;
     }
 
-    function parse_expr (min_prec) {
-      if (min_prec == null) min_prec = 0;
+    function parse_expr1 (min_prec) {
       let expr = parse_atom();
 
       while (true) {
@@ -568,6 +569,47 @@ var Adom = (function () {
         expr.data.push(parse_expr());
       }
 
+      return expr;
+    }
+
+    function parse_lambda () {
+      let args = [];
+      expect('[');
+      expect('|');
+      args.push(tok.data);
+      expect('ident');
+      if (accept(',')) {
+        args.push(tok.data);
+        expect('ident');
+      }
+      expect('|');
+      let expr = parse_expr();
+      expect(']');
+      return {
+        type: 'lambda',
+        args: args,
+        expr: expr
+      }
+    }
+
+    function parse_expr (min_prec) {
+      if (min_prec == null) min_prec = 0;
+      let expr = parse_expr1(min_prec);
+      while (true) {
+        if (accept('filter')) {
+          expr = {
+            type: 'filter',
+            data: [expr, parse_lambda()]
+          };
+        } else if (accept('map')) {
+          expr = {
+            type: 'map',
+            data: [expr, parse_lambda()]
+          };
+        } else {
+          break;
+        }
+      }
       return expr;
     }
 
@@ -932,7 +974,7 @@ var Adom = (function () {
         val = { pos: tok.pos, file: tok.file, type: 'file', name: parse_strict_string() };
         if (accept('|')) {
           val.filter = { name: tok.data, pos: tok.pos, file: tok.file };
-          expect('ident'); 
+          expect('ident');
         }
       } else {
         val = parse_expr();
@@ -1144,6 +1186,20 @@ var Adom = (function () {
         } break;
         case 'parenthetical': {
           return evaluate(expr.data);
+        } break;
+        case 'filter':
+        case 'map': {
+          let s = {};
+          let a = evaluate(expr.data[0]);
+          let l = expr.data[1];
+          l.args.forEach(a => s[a] = true);
+          state.push(s);
+          a = a[expr.type]((...args) => {
+            l.args.forEach((a, i) => s[a] = args[i]);
+            return evaluate(l.expr);
+          });
+          state.pop();
+          return a;
         } break;
       }
     }
@@ -1570,6 +1626,11 @@ var Adom = (function () {
         case 'parenthetical': {
           return `(${print_expression(expr.data)})`;
         } break;
+        case 'map':
+        case 'filter': {
+          let l = expr.data[1];
+          return `${print_expression(expr.data[0])}.${expr.type}(function (${l.args.join(',')}) { return ${print_expression(l.expr)}; })`
+        } break;
       }
     }
 
@@ -1809,7 +1870,7 @@ var Adom = (function () {
   Adom.prototype.render = function(file, input_state) {
     let html;
     try {
-      this._c = 0; // I hate this
+      this._c = 0; // TODO I hate this
       let cacheKey = this.getPath(file);
       let f = this.openFile(file);
       let tokens = this.tokenize(f.text, f.name);
