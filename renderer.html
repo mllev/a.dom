@@ -96,9 +96,7 @@
         function $e (type, attrs, events, children) {
           var node, _ = $parent();
           var child = _.child, parent = _.parent;
-          if (type === 'svg') {
-            $is_svg = true;
-          }
+          if (type === 'svg') $is_svg = true;
           if (child && child.tagName === type.toUpperCase()) {
             node = child;
           } else {
@@ -121,26 +119,15 @@
           }
         }
 
-        function $vals (obj, keys) {
-          let v = [] 
-          for (k of keys) {
-            v.push(obj[k]);
-          }
-          return v;
-        }
-
         function $c (Component, id, initial_state, props, body) {
           let state = $states[id];
           let isNew = false;
           if (!state) {
-            state = {
-              vars: Object.keys(initial_state),
-              ref: Object.assign(Component ? new Component() : {}, initial_state)
-            };
+            state = Object.assign(Component ? new Component() : {}, initial_state)
             isNew = true;
           }
-          body.apply(undefined, [state.ref, props].concat($vals(state.ref, state.vars)));
-          if (isNew && state.ref.mount) state.ref.mount();
+          body(state, props);
+          if (isNew && state.mount) state.mount();
           $rendered[id] = true;
           $states[id] = state;
         }
@@ -148,13 +135,13 @@
         function $clean_states () {
           for (id in $states) {
             if (!$rendered[id]) {
-              if ($states[id].ref.unmount) {
-                $states[id].ref.unmount();
+              if ($states[id].unmount) {
+                $states[id].unmount();
               }
               delete $states[id];
             }
           }
-          $rendered = {}:
+          $rendered = {};
         }
 
         function $sync() {
@@ -162,54 +149,56 @@
             $is_syncing = true;
             $nodes.push({ ref: window['adom-root'], processed: 0 });
 
-            function $Todo ($, props, item, items, completed) {
-              function $update () {
-                $.item = item;
-                $.items = items;
-                $.comleted = completed;
-              }
-              $e('div', {}, {}, function () {
-                $e('input', { value: item }, {
-                  'input': function ($e) {
-                    (function () {
-                      item = $e.target.value;
-                      $update(); // gets added if 'this' is not mentioned
-                    }).call($);
-                  }
-                });
-                $e('button', {}, {
-                  'click': function ($e) {
-                    (function () {
-                      this.addItem();
-                      $sync();
-                    }).call($);
-                  }
-                }, function () {
-                  $e('text', 'add', {});
-                });
-                $e('button', {}, {
-                  'click': function ($e) {
-                    (function () {
-                      this.archive();
-                      $sync();
-                    }).call($);
-                  }
-                }, function () {
-                  $e('text', 'archive (' + completed + ')', {});
-                });
-                $e('ul', {}, {}, function () {
-                  $each(items, function (item, i) {
-                    $e('li', {}, { 'click': function ($e) {
+            function $Todo ($, props) {
+              (function (item, items, completed) {
+                function $update () {
+                  $.item = item;
+                  $.items = items;
+                  $.comleted = completed;
+                }
+                $e('div', {}, {}, function () {
+                  $e('input', { value: item }, {
+                    'input': function ($e) {
                       (function () {
-                        this.markComplete(i);
+                        item = $e.target.value;
+                        $update(); // gets added if 'this' is not mentioned
+                      }).call($);
+                    }
+                  });
+                  $e('button', {}, {
+                    'click': function ($e) {
+                      (function () {
+                        this.addItem();
                         $sync();
-                      }).call($)
-                    }}, function () {
-                      $e('text', item.text, {});
+                      }).call($);
+                    }
+                  }, function () {
+                    $e('text', 'add', {});
+                  });
+                  $e('button', {}, {
+                    'click': function ($e) {
+                      (function () {
+                        this.archive();
+                        $sync();
+                      }).call($);
+                    }
+                  }, function () {
+                    $e('text', 'archive (' + completed + ')', {});
+                  });
+                  $e('ul', {}, {}, function () {
+                    $each(items, function (item, i) {
+                      $e('li', {}, { 'click': function ($e) {
+                        (function () {
+                          this.markComplete(i);
+                          $sync();
+                        }).call($);
+                      }}, function () {
+                        $e('text', item.text, {});
+                      });
                     });
                   });
                 });
-              });
+              })($.item, $.items, $.completed);
             }
 
             $e('div', {}, {}, function () {

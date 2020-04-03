@@ -131,6 +131,12 @@ var Adom = (function () {
       return c == '\n' || c == '\r'
     }
 
+    // amazing
+    // https://stackoverflow.com/a/32567789
+    function is_letter (c) {
+      return c.toLowerCase() != c.toUpperCase();
+    }
+
     function break_into_chunks(text, cursor) {
       let chunks = [];
       let chunk = "";
@@ -209,15 +215,18 @@ var Adom = (function () {
         cursor = i;
         tok.type = "number";
         tok.data = parseFloat(num);
-      } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === '_') {
+      } else if (
+        (c === '-' && prog[cursor+1] === '-' && is_letter(prog[cursor+2])) ||
+        is_letter(c) || c === '_'
+      ){
         let i = cursor;
         tok.data = "";
         while (
-          (c >= "a" && c <= "z") ||
-          (c >= "A" && c <= "Z") ||
+          c &&
+          (is_letter(c) ||
           (c >= "0" && c <= "9") ||
           (c === "_") ||
-          (c === "-")
+          (c === "-"))
         ) {
           tok.data += c;
           c = prog[++i];
@@ -1420,134 +1429,147 @@ var Adom = (function () {
   }
 
   const adom_runtime = `
-  var $$processed = [];
-  var $$firstSync = true;
-  var $$syncing = false;
-  var $$props = [];
+var $$states = {};
+var $$rendered = {};
+var $$is_syncing = false;
+var $$is_svg = false;
+var $$nodes = [];
 
-  function $$push_props (props) {
-    $$props.push(props);
+function $$a (node, attrs, isSvg) {
+  var xmlns = 'http://www.w3.org/2000/svg';
+  if (typeof attrs === 'string') {
+    node.nodeValue = attrs;
+    return;
   }
-
-  function $$pop_props () {
-    $$props.pop();
-  }
-
-  function $$addEventListeners (node, events) {
-      var keys = Object.keys(events);
-      if (!node.__eventRefs) node.__eventRefs = {};
-      keys.forEach(function (event) {
-          if (node.__eventRefs[event]) {
-            node.removeEventListener(event, node.__eventRefs[event]);
-          }
-          node.addEventListener(event, events[event]);
-          node.__eventRefs[event] = events[event];
-      })
-  }
-
-  function $$if (cond, condIf, condElse) {
-      if (cond) condIf();
-      else if (condElse) condElse();
-  }
-
-  function $$each (list, fn) {
-      if (Array.isArray(list)) {
-          for (var i = 0; i < list.length; i++) {
-              fn(list[i], i);
-          }
-      } else if (typeof list === 'object') {
-          var keys = Object.keys(list);
-          for (var i = 0; i < keys.length; i++) {
-              fn(keys[i], list[keys[i]]);
-          }
+  Object.keys(attrs).forEach(function (p) {
+    var a = attrs[p];
+    var v = a && a.constructor === Array ? a.join(' ')
+      : typeof a === 'object' ? Object.keys(a).filter(function (k) {
+        return a[k];
+      }).join(' ') : a;
+    if (p in node) {
+      node[p] = v;
+    } else $if (v === false || v == null) {
+      if ($is_svg) {
+        node.removeAttributeNS(at, xmlns);
       } else {
-          throw new Error(list + ' is not iterable');
+        node.removeAttribute(at);
       }
-  }
-
-  function $$clean (node) {
-      var num = $$processed[$$processed.length - 1];
-      while (node.childNodes[num]) {
-          var out = node.childNodes[num];
-          if (out.__adomState && out.__adomState.unmount) {
-            out.__adomState.unmount();
-          }
-          node.removeChild(out);
-      }
-  }
-
-  function $$create (type, props, events, state) {
-      var node;
-      if (type === 'text') node = document.createTextNode(props(state));
-      else {
-          node = document.createElement(type);
-          $$attr(node, props(state));
-      }
-      if (state) {
-        node.__adomState = state;
-      }
-      if (events) $$addEventListeners(node, events);
-      return node;
-  }
-
-  function $$attr (node, props) {
-      Object.keys(props).forEach(function (p) {
-          var a = props[p];
-          if (p === 'events') return;
-          var v = (a && a.constructor === Array) ? a.join(' ') : a;
-          if (p in node) {
-              node[p] = v;
-          } else if (v === false || v == null) {
-              node.removeAttribute(at);
-          } else {
-              node.setAttribute(p, v);
-          }
-      });
-  }
-
-  function $$class (C, obj) {
-    if (!C) return obj;
-    var i = new C();
-    Object.keys(obj).forEach(function (k) {
-      i[k] = obj[k];
-    });
-    return i;
-  }
-
-  function $$e (par, type, props, events, state, children) {
-      var index = $$processed[$$processed.length - 1]++;
-      var node = par.childNodes[index];
-      var isnew = false
-      if (!node) {
-          node = $$create(type, props, events, state);
-          par.appendChild(node);
-          isnew = true;
-      } else if (type === 'text' && node.nodeType === Node.TEXT_NODE) {
-          node.nodeValue = props(node.__adomState || state);
-      } else if (node.tagName && (type === node.tagName.toLowerCase())) {
-          if (state && !node.__adomState) node.__adomState = state;
-          $$attr(node, props(node.__adomState));
-          if (events) $$addEventListeners(node, events);
-          if ($$firstSync) isnew = true; // make sure mount gets called on first render
+    } else {
+      if ($is_svg) {
+        node.setAttributeNS(p, v, xmlns);
       } else {
-          var out = node;
-          node = $$create(type, props, events, state);
-          if (out.__adomState && out.__adomState.unmount) {
-            out.__adomState.unmount();
-          }
-          par.replaceChild(node, out);
-          isnew = true;
+        node.setAttribute(p, v);
       }
-      if (children) {
-          $$processed.push(0);
-          children(node, node.__adomState || null);
-          $$clean(node);
-          $$processed.pop();
-      }
-      if (isnew && state && state.mount) {
-        state.mount();
-      }
+    }
+  });
+  return node;
+}
+
+function $$addEventListeners (node, events) {
+  var keys = Object.keys(events);
+  if (!node.__eventRefs) node.__eventRefs = {};
+  keys.forEach(function (event) {
+    if (node.__eventRefs[event]) {
+      node.removeEventListener(event, node.__eventRefs[event]);
+    }
+    node.addEventListener(event, events[event]);
+    node.__eventRefs[event] = events[event];
+  });
+}
+
+function $$each (list, fn) {
+  if (Array.isArray(list)) {
+    for (var i = 0; i < list.length; i++) {
+      fn(list[i], i);
+    }
+  } else if (typeof list === 'object') {
+    var keys = Object.keys(list);
+    for (var i = 0; i < keys.length; i++) {
+      fn(keys[i], list[keys[i]]);
+    }
+  } else {
+    throw new Error(list + ' is not iterable');
   }
+}
+
+function $$create (type) {
+  var node, xmlns = 'http://www.w3.org/2000/svg';
+  if (type === 'text') {
+    node = document.createTextNode('');
+  } else if ($$is_svg) {
+    node = document.createElementNS(xmlns, type);
+  } else {
+    node = document.createElement(type);
+  }
+  return node;
+}
+
+function $$clean () {
+  var node = $$nodes.pop();
+  var parent = node.ref;
+  var num = node.processed;
+  while (parent.childNodes[num]) {
+    parent.removeChild(parent.childNodes[num]);
+  }
+}
+
+function $$parent () {
+  var node = $$nodes[$nodes.length - 1];
+  var child = node.ref.childNodes[node.processed++];
+  return { parent: node.ref, child: child };
+}
+
+function $$e (type, attrs, events, children) {
+  var node, _ = $parent();
+  var child = _.child, parent = _.parent;
+  if (type === 'svg') $$is_svg = true;
+  if (child && child.tagName === type.toUpperCase()) {
+    node = child;
+  } else {
+    node = $$create(type);
+    if (child) {
+      parent.replaceChild(node, child);
+    } else {
+      parent.appendChild(node);
+    }
+  }
+  $$a(node, attrs);
+  $$addEventListeners(node, events);
+  if (children) {
+    $$nodes.push({ ref: node, processed: 0 });
+    children();
+    $$clean();
+  }
+  if (type === 'svg') {
+    $$is_svg = false;
+  }
+}
+
+function $$c (Component, id, initial_state, props, body) {
+  let state = $states[id];
+  let isNew = false;
+  if (!state) {
+    state = Object.assign(Component ? new Component() : {}, initial_state)
+    isNew = true;
+  }
+  body(state, props);
+  if (isNew && state.mount) state.mount();
+  $$rendered[id] = true;
+  $$states[id] = state;
+}
+
+function $$clean_states () {
+  for (id in $$states) {
+    if (!$$rendered[id]) {
+      if ($$states[id].unmount) {
+        $$states[id].unmount();
+      }
+      delete $$states[id];
+    }
+  }
+  $$rendered = {};
+}
   `;
 
   Adom.prototype.generate_sync = function (ast) {
@@ -1560,18 +1582,14 @@ var Adom = (function () {
     const sync_func = () => {
       return sync_body.length ? `
   function $sync() {
-    if ($$syncing === false) {
-      $$syncing = true;
-      var par = window["adom-root-${this.uid}"];
-      var $ = undefined;
-      //console.time('sync');
-      $$processed.push(0);
-      ${sync_body.join('\n')}
-      $$clean(par);
-      $$processed.pop();
-      //console.timeEnd('sync');
-      $$firstSync = false;
-      $$syncing = false;
+    if ($is_syncing === false) {
+      $is_syncing = true;
+      $nodes.push({ ref: window['adom-root-${this.uid}'], processed: 0 });
+      // components
+      // body
+      $clean();
+      $clean_states();
+      $is_syncing = false;
     }
   }
       `: 'function $sync() {}\n';
@@ -1663,14 +1681,12 @@ var Adom = (function () {
       return '{ ' + Object.keys(state).map(k => `${p1}${k} = ${p2}${k}; `).join('') + '}';
     }
 
-    function event (e, state) {
-      let ex = expand(state, '$.'), r = false;
-      if (e.handler.indexOf('this') !== -1) {
-        r = true;
-        ex = '';
-      }
-      return `"${e.type}": function ($e) { (function ($) { (function (${expand(state)}) { ${e.handler}; ${update(state, r)}; ${e.sync ? '$sync()' : ''} }).call($${ex ? `, ${ex}`: ''}) })($e.target.__adomState || $); }`;
+    function event (e) {
+      let update = e.handler.indexOf('this') === -1 ? '$update();' : '';
+      let sync = e.sync ? '$sync();' : '';
+      return `"${e.type}": function ($e) { (function () { ${handler}; ${update} ${sync} }).call($) }`;
     }
+
 
     function event_object (events, state) {
       if (events.length) return `{${events.map(function (e) {
@@ -1684,6 +1700,30 @@ var Adom = (function () {
         walk(c, y);
       });
     }
+
+    // functions:
+    // render a tree of elements given a root (render_tree)
+    // steps:
+    // find all exported components (store in custom_tags) and the root
+    // for each component
+    //   build a state object for it
+    //   render update function
+    //   call render_tree for each node
+    // render_tree on root
+    // build sync function using components + main render call
+
+    /*
+        $e('ul', {}, {}, function () {
+          $each(items, function (item, i) {
+            $e('li', {}, { 'click': function ($e) { (function () {
+                this.markComplete(i);
+             $sync(); }).call($);
+            }}, function () {
+              $e('text', item.text, {});
+            });
+          });
+        });
+    */
 
     function find_root (n) {
       if (n.type === _custom) {
@@ -1704,103 +1744,6 @@ var Adom = (function () {
         return null;
       }
     }
-
-    function walk (r, yieldfn) {
-      switch (r.type) {
-        case _tag: {
-          let t = custom_tags[r.data.name];
-          if (t) {
-            for (let i = 0; i < t.node.children.length; i++) {
-              if (t.node.children[i].type === _tag) {
-                t.node.children[i].data.component = {
-                  bind: r.data.name,
-                  state: t.state
-                };
-                break;
-              }
-            }
-            sync_body.push(`${fmt()}$$push_props(${stringify_object(r.data.attributes)});`);
-            prop_depth++;
-            children(t.node, () => {
-              children(r, yieldfn);
-            });
-            sync_body.push(`${fmt()}$$pop_props();`);
-            prop_depth--;
-          } else {
-            let n = r.data.name;
-            let state = null, tag_local = {};
-
-            if (r.data.component) {
-              let c = r.data.component;
-              let s = stringify_object(c.state);
-              tag_local = c.state;
-              // for now, this is always true
-              // this may cause bugs where adom tries to bind to something its not supposed to
-              // in that case, go back to making it explicit with #
-              if (c.bind) {
-                state = `$$class(typeof ${c.bind} === 'function' ? ${c.bind} : null, ${s})`;
-              }
-              tag_states.push(c.state);
-            }
-
-            let ctx = tag_states.length ? tag_states[tag_states.length - 1] : null;
-            let props = `function ($) { return (function (${expand(tag_local)}) { return ${stringify_object(r.data.attributes)}; }).call($, ${expand(tag_local, '$.')}); }`;
-
-            if (void_tags.indexOf(n) !== -1 || r.children.length <= 0) {
-              sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, ctx)}, ${state});`);
-              if (state) tag_states.pop();
-              break;
-            } else {
-              sync_body.push(`${fmt()}$$e(par, "${n}", ${props}, ${event_object(r.data.events, ctx)}, ${state}, function (par${state ? `, $` : ''}) { (function (${expand(tag_local)}) {`)
-            }
-            indents++;
-            children(r, yieldfn);
-            indents--;
-            sync_body.push(`${fmt()}})(${expand(tag_local, '$.')}); });`);
-            if (state) tag_states.pop();
-          }
-          break;
-        }
-        case _textnode: {
-          sync_body.push(`${fmt()}$$e(par, "text", function () { return ${print_expression(r.data)}; })`);
-          break;
-        }
-        case _if: {
-          sync_body.push(`${fmt()}$$if(${print_expression(r.data)}, function () {`);
-          indents++;
-          children(r.children[0]);
-          indents--;
-          if (r.children[1]) {
-            sync_body.push(`${fmt()}}, function () {`);
-            indents++;
-            children(r.children[1]);
-            indents--;
-          }
-          sync_body.push(`${fmt()}});`);
-          break;
-        }
-        case _each: {
-          let it = r.data.iterators;
-          sync_body.push(`$$each(${print_expression(r.data.list)}, function (${it[0]}${it[1] ? `, ${it[1]}` : ''}) {`);
-          indents++;
-          children(r);
-          indents--;
-          sync_body.push(`});`);
-          break;
-        }
-        case _yield: {
-          if (yieldfn) yieldfn();
-          break;
-        }
-        default: {
-          children(r, yieldfn);
-          break;
-        }
-      }
-    }
-
-    let root = find_root(ast);
-    if (root) children(root);
 
     return sync_func();
   };
