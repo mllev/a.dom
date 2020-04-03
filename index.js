@@ -185,6 +185,10 @@ var Adom = (function () {
         }
         cursor = i;
         continue;
+      } else if (c === '-' && prog[cursor + 1] === '>') {
+        cursor+=2;
+        tok.type = '->';
+        tok.data = '->';
       } else if (c === "/" && prog[cursor + 1] === "/") {
         let i = cursor;
         while (c !== "\n" && i <= end_pos) c = prog[++i];
@@ -575,14 +579,13 @@ var Adom = (function () {
     function parse_lambda () {
       let args = [];
       expect('[');
-      expect('|');
       args.push(tok.data);
       expect('ident');
       if (accept(',')) {
         args.push(tok.data);
         expect('ident');
       }
-      expect('|');
+      expect('->');
       let expr = parse_expr();
       expect(']');
       return {
