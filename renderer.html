@@ -1,0 +1,251 @@
+<html>
+  <head>
+    <script>
+      window.onload = function () {
+        var $states = {};
+        var $rendered = {};
+        var $is_syncing = false;
+        var $is_svg = false;
+        var $nodes = [];
+
+        function $a (node, attrs, isSvg) {
+          var xmlns = 'http://www.w3.org/2000/svg';
+          if (typeof attrs === 'string') {
+            node.nodeValue = attrs;
+            return;
+          }
+          Object.keys(attrs).forEach(function (p) {
+            var a = attrs[p];
+            var v = a && a.constructor === Array ? a.join(' ')
+              : typeof a === 'object' ? Object.keys(a).filter(function (k) {
+                return a[k];
+              }).join(' ') : a;
+            if (p in node) {
+              node[p] = v;
+            } else if (v === false || v == null) {
+              if ($is_svg) {
+                node.removeAttributeNS(at, xmlns);
+              } else {
+                node.removeAttribute(at);
+              }
+            } else {
+              if ($is_svg) {
+                node.setAttributeNS(p, v, xmlns);
+              } else {
+                node.setAttribute(p, v);
+              }
+            }
+          });
+          return node;
+        }
+
+        function $addEventListeners (node, events) {
+          var keys = Object.keys(events);
+          if (!node.__eventRefs) node.__eventRefs = {};
+          keys.forEach(function (event) {
+            if (node.__eventRefs[event]) {
+              node.removeEventListener(event, node.__eventRefs[event]);
+            }
+            node.addEventListener(event, events[event]);
+            node.__eventRefs[event] = events[event];
+          });
+        }
+
+        function $each (list, fn) {
+          if (Array.isArray(list)) {
+            for (var i = 0; i < list.length; i++) {
+              fn(list[i], i);
+            }
+          } else if (typeof list === 'object') {
+            var keys = Object.keys(list);
+            for (var i = 0; i < keys.length; i++) {
+              fn(keys[i], list[keys[i]]);
+            }
+          } else {
+            throw new Error(list + ' is not iterable');
+          }
+        }
+
+        function $create (type) {
+          var node, xmlns = 'http://www.w3.org/2000/svg';
+          if (type === 'text') {
+            node = document.createTextNode('');
+          } else if ($is_svg) {
+            node = document.createElementNS(xmlns, type);
+          } else {
+            node = document.createElement(type);
+          }
+          return node;
+        }
+
+        function $clean () {
+          var node = $nodes.pop();
+          var parent = node.ref;
+          var num = node.processed;
+          while (parent.childNodes[num]) {
+            parent.removeChild(parent.childNodes[num]);
+          }
+        }
+
+        function $parent () {
+          var node = $nodes[$nodes.length - 1];
+          var child = node.ref.childNodes[node.processed++];
+          return { parent: node.ref, child: child };
+        }
+
+        function $e (type, attrs, events, children) {
+          var node, _ = $parent();
+          var child = _.child, parent = _.parent;
+          if (type === 'svg') {
+            $is_svg = true;
+          }
+          if (child && child.tagName === type.toUpperCase()) {
+            node = child;
+          } else {
+            node = $create(type);
+            if (child) {
+              parent.replaceChild(node, child);
+            } else {
+              parent.appendChild(node);
+            }
+          }
+          $a(node, attrs);
+          $addEventListeners(node, events);
+          if (children) {
+            $nodes.push({ ref: node, processed: 0 });
+            children();
+            $clean();
+          }
+          if (type === 'svg') {
+            $is_svg = false;
+          }
+        }
+
+        function $vals (obj, keys) {
+          let v = [] 
+          for (k of keys) {
+            v.push(obj[k]);
+          }
+          return v;
+        }
+
+        function $c (Component, id, initial_state, props, body) {
+          let state = $states[id];
+          let isNew = false;
+          if (!state) {
+            state = {
+              vars: Object.keys(initial_state),
+              ref: Object.assign(Component ? new Component() : {}, initial_state)
+            };
+            isNew = true;
+          }
+          body.apply(undefined, [state.ref, props].concat($vals(state.ref, state.vars)));
+          if (isNew && state.ref.mount) state.ref.mount();
+          $rendered[id] = true;
+          $states[id] = state;
+        }
+
+        function $clean_states () {
+          for (id in $states) {
+            if (!$rendered[id]) {
+              if ($states[id].ref.unmount) {
+                $states[id].ref.unmount();
+              }
+              delete $states[id];
+            }
+          }
+          $rendered = {}:
+        }
+
+        function $sync() {
+          if ($is_syncing === false) {
+            $is_syncing = true;
+            $nodes.push({ ref: window['adom-root'], processed: 0 });
+
+            function $Todo ($, props, item, items, completed) {
+              function $update () {
+                $.item = item;
+                $.items = items;
+                $.comleted = completed;
+              }
+              $e('div', {}, {}, function () {
+                $e('input', { value: item }, {
+                  'input': function ($e) {
+                    (function () {
+                      item = $e.target.value;
+                      $update(); // gets added if 'this' is not mentioned
+                    }).call($);
+                  }
+                });
+                $e('button', {}, {
+                  'click': function ($e) {
+                    (function () {
+                      this.addItem();
+                      $sync();
+                    }).call($);
+                  }
+                }, function () {
+                  $e('text', 'add', {});
+                });
+                $e('button', {}, {
+                  'click': function ($e) {
+                    (function () {
+                      this.archive();
+                      $sync();
+                    }).call($);
+                  }
+                }, function () {
+                  $e('text', 'archive (' + completed + ')', {});
+                });
+                $e('ul', {}, {}, function () {
+                  $each(items, function (item, i) {
+                    $e('li', {}, { 'click': function ($e) {
+                      (function () {
+                        this.markComplete(i);
+                        $sync();
+                      }).call($)
+                    }}, function () {
+                      $e('text', item.text, {});
+                    });
+                  });
+                });
+              });
+            }
+
+            $e('div', {}, {}, function () {
+                $c(typeof Todo === 'function' ? Todo : null, 'a-1', {item: '', items: [{ text: 'feed fish', completed: false }], completed: 0}, {}, $Todo);
+                $c(typeof Todo === 'function' ? Todo : null, 'a-2', {item: '', items: [{ text: 'feed fish', completed: false }], completed: 0}, {}, $Todo);
+            });
+
+            $clean();
+            $clean_states();
+            $is_syncing = false;
+          }
+        }
+
+        class Todo {
+          addItem () {
+            if (!this.item) return;
+            this.items.push({ text: this.item, completed: false });
+            this.item = '';
+          }
+
+          markComplete (id) {
+            this.items[id].completed = !this.items[id].completed;
+            this.completed = this.items.filter(i => i.completed).length;
+          }
+
+          archive () {
+            this.items = this.items.filter(i => !i.completed);
+            this.completed = 0;
+          } 
+        }
+
+        $sync();
+      }
+    </script> 
+  </head>
+  <body>
+    <div id='adom-root'></div>
+  </body>
+</html>
