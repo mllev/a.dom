@@ -1462,10 +1462,12 @@ function $$a (node, attrs, isSvg) {
 function $$addEventListeners (node, events) {
   var keys = Object.keys(events);
   if (!node.__eventRefs) node.__eventRefs = {};
-  keys.forEach(function (event) {
-    if (node.__eventRefs[event]) {
-      node.removeEventListener(event, node.__eventRefs[event]);
+  else {
+    for (e in node.__eventRefs) {
+      node.removeEventListener(e, node.__eventRefs[e]);
     }
+  }
+  keys.forEach(function (event) {
     node.addEventListener(event, events[event]);
     node.__eventRefs[event] = events[event];
   });
@@ -1857,13 +1859,23 @@ ${sync_body.join('\n')}
   Adom.prototype.render = function(file, input_state) {
     let html;
     try {
-      this._c = 0; // TODO I hate this
       let cacheKey = this.getPath(file);
-      let f = this.openFile(file);
-      let tokens = this.tokenize(f.text, f.name);
-      let ast = this.parse(tokens);
-      this.finalize(ast);
-      let html = this.execute(ast, input_state || {});
+      let html;
+
+      if (this.cache && this.ast_cache[cacheKey]) {
+        html = this.execute(this.ast_cache[cacheKey], input_state || {});
+      } else {
+        this._c = 0; // TODO I hate this
+        let f = this.openFile(file);
+        let tokens = this.tokenize(f.text, f.name);
+        let ast = this.parse(tokens);
+        this.finalize(ast);
+        html = this.execute(ast, input_state || {});
+        if (this.cache) {
+          this.ast_cache[cacheKey] = ast;
+        }
+      }
+
       return html;
     } catch (e) {
       if (e.origin === 'adom') {

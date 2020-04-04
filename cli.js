@@ -89,7 +89,7 @@ let mimeTypes = {
   zip: 'application/zip'
 }
 
-let c = new Adom({ root: path.resolve(dir, config.root || '') })
+let c = new Adom({ root: path.resolve(dir, config.root || ''), cache: false })
 
 if (!config.dev) {
   if (!config.file || !config.out) {
