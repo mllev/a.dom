@@ -119,14 +119,14 @@
           }
         }
 
-        function $c (Component, id, initial_state, props, body) {
+        function $c (Component, id, initial_state, props, body, yield_func) {
           let state = $states[id];
           let isNew = false;
           if (!state) {
             state = Object.assign(Component ? new Component() : {}, initial_state)
             isNew = true;
           }
-          body(state, props);
+          body(state, props, yield_func);
           if (isNew && state.mount) state.mount();
           $rendered[id] = true;
           $states[id] = state;
@@ -149,7 +149,7 @@
             $is_syncing = true;
             $nodes.push({ ref: window['adom-root'], processed: 0 });
 
-            function $Todo ($, props) {
+            function $Todo ($, props, $$yield) {
               (function (item, items, completed) {
                 function $update () {
                   $.item = item;
@@ -202,8 +202,8 @@
             }
 
             $e('div', {}, {}, function () {
-                $c(typeof Todo === 'function' ? Todo : null, 'a-1', {item: '', items: [{ text: 'feed fish', completed: false }], completed: 0}, {}, $Todo);
-                $c(typeof Todo === 'function' ? Todo : null, 'a-2', {item: '', items: [{ text: 'feed fish', completed: false }], completed: 0}, {}, $Todo);
+                $c(typeof Todo === 'function' ? Todo : null, 'a-1', {item: '', items: [{ text: 'feed fish', completed: false }], completed: 0}, {}, $Todo, function () {});
+                $c(typeof Todo === 'function' ? Todo : null, 'a-2', {item: '', items: [{ text: 'feed fish', completed: false }], completed: 0}, {}, $Todo, function () {});
             });
 
             $clean();

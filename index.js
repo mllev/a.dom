@@ -468,26 +468,6 @@ var Adom = (function () {
         peek('<');
     }
 
-    function parse_variable () {
-      let ident = tok.data;
-      let v = { pos: tok.pos, file: tok.file };
-      expect('ident');
-      let acc = parse_acc();
-      if (acc) {
-        acc.unshift({
-          type: 'ident',
-          data: ident,
-          pos: v.pos, file: v.file
-        });
-        v.type = 'accumulator';
-        v.data = acc;
-      } else {
-        v.type = "ident";
-        v.data = ident;
-      }
-      return v;
-    }
-
     function parse_atom () {
       let unop = tok.data;
       let expr = { pos: tok.pos, file: tok.file };
@@ -507,19 +487,21 @@ var Adom = (function () {
       } else if (peek('string')) {
         expr = parse_string();
       } else if (peek('ident')) {
-        expr = parse_variable();
+        expr = {
+          pos: tok.pos,
+          file: tok.file,
+          type: 'ident',
+          data: tok.data
+        };
+        next();
       } else if (accept('(')) {
-        let ex = parse_expr();
+        expr = {
+          type: 'parenthetical',
+          data: parse_expr(),
+          pos: expr.pos,
+          file: expr.file
+        };
         expect(')');
-        let acc = parse_acc();
-        if (acc) {
-          acc.unshift(ex);
-          expr.type = 'accumulator';
-          expr.data = acc;
-        } else {
-          expr.type = 'parenthetical'
-          expr.data = ex;
-        }
       } else if (peek('{')) {
         expr.type = 'object';
         expr.data = parse_object();
@@ -528,6 +510,16 @@ var Adom = (function () {
         expr.data = parse_array();
       } else {
         unexpected();
+      }
+      let acc = parse_acc();
+      if (acc) {
+        acc.unshift(expr);
+        return {
+          type: 'accumulator',
+          data: acc,
+          pos: expr.pos,
+          file: expr.file
+        };
       }
       return expr
     }
@@ -1434,6 +1426,7 @@ var $$rendered = {};
 var $$is_syncing = false;
 var $$is_svg = false;
 var $$nodes = [];
+var $$idx;
 
 function $$a (node, attrs, isSvg) {
   var xmlns = 'http://www.w3.org/2000/svg';
@@ -1449,14 +1442,14 @@ function $$a (node, attrs, isSvg) {
       }).join(' ') : a;
     if (p in node) {
       node[p] = v;
-    } else $if (v === false || v == null) {
-      if ($is_svg) {
-        node.removeAttributeNS(at, xmlns);
+    } else if (v === false || v == null) {
+      if ($$is_svg) {
+        node.removeAttributeNS(p, xmlns);
       } else {
-        node.removeAttribute(at);
+        node.removeAttribute(p);
       }
     } else {
-      if ($is_svg) {
+      if ($$is_svg) {
         node.setAttributeNS(p, v, xmlns);
       } else {
         node.setAttribute(p, v);
@@ -1481,11 +1474,13 @@ function $$addEventListeners (node, events) {
 function $$each (list, fn) {
   if (Array.isArray(list)) {
     for (var i = 0; i < list.length; i++) {
+      $$idx = i;
       fn(list[i], i);
     }
   } else if (typeof list === 'object') {
     var keys = Object.keys(list);
     for (var i = 0; i < keys.length; i++) {
+      $$idx = i;
       fn(keys[i], list[keys[i]]);
     }
   } else {
@@ -1515,13 +1510,13 @@ function $$clean () {
 }
 
 function $$parent () {
-  var node = $$nodes[$nodes.length - 1];
+  var node = $$nodes[$$nodes.length - 1];
   var child = node.ref.childNodes[node.processed++];
   return { parent: node.ref, child: child };
 }
 
 function $$e (type, attrs, events, children) {
-  var node, _ = $parent();
+  var node, _ = $$parent();
   var child = _.child, parent = _.parent;
   if (type === 'svg') $$is_svg = true;
   if (child && child.tagName === type.toUpperCase()) {
@@ -1546,14 +1541,14 @@ function $$e (type, attrs, events, children) {
   }
 }
 
-function $$c (Component, id, initial_state, props, body) {
-  let state = $states[id];
+function $$c (Component, id, initial_state, props, body, yield_fn) {
+  let state = $$states[id];
   let isNew = false;
   if (!state) {
-    state = Object.assign(Component ? new Component() : {}, initial_state)
+    state = Object.assign(Component ? new Component() : {}, initial_state);
     isNew = true;
   }
-  body(state, props);
+  body(state, props, yield_fn);
   if (isNew && state.mount) state.mount();
   $$rendered[id] = true;
   $$states[id] = state;
@@ -1574,24 +1569,24 @@ function $$clean_states () {
 
   Adom.prototype.generate_sync = function (ast) {
     let sync_body = [];
-    let prop_depth = -1;
     let custom_tags = {};
     let indents = 1;
-    let tag_states = [];
+    let bind_obj = false;
+    let tag_id = 0;
+    let in_loop = false;
 
     const sync_func = () => {
       return sync_body.length ? `
-  function $sync() {
-    if ($is_syncing === false) {
-      $is_syncing = true;
-      $nodes.push({ ref: window['adom-root-${this.uid}'], processed: 0 });
-      // components
-      // body
-      $clean();
-      $clean_states();
-      $is_syncing = false;
-    }
+function $sync() {
+  if ($$is_syncing === false) {
+    $$is_syncing = true;
+    $$nodes.push({ ref: window['adom-root-${this.uid}'], processed: 0 });
+${sync_body.join('\n')}
+    $$clean();
+    $$clean_states();
+    $$is_syncing = false;
   }
+}
       `: 'function $sync() {}\n';
     }
 
@@ -1611,7 +1606,6 @@ function $$clean_states () {
         } break;
         case 'accumulator': {
           let val = print_expression(expr.data[0]);
-          if (val === 'props') val = `$$props[${prop_depth}]`;
           for (let i = 1; i < expr.data.length; i++) {
             val += `[${print_expression(expr.data[i])}]`;
           }
@@ -1655,10 +1649,6 @@ function $$clean_states () {
       }
     }
 
-    function stringify_object(obj) {
-      return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
-    }
-
     function fmt() {
       return '    '.repeat(indents);
     }
@@ -1678,52 +1668,23 @@ function $$clean_states () {
         p1 = '';
         p2 = '$.';
       }
-      return '{ ' + Object.keys(state).map(k => `${p1}${k} = ${p2}${k}; `).join('') + '}';
+      return Object.keys(state).map(k => `${p1}${k} = ${p2}${k}; `).join('');
     }
 
     function event (e) {
-      let update = e.handler.indexOf('this') === -1 ? '$update();' : '';
+      let update = e.handler.indexOf('this') === -1 ? '$update1();' : (e.sync ? '': '$update2();');
       let sync = e.sync ? '$sync();' : '';
-      return `"${e.type}": function ($e) { (function () { ${handler}; ${update} ${sync} }).call($) }`;
+      return `"${e.type}": function ($e) { (function () { ${e.handler}; ${update} ${sync} }).call(${bind_obj ? '$' : ''}); }`;
     }
-
 
     function event_object (events, state) {
-      if (events.length) return `{${events.map(function (e) {
-        return event(e, state);
-      }).join(',')}}`;
-      else return null;
+      if (events.length) return `{${events.map(e => event(e, state)).join(',')}}`;
+      else return '{}';
     }
 
-    function children (r, y) {
-      r.children.forEach(c => {
-        walk(c, y);
-      });
+    function attribute_object(obj) {
+      return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
     }
-
-    // functions:
-    // render a tree of elements given a root (render_tree)
-    // steps:
-    // find all exported components (store in custom_tags) and the root
-    // for each component
-    //   build a state object for it
-    //   render update function
-    //   call render_tree for each node
-    // render_tree on root
-    // build sync function using components + main render call
-
-    /*
-        $e('ul', {}, {}, function () {
-          $each(items, function (item, i) {
-            $e('li', {}, { 'click': function ($e) { (function () {
-                this.markComplete(i);
-             $sync(); }).call($);
-            }}, function () {
-              $e('text', item.text, {});
-            });
-          });
-        });
-    */
 
     function find_root (n) {
       if (n.type === _custom) {
@@ -1744,6 +1705,78 @@ function $$clean_states () {
         return null;
       }
     }
+
+    function render_line (str, indent = 0) {
+      if (indent === -1) {
+        indents--;
+        sync_body.push(`${fmt()}${str}`);
+      } else {
+        sync_body.push(`${fmt()}${str}`);
+        indents += indent; 
+      }
+    }
+
+    function render_components () {
+      for (let name in custom_tags) {
+        let t = custom_tags[name];
+        render_line(`function $${name} ($, props, $$yield) { (function (${expand(t.state)}) {`, 1);
+        render_line(`function $update1 () { ${update(t.state)} }`);
+        render_line(`function $update2 () { ${update(t.state, true)} }`);
+        bind_obj = true;
+        t.node.children.forEach(render_tag);
+        bind_obj = false;
+        render_line(`})(${expand(t.state, '$.')}); }`, -1);
+      }
+    }
+
+    function render_tag (el) {
+      if (el.type === _tag) {
+        let events = event_object(el.data.events);
+        let attr = attribute_object(el.data.attributes);
+        if (custom_tags[el.data.name]) {
+          let n = el.data.name;
+          let s = attribute_object(custom_tags[n].state);
+          let id = tag_id++;
+          if (in_loop) {
+            id = `'a-${id}-' + $$idx`;
+          } else {
+            id = `'a-${id}'`;
+          }
+          render_line(`$$c(typeof ${n} === 'function' ? ${n} : null, ${id}, ${s}, ${attr}, $${n}, function () {`, 1);
+        } else {
+          render_line(`$$e("${el.data.name}", ${attr}, ${events}, function () {`, 1);
+        }
+        el.children.forEach(render_tag);
+        render_line(`});`, -1);
+      } else if (el.type === _textnode) {
+        render_line(`$$e("text", ${print_expression(el.data)}, {});`);
+      } else if (el.type === _yield) {
+        render_line(`$$yield();`);
+      } else if (el.type === _each) {
+        let it = el.data.iterators;
+        let c = in_loop;
+        render_line(`$$each(${print_expression(el.data.list)}, function (${it.filter(i => i).join(',')}) {`, 1);
+        in_loop = true;
+        el.children.forEach(render_tag);
+        in_loop = c;
+        render_line(`});`, -1);
+      } else if (el.type === _if) {
+        render_line(`if (${print_expression(el.data)}) {`, 1);
+        el.children.forEach(render_tag);
+        render_line(`}`, -1);
+      } else {
+        el.children.forEach(render_tag);
+      }
+    }
+
+    let root_node = find_root(ast);
+
+    if (!root_node) {
+      return '';
+    }
+
+    render_components();
+    root_node.children.forEach(render_tag);
 
     return sync_func();
   };
