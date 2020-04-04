@@ -1519,7 +1519,10 @@ function $$e (type, attrs, events, children) {
   var node, _ = $$parent();
   var child = _.child, parent = _.parent;
   if (type === 'svg') $$is_svg = true;
-  if (child && child.tagName === type.toUpperCase()) {
+  if (child && 
+    ((child.tagName === type.toUpperCase()) ||
+    (child.nodeType === Node.TEXT_NODE && type === 'text'))
+  ) {
     node = child;
   } else {
     node = $$create(type);
