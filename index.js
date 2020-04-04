@@ -1429,7 +1429,7 @@ var $$nodes = [];
 var $$idx;
 
 function $$a (node, attrs, isSvg) {
-  var xmlns = 'http://www.w3.org/2000/svg';
+  var ns = 'http://www.w3.org/2000/xlink';
   if (typeof attrs === 'string') {
     node.nodeValue = attrs;
     return;
@@ -1440,17 +1440,17 @@ function $$a (node, attrs, isSvg) {
       : typeof a === 'object' ? Object.keys(a).filter(function (k) {
         return a[k];
       }).join(' ') : a;
-    if (p in node) {
+    if (!$$is_svg && p in node) {
       node[p] = v;
     } else if (v === false || v == null) {
-      if ($$is_svg) {
-        node.removeAttributeNS(p, xmlns);
+      if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
+        node.removeAttributeNS(ns, 'href');
       } else {
         node.removeAttribute(p);
       }
     } else {
-      if ($$is_svg) {
-        node.setAttributeNS(p, v, xmlns);
+      if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
+        node.setAttributeNS(ns, 'href', v);
       } else {
         node.setAttribute(p, v);
       }
@@ -1570,8 +1570,8 @@ function $$clean_states () {
   Adom.prototype.generate_sync = function (ast) {
     let sync_body = [];
     let custom_tags = {};
-    let indents = 1;
-    let bind_obj = false;
+    let indents = 2;
+    let in_tag = false;
     let tag_id = 0;
     let in_loop = false;
 
@@ -1650,7 +1650,7 @@ ${sync_body.join('\n')}
     }
 
     function fmt() {
-      return '    '.repeat(indents);
+      return '  '.repeat(indents);
     }
 
     function expand (state, pref) {
@@ -1672,9 +1672,9 @@ ${sync_body.join('\n')}
     }
 
     function event (e) {
-      let update = e.handler.indexOf('this') === -1 ? '$update1();' : (e.sync ? '': '$update2();');
+      let update = !in_tag ? '' : (e.handler.indexOf('this') === -1 ? '$update1();' : (e.sync ? '': '$update2();'));
       let sync = e.sync ? '$sync();' : '';
-      return `"${e.type}": function ($e) { (function () { ${e.handler}; ${update} ${sync} }).call(${bind_obj ? '$' : ''}); }`;
+      return `"${e.type}": function ($e) { (function () { ${e.handler}; ${update} ${sync} }).call(${in_tag ? '$' : ''}); }`;
     }
 
     function event_object (events, state) {
@@ -1722,9 +1722,9 @@ ${sync_body.join('\n')}
         render_line(`function $${name} ($, props, $$yield) { (function (${expand(t.state)}) {`, 1);
         render_line(`function $update1 () { ${update(t.state)} }`);
         render_line(`function $update2 () { ${update(t.state, true)} }`);
-        bind_obj = true;
+        in_tag = true;
         t.node.children.forEach(render_tag);
-        bind_obj = false;
+        in_tag = false;
         render_line(`})(${expand(t.state, '$.')}); }`, -1);
       }
     }
@@ -1762,7 +1762,12 @@ ${sync_body.join('\n')}
         render_line(`});`, -1);
       } else if (el.type === _if) {
         render_line(`if (${print_expression(el.data)}) {`, 1);
-        el.children.forEach(render_tag);
+        el.children[0].children.forEach(render_tag);
+        if (el.children[1]) {
+          render_line('} else {', -1);
+          indents++;
+          el.children[1].children.forEach(render_tag);
+        }
         render_line(`}`, -1);
       } else {
         el.children.forEach(render_tag);
