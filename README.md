@@ -1,9 +1,3 @@
-<h1 align="center">
-	<br>
-    <img width="200" src="https://raw.githubusercontent.com/mllev/a.dom/master/logo.png">
-    <br>
-</h1>
-
 ## a.dom
 
 Advanced Data Oriented Markup
