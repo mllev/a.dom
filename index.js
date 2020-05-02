@@ -21,12 +21,7 @@ var Adom = (function () {
     this.filters = Object.assign(default_filters, config.filters || {});
     this.files = {};
     this.uid = Math.floor(Math.random() * 10000);
-    this._c = 0; // only used for rand_class - will remove soon
   }
-
-  Adom.prototype.rand_class = function () {
-    return `adom-c-${this._c++}`;
-  };
 
   function ASTNode (type, data) {
     this.type = type;
@@ -1517,12 +1512,12 @@ function $$e (type, attrs, events, children) {
   }
 }
 
-function $$c (Component, body) {
-  return function (id, initial_state, props, yieldfn) {
+function $$c (Component, body, initial_state) {
+  return function (id, props, yield_fn) {
     let state = $$states[id];
     let isNew = false;
     if (!state) {
-      state = Object.assign(Component ? new Component() : {}, initial_state);
+      state = Object.assign(Component ? new Component() : {}, initial_state(props));
       isNew = true;
     }
     body(state, props, yield_fn);
@@ -1545,28 +1540,14 @@ function $$clean_states () {
 }
   `;
 
-  Adom.prototype.generate_sync = function (ast) {
+  Adom.prototype.generate_runtime = function (ast) {
     let output = [];
     let indents = 2;
     let in_tag = false;
     let tag_id = 0;
     let in_loop = false;
     let tag_ctx = {};
-
-    const sync_func = (body) => {
-      return `
-function $sync() {
-  if ($$is_syncing === false) {
-    $$is_syncing = true;
-    $$nodes.push({ ref: window['adom-root-${this.uid}'], processed: 0 });
-${body}
-    $$clean();
-    $$clean_states();
-    $$is_syncing = false;
-  }
-}
-`;
-    }
+    let uuid = this.uid;
 
     function print_expression (expr) {
       switch (expr.type) {
@@ -1669,27 +1650,38 @@ ${body}
     function render_component (name, t) {
       let sk = Object.keys(t.state);
       let cl = `typeof ${name} === "function" ? ${name} : null`;
+      let s = state_initializer(t.state);
       render_line(`var $${name} = $$c(${cl}, function ($, props, $$yield) { (function (${sk.join(',')}) {`, 1);
       render_line(`function $u0 () { ${update(sk)} }`);
       render_line(`function $u1 () { ${update(sk, true)} }`);
       in_tag = true;
       t.node.children.forEach(render_tag);
       in_tag = false;
-      render_line(`})(${sk.map(k => `$.${k}`).join(',')}); });`, -1);
+      render_line(`})(${sk.map(k => `$.${k}`).join(',')}); }, ${s});`, -1);
     }
 
     function render_export (name) {
-      render_line(`$components.${name} = ${name};`);
+      render_line(`$components.${name} = $${name};`);
     }
 
     function render_import (data, exp) {
       if (data.ns) {
         render_line(`var ${data.ns} = $${data.name}.exports; var $${data.ns} = $${data.name}.components;`);
       } else {
-        for (e in exp) {
-          render_line(`var $${e} = $${data.name}.components.${c};`);
+        for (e of exp) {
+          render_line(`var $${e} = $${data.name}.components.${e};`);
         }
       }
+    }
+
+    function state_initializer (s) {
+      let out = 'function (props) { var $s = {}; ';
+      for (k in s) {
+        out += `var ${k} = ${print_expression(s[k])}; `;
+        out += `$s.${k} = ${k}; `;
+      }
+      out += 'return $s; }';
+      return out;
     }
 
     function render_tag (el) {
@@ -1701,9 +1693,8 @@ ${body}
 
         if (tag_ctx[el.data.name] || tag_ctx[pn]) {
           let n = pn || el.data.name;
-          let s = attribute_object(tag_ctx[n].state);
           let id = in_loop ? `'a-${tag_id++}-' + $$idx`: `'a-${tag_id++}'`;
-          render_line(`$${n}(${id}, ${s}, ${attr}, function () {`, 1);
+          render_line(`$${n}(${id}, ${attr}, function () {`, 1);
         } else {
           render_line(`$$e("${el.data.name}", ${attr}, ${events}, function () {`, 1);
         }
@@ -1750,8 +1741,13 @@ ${body}
           }
         }
         render_line(`var $${name} = (function () {`, 1);
+        render_line('var $exports = {};');
+        render_line('var $components = {};');
         for (i of file.imports) {
           render_import(i, files[i.name].exports);
+        }
+        if (file.js) {
+          file.js.split('\n').forEach(line => render_line(line));
         }
         for (t in file.tags) {
           render_component(t, file.tags[t]);
@@ -1761,9 +1757,16 @@ ${body}
         }
         if (file.sync) {
           render_line('$sync = function () {', 1);
+          render_line('if ($$is_syncing === false) {', 1);
+          render_line('$$is_syncing = true;');
+          render_line(`$$nodes.push({ ref: window['adom-root-${uuid}'], processed: 0 });`);
           for (c of file.sync) {
             render_tag(c);
           }
+          render_line('$$clean();');
+          render_line('$$clean_states();');
+          render_line('$$is_syncing = false;');
+          render_line('}', -1);
           render_line('};', -1);
         }
         render_line('return { exports: $exports, components: $components }');
@@ -1777,7 +1780,7 @@ ${body}
 
     function walk (node) {
       if (node.type === _file) {
-        file_stack.push({ imports: [], exports: [], tags: {} });
+        file_stack.push({ imports: [], exports: [], tags: {}, js: node.data.runtime });
         node.children.forEach(walk);
         let n = `f${f_id++}`;
         files[n] = file_stack.pop();
@@ -1811,9 +1814,7 @@ ${body}
     walk(ast);
     render_files(files);
 
-    console.log(output.join('\n'));
-
-    return '';
+    return output.join('\n');
   };
 
   Adom.prototype.getPath = function (p) {
@@ -1846,11 +1847,7 @@ ${body}
   };
 
   Adom.prototype.finalize = function (ast) {
-    let sync = this.generate_sync(ast);
-    if (this.runtimeFilter) {
-      ast.data.runtime = this.runtimeFilter(ast.data.runtime);
-    }
-    ast.data.runtime = sync + '\n' + ast.data.runtime;
+    ast.data.runtime = this.generate_runtime(ast);
     let pending = [];
     const walk = (n) => {
       if (n.type === _set) {
@@ -1890,7 +1887,6 @@ ${body}
       if (this.cache && this.ast_cache[cacheKey]) {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
-        this._c = 0; // TODO I hate this
         let f = this.openFile(file);
         let tokens = this.tokenize(f.text, f.name);
         let ast = this.parse(tokens);
@@ -1917,8 +1913,7 @@ ${body}
     try {
       let tokens = this.tokenize(str, 'main');
       let ast = this.parse(tokens);
-      let sync = this.generate_sync(ast);
-      ast.data.runtime = sync + '\n' + ast.data.runtime;
+      ast.data.runtime = this.generate_runtime(ast);
       let out = this.execute(ast, {}, true);
       document.querySelector(sel).innerHTML = out.html;
       window.eval(out.runtime);
