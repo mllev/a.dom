@@ -897,11 +897,12 @@ var Adom = (function () {
     function parse_custom_tag() {
       expect("tag");
       let tag = tok.data;
+      let pos = tok.pos, file = tok.file;
       let bind = accept('#');
       if (bind) tag = tok.data;
       expect("ident");
       expect("[");
-      let node = ast_node(_custom, { name: tag, bind: bind });
+      let node = ast_node(_custom, { name: tag, bind: bind, pos: pos, file: file });
       let current = parent;
       parent = node;
       parse_custom_tag_body();
@@ -1038,8 +1039,8 @@ var Adom = (function () {
       let ctx = file_ctx.pop();
       if (!file_ctx.length) return;
       ctx.exports.forEach(e => {
-        if (ctx.custom_tags[e]) {
-          add_custom_tag(e, ctx.custom_tags[e], ctx.namespace);
+        if (ctx.custom_tags[e.name]) {
+          add_custom_tag(e, ctx.custom_tags[e.name], ctx.namespace);
         }
       })
     }
@@ -1049,17 +1050,20 @@ var Adom = (function () {
       if (!ctx.custom_tags[e.name]) {
         throw_adom_error({ msg: 'undefined tag: ' + e.name, pos: e.pos, file: e.file });
       } else {
-        ctx.exports.push(e.name);
+        ctx.exports.push({ name: e.name, pos: e.pos, file: e.file });
       }
     }
 
-    function add_custom_tag (n, t, ns) {
+    function add_custom_tag (e, t, ns) {
       let ctx = file_ctx[file_ctx.length - 1];
       if (ns) {
         if (!ctx.namespaces[ns]) ctx.namespaces[ns] = {};
-        ctx.namespaces[ns][n] = t;
+        ctx.namespaces[ns][e.name] = t;
       } else {
-        ctx.custom_tags[n] = t;
+        if (ctx.custom_tags[e.name]) {
+          throw_adom_error({ msg: 'duplicate tag: ' + e.name, pos: e.pos, file: e.file });
+        }
+        ctx.custom_tags[e.name] = t;
       }
     }
 
@@ -1259,7 +1263,7 @@ var Adom = (function () {
           break;
         }
         case _custom: {
-          add_custom_tag(r.data.name, r);
+          add_custom_tag(r.data, r);
           break;
         }
         case _textnode: {
