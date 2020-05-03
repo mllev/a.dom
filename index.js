@@ -1019,9 +1019,10 @@ var Adom = (function () {
         `  var $$adom_state = ${JSON.stringify(state[0])};`,
         `  ${adom_runtime}`,
         `  (function (${Object.keys(state[0]).join(', ')}) {`,
-          `  ${ast.data.runtime}`,
-          `  $sync();`,
-          `})(${Object.keys(state[0]).map(k => `$$adom_state.${k}`).join(', ')})`,
+        `    var $sync = function () {};`,
+        `${ast.data.runtime}`,
+        `    $sync();`,
+        `})(${Object.keys(state[0]).map(k => `$$adom_state.${k}`).join(', ')});`,
         !mount ? `};` : `})();`
       ].join('\n');
     }
@@ -1391,158 +1392,158 @@ var Adom = (function () {
   }
 
   const adom_runtime = `
-var $$states = {};
-var $$rendered = {};
-var $$is_syncing = false;
-var $$is_svg = false;
-var $$nodes = [];
-var $$idx;
+  var $$states = {};
+  var $$rendered = {};
+  var $$is_syncing = false;
+  var $$is_svg = false;
+  var $$nodes = [];
+  var $$idx;
 
-function $$a (node, attrs, isSvg) {
-  var ns = 'http://www.w3.org/2000/xlink';
-  if (typeof attrs === 'string') {
-    node.nodeValue = attrs;
-    return;
-  }
-  Object.keys(attrs).forEach(function (p) {
-    var a = attrs[p];
-    var v = a && a.constructor === Array ? a.join(' ')
-      : typeof a === 'object' ? Object.keys(a).filter(function (k) {
-        return a[k];
-      }).join(' ') : a;
-    if (!$$is_svg && p in node) {
-      node[p] = v;
-    } else if (v === false || v == null) {
-      if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
-        node.removeAttributeNS(ns, 'href');
+  function $$a (node, attrs, isSvg) {
+    var ns = 'http://www.w3.org/2000/xlink';
+    if (typeof attrs === 'string') {
+      node.nodeValue = attrs;
+      return;
+    }
+    Object.keys(attrs).forEach(function (p) {
+      var a = attrs[p];
+      var v = a && a.constructor === Array ? a.join(' ')
+        : typeof a === 'object' ? Object.keys(a).filter(function (k) {
+          return a[k];
+        }).join(' ') : a;
+      if (!$$is_svg && p in node) {
+        node[p] = v;
+      } else if (v === false || v == null) {
+        if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
+          node.removeAttributeNS(ns, 'href');
+        } else {
+          node.removeAttribute(p);
+        }
       } else {
-        node.removeAttribute(p);
+        if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
+          node.setAttributeNS(ns, 'href', v);
+        } else {
+          node.setAttribute(p, v);
+        }
+      }
+    });
+    return node;
+  }
+
+  function $$addEventListeners (node, events) {
+    var keys = Object.keys(events);
+    if (!node.__eventRefs) node.__eventRefs = {};
+    else {
+      for (e in node.__eventRefs) {
+        node.removeEventListener(e, node.__eventRefs[e]);
+      }
+    }
+    keys.forEach(function (event) {
+      node.addEventListener(event, events[event]);
+      node.__eventRefs[event] = events[event];
+    });
+  }
+
+  function $$each (list, fn) {
+    if (Array.isArray(list)) {
+      for (var i = 0; i < list.length; i++) {
+        $$idx = i;
+        fn(list[i], i);
+      }
+    } else if (typeof list === 'object') {
+      var keys = Object.keys(list);
+      for (var i = 0; i < keys.length; i++) {
+        $$idx = i;
+        fn(keys[i], list[keys[i]]);
       }
     } else {
-      if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
-        node.setAttributeNS(ns, 'href', v);
-      } else {
-        node.setAttribute(p, v);
-      }
-    }
-  });
-  return node;
-}
-
-function $$addEventListeners (node, events) {
-  var keys = Object.keys(events);
-  if (!node.__eventRefs) node.__eventRefs = {};
-  else {
-    for (e in node.__eventRefs) {
-      node.removeEventListener(e, node.__eventRefs[e]);
+      throw new Error(list + ' is not iterable');
     }
   }
-  keys.forEach(function (event) {
-    node.addEventListener(event, events[event]);
-    node.__eventRefs[event] = events[event];
-  });
-}
 
-function $$each (list, fn) {
-  if (Array.isArray(list)) {
-    for (var i = 0; i < list.length; i++) {
-      $$idx = i;
-      fn(list[i], i);
-    }
-  } else if (typeof list === 'object') {
-    var keys = Object.keys(list);
-    for (var i = 0; i < keys.length; i++) {
-      $$idx = i;
-      fn(keys[i], list[keys[i]]);
-    }
-  } else {
-    throw new Error(list + ' is not iterable');
-  }
-}
-
-function $$create (type) {
-  var node, xmlns = 'http://www.w3.org/2000/svg';
-  if (type === 'text') {
-    node = document.createTextNode('');
-  } else if ($$is_svg) {
-    node = document.createElementNS(xmlns, type);
-  } else {
-    node = document.createElement(type);
-  }
-  return node;
-}
-
-function $$clean () {
-  var node = $$nodes.pop();
-  var parent = node.ref;
-  var num = node.processed;
-  while (parent.childNodes[num]) {
-    parent.removeChild(parent.childNodes[num]);
-  }
-}
-
-function $$parent () {
-  var node = $$nodes[$$nodes.length - 1];
-  var child = node.ref.childNodes[node.processed++];
-  return { parent: node.ref, child: child };
-}
-
-function $$e (type, attrs, events, children) {
-  var node, _ = $$parent();
-  var child = _.child, parent = _.parent;
-  if (type === 'svg') $$is_svg = true;
-  if (child && 
-    ((child.tagName === type.toUpperCase()) ||
-    (child.nodeType === Node.TEXT_NODE && type === 'text'))
-  ) {
-    node = child;
-  } else {
-    node = $$create(type);
-    if (child) {
-      parent.replaceChild(node, child);
+  function $$create (type) {
+    var node, xmlns = 'http://www.w3.org/2000/svg';
+    if (type === 'text') {
+      node = document.createTextNode('');
+    } else if ($$is_svg) {
+      node = document.createElementNS(xmlns, type);
     } else {
-      parent.appendChild(node);
+      node = document.createElement(type);
+    }
+    return node;
+  }
+
+  function $$clean () {
+    var node = $$nodes.pop();
+    var parent = node.ref;
+    var num = node.processed;
+    while (parent.childNodes[num]) {
+      parent.removeChild(parent.childNodes[num]);
     }
   }
-  $$a(node, attrs);
-  $$addEventListeners(node, events);
-  if (children) {
-    $$nodes.push({ ref: node, processed: 0 });
-    children();
-    $$clean();
-  }
-  if (type === 'svg') {
-    $$is_svg = false;
-  }
-}
 
-function $$c (Component, body, initial_state) {
-  return function (id, props, yield_fn) {
-    let state = $$states[id];
-    let isNew = false;
-    if (!state) {
-      state = Object.assign(Component ? new Component() : {}, initial_state(props));
-      isNew = true;
-    }
-    body(state, props, yield_fn);
-    if (isNew && state.mount) state.mount();
-    $$rendered[id] = true;
-    $$states[id] = state;
+  function $$parent () {
+    var node = $$nodes[$$nodes.length - 1];
+    var child = node.ref.childNodes[node.processed++];
+    return { parent: node.ref, child: child };
   }
-}
 
-function $$clean_states () {
-  for (id in $$states) {
-    if (!$$rendered[id]) {
-      if ($$states[id].unmount) {
-        $$states[id].unmount();
+  function $$e (type, attrs, events, children) {
+    var node, _ = $$parent();
+    var child = _.child, parent = _.parent;
+    if (type === 'svg') $$is_svg = true;
+    if (child && 
+      ((child.tagName === type.toUpperCase()) ||
+      (child.nodeType === Node.TEXT_NODE && type === 'text'))
+    ) {
+      node = child;
+    } else {
+      node = $$create(type);
+      if (child) {
+        parent.replaceChild(node, child);
+      } else {
+        parent.appendChild(node);
       }
-      delete $$states[id];
+    }
+    $$a(node, attrs);
+    $$addEventListeners(node, events);
+    if (children) {
+      $$nodes.push({ ref: node, processed: 0 });
+      children();
+      $$clean();
+    }
+    if (type === 'svg') {
+      $$is_svg = false;
     }
   }
-  $$rendered = {};
-}
-  `;
+
+  function $$c (Component, body, initial_state) {
+    return function (id, props, yield_fn) {
+      let state = $$states[id];
+      let isNew = false;
+      if (!state) {
+        state = Object.assign(Component ? new Component() : {}, initial_state(props));
+        isNew = true;
+      }
+      body(state, props, yield_fn);
+      if (isNew && state.mount) state.mount();
+      $$rendered[id] = true;
+      $$states[id] = state;
+    }
+  }
+
+  function $$clean_states () {
+    for (id in $$states) {
+      if (!$$rendered[id]) {
+        if ($$states[id].unmount) {
+          $$states[id].unmount();
+        }
+        delete $$states[id];
+      }
+    }
+    $$rendered = {};
+  }
+`;
 
   Adom.prototype.generate_runtime = function (ast) {
     let output = [];
