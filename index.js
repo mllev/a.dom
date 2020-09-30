@@ -404,6 +404,12 @@ var Adom = (function () {
       return false;
     }
 
+    function get_dir (path) {
+      let dir = path.split('/');
+      dir.pop();
+      return dir.join('/');
+    }
+
     function parse_string () {
       let data = [];
       let pos = tok.pos;
@@ -929,7 +935,13 @@ var Adom = (function () {
       let val;
       if (accept("file")) {
         // the file will be resolved to a string later
-        val = { pos: tok.pos, file: tok.file, type: 'file', name: parse_strict_string() };
+        val = {
+          pos: tok.pos,
+          file: tok.file,
+          type: 'file',
+          name: parse_strict_string(),
+          dir: get_dir(tok.file)
+        };
         if (accept('|')) {
           val.filter = { name: tok.data, pos: tok.pos, file: tok.file };
           expect('ident');
@@ -962,7 +974,8 @@ var Adom = (function () {
           }
         } else if (accept('import')) {
           let path = parse_strict_string();
-          let file = this.openFile(path);
+          let dir = get_dir(tok.file);
+          let file = this.openFile(path, dir);
           let toks = this.tokenize(file.text, file.name);
           let _ast = this.parse(toks, file.name);
           let ns = null;
@@ -1822,16 +1835,16 @@ var Adom = (function () {
     return output.join('\n');
   };
 
-  Adom.prototype.getPath = function (p) {
+  Adom.prototype.getPath = function (p, dir) {
     try {
       let path = require("path");
-      return path.resolve(this.dirname, p);
+      return path.resolve(dir || this.dirname, p);
     } catch (e) {
       return p;
     }
   };
 
-  Adom.prototype.openFile = function(p) {
+  Adom.prototype.openFile = function(p, dir) {
     let fs;
 
     try {
@@ -1840,7 +1853,7 @@ var Adom = (function () {
       return { name: '', text: '' }
     }
 
-    let f = this.getPath(p);
+    let f = this.getPath(p, dir);
     let t = fs.readFileSync(f).toString();
 
     this.files[f] = t;
@@ -1858,14 +1871,14 @@ var Adom = (function () {
       if (n.type === _set) {
         let dst = n.data.rhs;
         if (dst.type === 'file') {
-          pending.push({ file: dst.name, node: n, filter: dst.filter });
+          pending.push({ file: dst.name, dir: dst.dir, node: n, filter: dst.filter });
         }
       }
       n.children.forEach(walk);
     }
     walk(ast);
     pending.forEach(p => {
-      let file = this.openFile(p.file);
+      let file = this.openFile(p.file, p.dir);
       let f = p.filter; 
       if (f) {
         if (this.filters[f.name]) {
