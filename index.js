@@ -461,15 +461,6 @@ var Adom = (function () {
       return acc;
     }
 
-    function is_comparison () {
-      return peek('==') ||
-        peek('<=') ||
-        peek('>=') ||
-        peek('!=') ||
-        peek('>') ||
-        peek('<');
-    }
-
     function parse_atom () {
       let unop = tok.data;
       let expr = { pos: tok.pos, file: tok.file };
@@ -1531,19 +1522,47 @@ var Adom = (function () {
   }
 
   function $$c (Component, body, initial_state) {
-    return function (id, props, yield_fn) {
-      let state = $$states[id];
-      let isNew = false;
+    return function (id, props, events, yield_fn) {
+      var state = $$states[id];
+      var isNew = false;
       if (!state) {
         state = Object.assign(Component ? new Component() : {}, initial_state(props));
         isNew = true;
       }
       body(state, props, yield_fn);
-      if (isNew && state.mount) state.mount();
+      if (isNew) {
+        if (state.mount) state.mount();
+        if (state.events) {
+          for (event in events) {
+            state.on(event, events[event]);
+          }
+        }
+      }
       $$rendered[id] = true;
       $$states[id] = state;
     }
   }
+
+  function EventEmitter () {
+    this.events = {};
+  }
+
+  EventEmitter.prototype.emit = function (event, data) {
+    var callbacks = this.events[event];
+    if (callbacks) {
+      callbacks.forEach(function (fn) {
+        fn(data);
+      })
+    }
+  };
+
+  EventEmitter.prototype.on = function (event, fn) {
+    if (this.events[event]) {
+      this.events[event].push(fn);
+    } else {
+      this.events[event] = [fn];
+    }
+  };
 
   function $$clean_states () {
     for (id in $$states) {
@@ -1716,7 +1735,7 @@ var Adom = (function () {
 
         if (tag_ctx[el.data.name] || tag_ctx[pn]) {
           let n = pn || el.data.name;
-          render_line(`$${n}(${id}, ${attr}, function () {`, 1);
+          render_line(`$${n}(${id}, ${attr}, ${events}, function () {`, 1);
         } else {
           render_line(`$$e(${id}, "${el.data.name}", ${attr}, ${events}, function () {`, 1);
         }

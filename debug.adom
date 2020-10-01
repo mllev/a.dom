@@ -1,24 +1,20 @@
-let hide = true
-
 --
-setInterval(function () {
-  hide = !hide
-  $sync()
-}, 500);
+class Counter extends EventEmitter {
+  increment() {
+    this.count++
+    this.emit('increment', this.count)
+  }
+}
 --
 
-tag SomeTag [
-  div "inside tag"
+tag Counter [
+  let count = 0
+  button on:click="this.increment()" "increment {{count}}"
 ]
-
-let some_text = "div"
 
 html [
   head []
   body root [
-    if (hide) div [ h1 "first div" ]
-    div.class1 [ h1 "second {{some_text}" ]
-    SomeTag[]
-
+    Counter on:increment="console.log($e)" []
   ]
 ]
