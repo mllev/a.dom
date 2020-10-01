@@ -1,0 +1,21 @@
+let hide = true
+
+--
+setInterval(function () {
+  hide = !hide
+  $sync()
+}, 500);
+--
+
+tag SomeTag [
+  div "inside tag"
+]
+
+html [
+  head []
+  body root [
+    if (hide) div [ h1 "first div" ]
+    div.class1 [ h1 "second div" ]
+    SomeTag[]
+  ]
+]

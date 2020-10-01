@@ -4,7 +4,7 @@
   "description": "Advanced Data Oriented Markup",
   "main": "index.js",
   "scripts": {
-    "test": "node example"
+    "debug": "node cli.js --dev -r /=debug.adom"
   },
   "repository": {
     "type": "git",

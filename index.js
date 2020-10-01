@@ -1501,17 +1501,15 @@ var Adom = (function () {
     return { parent: node.ref, child: child };
   }
 
-  function $$e (type, attrs, events, children) {
+  function $$e (id, type, attrs, events, children) {
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
     if (type === 'svg') $$is_svg = true;
-    if (child && 
-      ((child.tagName === type.toUpperCase()) ||
-      (child.nodeType === Node.TEXT_NODE && type === 'text'))
-    ) {
+    if (child && child.__id === id) {
       node = child;
     } else {
       node = $$create(type);
+      node.__id = id;
       if (child) {
         parent.replaceChild(node, child);
       } else {
@@ -1702,24 +1700,28 @@ var Adom = (function () {
       return out;
     }
 
+    function tid () {
+      return `a-${tag_id++}`;
+    }
+
     function render_tag (el) {
       if (el.type === _tag) {
         let events = event_object(el.data.events);
         let attr = attribute_object(el.data.attributes);
         let p = el.data.possible_id;
         let pn = p ? `${p.namespace}.${p.name}` : undefined;
+        let id = in_loop ? `'${tid()}-' + $$idx`: `'${tid()}'`;
 
         if (tag_ctx[el.data.name] || tag_ctx[pn]) {
           let n = pn || el.data.name;
-          let id = in_loop ? `'a-${tag_id++}-' + $$idx`: `'a-${tag_id++}'`;
           render_line(`$${n}(${id}, ${attr}, function () {`, 1);
         } else {
-          render_line(`$$e("${el.data.name}", ${attr}, ${events}, function () {`, 1);
+          render_line(`$$e(${id}, "${el.data.name}", ${attr}, ${events}, function () {`, 1);
         }
         el.children.forEach(render_tag);
         render_line(`});`, -1);
       } else if (el.type === _textnode) {
-        render_line(`$$e("text", ${print_expression(el.data)}, {});`);
+        render_line(`$$e('${tid()}', "text", ${print_expression(el.data)}, {});`);
       } else if (el.type === _yield) {
         render_line(`$$yield();`);
       } else if (el.type === _each) {
