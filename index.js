@@ -1521,33 +1521,15 @@ var Adom = (function () {
     }
   }
 
-  function $$c (Component, body, initial_state) {
-    return function (id, props, events, yield_fn) {
-      var state = $$states[id];
-      var isNew = false;
-      if (!state) {
-        state = Object.assign(Component ? new Component() : {}, initial_state(props));
-        isNew = true;
-      }
-      body(state, props, yield_fn);
-      if (isNew) {
-        if (state.mount) state.mount();
-        if (state.events) {
-          for (event in events) {
-            state.on(event, events[event]);
-          }
-        }
-      }
-      $$rendered[id] = true;
-      $$states[id] = state;
+  function $$set_event (events, event, fn) {
+    if (events[event]) {
+      events[event].push(fn);
+    } else {
+      events[event] = [fn];
     }
   }
 
-  function EventEmitter () {
-    this.events = {};
-  }
-
-  EventEmitter.prototype.emit = function (event, data) {
+  function $$emit_event (event, data) {
     var callbacks = this.events[event];
     if (callbacks) {
       callbacks.forEach(function (fn) {
@@ -1556,13 +1538,29 @@ var Adom = (function () {
     }
   };
 
-  EventEmitter.prototype.on = function (event, fn) {
-    if (this.events[event]) {
-      this.events[event].push(fn);
-    } else {
-      this.events[event] = [fn];
+  function $$c (Component, body, initial_state) {
+    return function (id, props, events, yield_fn) {
+      var state = $$states[id];
+      var isNew = false;
+      if (!state) {
+        state = Object.assign(Component ? new Component() : {}, initial_state(props));
+        state.events = {};
+        state.emit = $$emit_event.bind(state);
+        isNew = true;
+      }
+      body(state, props, yield_fn);
+      if (isNew) {
+        if (state.mount) state.mount();
+        if (state.events) {
+          for (event in events) {
+            $$set_event(state.events, event, events[event]);
+          }
+        }
+      }
+      $$rendered[id] = true;
+      $$states[id] = state;
     }
-  };
+  }
 
   function $$clean_states () {
     for (id in $$states) {

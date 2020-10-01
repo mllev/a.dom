@@ -1,5 +1,5 @@
 --
-class Counter extends EventEmitter {
+class Counter {
   increment() {
     this.count++
     this.emit('increment', this.count)
