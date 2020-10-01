@@ -11,11 +11,14 @@ tag SomeTag [
   div "inside tag"
 ]
 
+let some_text = "div"
+
 html [
   head []
   body root [
     if (hide) div [ h1 "first div" ]
-    div.class1 [ h1 "second div" ]
+    div.class1 [ h1 "second {{some_text}" ]
     SomeTag[]
+
   ]
 ]

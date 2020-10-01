@@ -144,12 +144,12 @@ var Adom = (function () {
         if (text[i] === "{" && text[i+1] === "{" && in_expr === false) {
           in_expr = true;
           chunks.push({ type: "chunk", data: chunk, pos: pos, file: file });
-          chunk = "{";
+          chunk = "{{";
           i+=2;
           pos = cursor + i;
         } else if (text[i] === "}" && text[i+1] === "}" && in_expr === true) {
           in_expr = false;
-          chunk += "}";
+          chunk += "}}";
           let toks = this.tokenize(chunk, file, pos);
           toks.shift(); //file_begin
           toks.pop(); //eof
@@ -420,7 +420,9 @@ var Adom = (function () {
         if (accept('chunk')) {
           data.push({ type: 'chunk', data: d });
         } else if (accept('{')) {
+          expect('{');
           data.push(parse_expr());
+          expect('}');
           expect('}');
         } else {
           break;
