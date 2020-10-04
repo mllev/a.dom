@@ -1,17 +1,15 @@
 var Adom = (function () {
-  let _c = 0;
-
-  const _file = _c++;
-  const _export = _c++;
-  const _doctype = _c++;
-  const _if = _c++;
-  const _each = _c++;
-  const _tag = _c++;
-  const _custom = _c++;
-  const _yield = _c++;
-  const _textnode = _c++;
-  const _set = _c++;
-  const _block = _c++;
+  const _file = 0;
+  const _export = 1;
+  const _doctype = 2;
+  const _if = 3;
+  const _each = 4;
+  const _tag = 5;
+  const _custom = 6;
+  const _yield = 7;
+  const _textnode = 8;
+  const _set = 9;
+  const _block = 10;
 
   function Adom (config = {}) {
     this.ast_cache = {};
@@ -1403,7 +1401,6 @@ var Adom = (function () {
   var $$is_syncing = false;
   var $$is_svg = false;
   var $$nodes = [];
-  var $$idx;
 
   function $$a (node, attrs, isSvg) {
     var ns = 'http://www.w3.org/2000/xlink';
@@ -1453,13 +1450,11 @@ var Adom = (function () {
   function $$each (list, fn) {
     if (Array.isArray(list)) {
       for (var i = 0; i < list.length; i++) {
-        $$idx = i;
-        fn(list[i], i);
+        fn(list[i], i, i);
       }
     } else if (typeof list === 'object') {
       var keys = Object.keys(list);
       for (var i = 0; i < keys.length; i++) {
-        $$idx = i;
         fn(keys[i], list[keys[i]]);
       }
     } else {
@@ -1580,7 +1575,7 @@ var Adom = (function () {
     let indents = 2;
     let in_tag = false;
     let tag_id = 0;
-    let in_loop = false;
+    let loop_depth = 0;
     let tag_ctx = {};
     let uuid = this.uid;
 
@@ -1723,13 +1718,25 @@ var Adom = (function () {
       return `a-${tag_id++}`;
     }
 
+    function generate_id () {
+      if (loop_depth) {
+        let indexes = [`'${tid()}'`];
+        for (let i = 0; i < loop_depth; i++) {
+          indexes.push(`__index${i}`);
+        }
+        return indexes.join(" + '-' + ");
+      } else {
+        return `'${tid()}'`;
+      }
+    }
+
     function render_tag (el) {
       if (el.type === _tag) {
         let events = event_object(el.data.events);
         let attr = attribute_object(el.data.attributes);
         let p = el.data.possible_id;
         let pn = p ? `${p.namespace}.${p.name}` : undefined;
-        let id = in_loop ? `'${tid()}-' + $$idx`: `'${tid()}'`;
+        let id = generate_id();
 
         if (tag_ctx[el.data.name] || tag_ctx[pn]) {
           let n = pn || el.data.name;
@@ -1744,12 +1751,11 @@ var Adom = (function () {
       } else if (el.type === _yield) {
         render_line(`$$yield();`);
       } else if (el.type === _each) {
-        let it = el.data.iterators;
-        let c = in_loop;
+        loop_depth++;
+        let it = el.data.iterators.concat([`__index${loop_depth-1}`]);
         render_line(`$$each(${print_expression(el.data.list)}, function (${it.filter(i => i).join(',')}) {`, 1);
-        in_loop = true;
         el.children.forEach(render_tag);
-        in_loop = c;
+        loop_depth--;
         render_line(`});`, -1);
       } else if (el.type === _if) {
         render_line(`if (${print_expression(el.data)}) {`, 1);

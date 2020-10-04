@@ -5,6 +5,10 @@ class Counter {
     this.emit('increment', this.count)
   }
 }
+
+setTimeout(function () {
+  document.querySelector('.adom-styles').innerHTML = 'div{background:red;}'
+}, 2000);
 --
 
 tag Counter [
@@ -12,9 +16,20 @@ tag Counter [
   button on:click="this.increment()" "increment {{count}}"
 ]
 
+let min = 0
+
 html [
-  head []
+  head [
+    style.adom-styles "div{background:green;}"
+  ]
   body root [
-    Counter on:increment="console.log($e)" []
+    div [
+      each (i in [repeat min 3]) [
+        Counter on:increment="console.log($e)" []
+        each (i in [repeat min 3]) [
+          Counter on:increment="console.log($e)" []
+        ]
+      ]
+    ]
   ]
 ]
