@@ -1578,6 +1578,64 @@ var Adom = (function () {
     let loop_depth = 0;
     let tag_ctx = {};
     let uuid = this.uid;
+    let f_id = 0;
+    let file_stack = [];
+    let files = [];
+    let tag_state = {};
+
+    function getRequires (file) {
+      let requires = [];
+      let inRequire = false;
+      for (let i = 0; i < file.length; i++) {
+        if (file[i] === '/' && file[i+1] === '/') {
+          while (true) {
+            if (i >= file.length) break;
+            if (file[i] === '\n' || file[i] === '\r') break;
+            i++;
+          }
+        } else if (file[i] === '/' && file[i+1] === '*') {
+          while (true) {
+            if (i >= file.length) break;
+            if (file[i] === '*' && file[i+1] === '/') {
+              i++;
+              break;
+            }
+            i++;
+          }
+        } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
+          let del = file[i++];
+          let str = '';
+          while (true) {
+            if (i >= file.length) break;
+            if (file[i] === del) break;
+            if (file[i] === '\\') i++;
+            str += file[i++];
+          }
+          if (inRequire === true) {
+            requires.push(str);
+            inRequire = false;
+          }
+        } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
+          file[i+3] === 'u' && file[i+4] === 'i' && file[i+5] === 'r' &&
+          file[i+6] === 'e') {
+          i+=7;
+          if (file[i] === ' ' || file[i] === '\t') {
+            i++;
+            while (true) {
+              if (i >= file.length) break;
+              if (file[i] !== ' ' && file[i] !== '\t') break;
+              i++;
+            }
+          }
+          if (file[i] === '(') {
+            inRequire = true;
+          } else {
+            i--;
+          }
+        }
+      }
+      return requires;
+    }
 
     function print_expression (expr) {
       switch (expr.type) {
@@ -1771,6 +1829,39 @@ var Adom = (function () {
       }
     }
 
+    function walk (node) {
+      if (node.type === _file) {
+        file_stack.push({ imports: [], exports: [], tags: {}, js: node.data.runtime });
+        node.children.forEach(walk);
+        let n = `f${f_id++}`;
+        files[n] = file_stack.pop();
+        if (file_stack.length) {
+          let f = file_stack[file_stack.length - 1];
+          f.imports.push({ name: n, ns: node.data.namespace });
+        }
+      } else if (node.type === _export) {
+        let f = file_stack[file_stack.length - 1];
+        f.exports.push(node.data.name);
+        node.children.forEach(walk);
+      } else if (node.type === _custom) {
+        let f = file_stack[file_stack.length - 1];
+        let t = { node };
+        f.tags[node.data.name] = t;
+        tag_state = {};
+        node.children.forEach(walk);
+        t.state = tag_state;
+        tag_state = {};
+      } else if (node.type === _set) {
+        tag_state[node.data.lhs.data] = node.data.rhs;
+      } else if (node.type === _tag) {
+        if (node.data.attributes.root) {
+          file_stack[file_stack.length - 1].sync = node.children;
+        } else {
+          node.children.forEach(walk);
+        }
+      }
+    }
+
     function render_files (files) {
       for (name in files) {
         let file = files[name];
@@ -1819,43 +1910,6 @@ var Adom = (function () {
       }
     }
 
-    let f_id = 0;
-    let file_stack = [], files = [];
-    let tag_state = {};
-
-    function walk (node) {
-      if (node.type === _file) {
-        file_stack.push({ imports: [], exports: [], tags: {}, js: node.data.runtime });
-        node.children.forEach(walk);
-        let n = `f${f_id++}`;
-        files[n] = file_stack.pop();
-        if (file_stack.length) {
-          let f = file_stack[file_stack.length - 1];
-          f.imports.push({ name: n, ns: node.data.namespace });
-        }
-      } else if (node.type === _export) {
-        let f = file_stack[file_stack.length - 1];
-        f.exports.push(node.data.name);
-        node.children.forEach(walk);
-      } else if (node.type === _custom) {
-        let f = file_stack[file_stack.length - 1];
-        let t = { node };
-        f.tags[node.data.name] = t;
-        tag_state = {};
-        node.children.forEach(walk);
-        t.state = tag_state;
-        tag_state = {};
-      } else if (node.type === _set) {
-        tag_state[node.data.lhs.data] = node.data.rhs;
-      } else if (node.type === _tag) {
-        if (node.data.attributes.root) {
-          file_stack[file_stack.length - 1].sync = node.children;
-        } else {
-          node.children.forEach(walk);
-        }
-      }
-    }
-
     walk(ast);
     render_files(files);
 
@@ -1894,16 +1948,19 @@ var Adom = (function () {
   Adom.prototype.finalize = function (ast) {
     ast.data.runtime = this.generate_runtime(ast);
     let pending = [];
-    const walk = (n) => {
+    let stack = [ast];
+    while (stack.length) {
+      let n = stack.shift();
       if (n.type === _set) {
         let dst = n.data.rhs;
         if (dst.type === 'file') {
           pending.push({ file: dst.name, dir: dst.dir, node: n, filter: dst.filter });
         }
       }
-      n.children.forEach(walk);
+      n.children.forEach(child => {
+        stack.push(child);
+      });
     }
-    walk(ast);
     pending.forEach(p => {
       let file = this.openFile(p.file, p.dir);
       let f = p.filter; 

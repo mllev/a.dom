@@ -5,29 +5,25 @@ class Counter {
     this.emit('increment', this.count)
   }
 }
-
-setTimeout(function () {
-  document.querySelector('.adom-styles').innerHTML = 'div{background:red;}'
-}, 2000);
 --
+
+let recent = 0
 
 tag Counter [
   let count = 0
+  div '{{count}}'
   button on:click="this.increment()" "increment {{count}}"
 ]
 
-let min = 0
-
 html [
-  head [
-    style.adom-styles "div{background:green;}"
-  ]
+  head []
   body root [
     div [
-      each (i in [repeat min 3]) [
-        Counter on:increment="console.log($e)" []
-        each (i in [repeat min 3]) [
-          Counter on:increment="console.log($e)" []
+      h1 'most recent: {{ recent }}'
+      each (i in [repeat 0 3]) [
+        Counter on:increment="recent = $e" []
+        each (i in [repeat 0 3]) [
+          Counter on:increment="recent = $e" []
         ]
       ]
     ]

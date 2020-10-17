@@ -21,6 +21,8 @@ usage: adom [options]
 
     -d <dir>    directory location of adom files - omit if in current directory
                 example: adom -d src index.adom -o index.html -f
+
+    --new <app> generates a tiny starter project
 `
 
 for (let i = 0; i < process.argv.length; i++) {
@@ -47,20 +49,25 @@ for (let i = 0; i < process.argv.length; i++) {
     case '--dev':
       config.dev = true;
       break
+    case '--new':
+      config.starter = true;
+      config.app = process.argv[++i];
+      break
     default:
-      config.file = process.argv[i]
+      config.file = process.argv[i];
       break
   }
 }
 
 let mimeTypes = {
-  html:  'text/html',
+  html: 'text/html',
   ico: 'image/vnd.microsoft.icon',
   jpeg: 'image/jpeg',
-  jpg:  'image/jpeg',
-  js:  'text/javascript',
-  json:  'application/json',
-  jsonld:  'application/ld+json',
+  jpg: 'image/jpeg',
+  js: 'text/javascript',
+  json: 'application/json',
+  jsonld: 'application/ld+json',
+  png: 'image/png',
   mjs: 'text/javascript',
   mp3: 'audio/mpeg',
   mpeg:  'video/mpeg',
@@ -72,26 +79,57 @@ let mimeTypes = {
   svg: 'image/svg+xml',
   tar: 'application/x-tar',
   tif: 'image/tiff',
-  tiff:  'image/tiff',
+  tiff: 'image/tiff',
   ttf: 'TrueType Font  font/ttf',
   txt: 'text/plain',
   vsd: 'application/vnd.visio',
   wav: 'audio/wav',
-  weba:  'audio/webm',
-  webm:  'video/webm',
-  webp:  'image/webp',
-  woff:  'font/woff',
+  weba: 'audio/webm',
+  webm: 'video/webm',
+  webp: 'image/webp',
+  woff: 'font/woff',
   woff2: 'font/woff2',
   xhtml: 'application/xhtml+xml',
   xls: 'application/vnd.ms-excel',
   xlsx:  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   xml: 'text/xml',
   zip: 'application/zip'
-}
+};
 
-let c = new Adom({ root: path.resolve(dir, config.root || ''), cache: false })
+let c = new Adom({ root: path.resolve(dir, config.root || ''), cache: false });
 
-if (!config.dev) {
+if (config.starter) {
+  if (!config.app) {
+    console.log(help);
+  } else {
+    let package = `{
+  "name": "${config.app}",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npx adom-js --dev /=index.adom"
+  },
+  "author": "",
+  "license": "ISC"
+} 
+`;
+    let starter = `html lang='en' [
+  head []
+  body [
+    h1 "Hello from ADOM"
+  ]
+]
+`;
+    if (!fs.existsSync(config.app)) {
+      fs.mkdirSync(config.app);
+      fs.writeFileSync(path.resolve(dir, config.app,  'index.adom'), starter);
+      fs.writeFileSync(path.resolve(dir, config.app, 'package.json'), package);
+    } else {
+      console.log(`Error: ${config.app} already exists`);
+    }
+  }
+} else if (!config.dev) {
   if (!config.file || !config.out) {
     console.log(help);
   } else {
