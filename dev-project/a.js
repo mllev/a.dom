@@ -1,1 +1,0 @@
-exports.a = require('./b.js');

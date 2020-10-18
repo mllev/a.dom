@@ -1610,14 +1610,20 @@ var Adom = (function () {
           } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
             let del = file[i++];
             let str = '';
+            let begin = i;
             while (true) {
               if (i >= file.length) break;
               if (file[i] === del) break;
               if (file[i] === '\\') i++;
               str += file[i++];
             }
+            let end = i;
             if (inRequire === true) {
-              requires.push(str);
+              requires.push({
+                file: str,
+                begin: begin,
+                end: end
+              });
               inRequire = false;
             }
           } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
@@ -1644,7 +1650,17 @@ var Adom = (function () {
         return requires;
       }
       let requires = getRequires(file);
-      console.log(requires);
+      let outf = '';
+      let prev = 0;
+      for (let i = 0; i < requires.length; i++) {
+        let r = requires[i];
+        outf += file.slice(prev, r.begin) + 'generated';
+        if (i === requires.length - 1) {
+          outf += file.slice(r.end);
+        }
+        prev = r.end;
+      }
+      console.log(requires, outf);
       return file;
     }
 
