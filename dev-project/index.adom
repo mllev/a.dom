@@ -1,4 +1,8 @@
 --
+const a = require('./a.js')
+
+a()
+
 class Counter {
   increment() {
     this.count++
@@ -12,7 +16,7 @@ let recent = 0
 tag Counter [
   let count = 0
   div '{{count}}'
-  button on:click="this.increment()" "increment {{count}}"
+  button on:click="this.increment()" "increment"
 ]
 
 html [
@@ -21,8 +25,7 @@ html [
     div [
       h1 'most recent: {{ recent }}'
       each (i in [repeat 0 3]) [
-        Counter on:increment="recent = $e" []
-        each (i in [repeat 0 3]) [
+        each (i in [repeat 0 4]) [
           Counter on:increment="recent = $e" []
         ]
       ]

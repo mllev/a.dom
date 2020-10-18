@@ -1211,7 +1211,7 @@ var Adom = (function () {
       if (Array.isArray(list)) {
         list.forEach((it, i) => {
           fn(it, i);
-        })
+        });
       } else if (typeof list === 'object') {
         Object.keys(list).forEach(k => {
           fn(k, list[k]);
@@ -1583,58 +1583,69 @@ var Adom = (function () {
     let files = [];
     let tag_state = {};
 
-    function getRequires (file) {
-      let requires = [];
-      let inRequire = false;
-      for (let i = 0; i < file.length; i++) {
-        if (file[i] === '/' && file[i+1] === '/') {
-          while (true) {
-            if (i >= file.length) break;
-            if (file[i] === '\n' || file[i] === '\r') break;
-            i++;
-          }
-        } else if (file[i] === '/' && file[i+1] === '*') {
-          while (true) {
-            if (i >= file.length) break;
-            if (file[i] === '*' && file[i+1] === '/') {
-              i++;
-              break;
-            }
-            i++;
-          }
-        } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
-          let del = file[i++];
-          let str = '';
-          while (true) {
-            if (i >= file.length) break;
-            if (file[i] === del) break;
-            if (file[i] === '\\') i++;
-            str += file[i++];
-          }
-          if (inRequire === true) {
-            requires.push(str);
-            inRequire = false;
-          }
-        } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
-          file[i+3] === 'u' && file[i+4] === 'i' && file[i+5] === 'r' &&
-          file[i+6] === 'e') {
-          i+=7;
-          if (file[i] === ' ' || file[i] === '\t') {
-            i++;
+    function bundle (file) {
+      function isalnum (c) {
+        return ((c.toUpperCase() != c.toLowerCase()) || (c >= '0' && c <= '9'));
+      }
+
+      function getRequires (file) {
+        let requires = [];
+        let inRequire = false;
+        for (let i = 0; i < file.length; i++) {
+          if (file[i] === '/' && file[i+1] === '/') {
             while (true) {
               if (i >= file.length) break;
-              if (file[i] !== ' ' && file[i] !== '\t') break;
+              if (file[i] === '\n' || file[i] === '\r') break;
               i++;
             }
-          }
-          if (file[i] === '(') {
-            inRequire = true;
-          } else {
-            i--;
+          } else if (file[i] === '/' && file[i+1] === '*') {
+            while (true) {
+              if (i >= file.length) break;
+              if (file[i] === '*' && file[i+1] === '/') {
+                i++;
+                break;
+              }
+              i++;
+            }
+          } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
+            let del = file[i++];
+            let str = '';
+            while (true) {
+              if (i >= file.length) break;
+              if (file[i] === del) break;
+              if (file[i] === '\\') i++;
+              str += file[i++];
+            }
+            if (inRequire === true) {
+              requires.push(str);
+              inRequire = false;
+            }
+          } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
+            file[i+3] === 'u' && file[i+4] === 'i' && file[i+5] === 'r' &&
+            file[i+6] === 'e') {
+            if (i === 0 || (file[i-1] !== '_' && !isalnum(file[i-1]))) {
+              i+=7;
+              if (file[i] === ' ' || file[i] === '\t') {
+                i++;
+                while (true) {
+                  if (i >= file.length) break;
+                  if (file[i] !== ' ' && file[i] !== '\t') break;
+                  i++;
+                }
+              }
+              if (file[i] === '(') {
+                inRequire = true;
+              } else {
+                i--;
+              }
+            }
           }
         }
+        return requires;
       }
-      return requires;
+      let requires = getRequires(file);
+      console.log(requires);
+      return file;
     }
 
     function print_expression (expr) {
@@ -1883,7 +1894,7 @@ var Adom = (function () {
           render_import(i, files[i.name].exports);
         }
         if (file.js) {
-          file.js.split('\n').forEach(line => render_line(line));
+          bundle(file.js).split('\n').forEach(line => render_line(line));
         }
         for (t in file.tags) {
           render_component(t, file.tags[t]);
