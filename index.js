@@ -356,7 +356,7 @@ var Adom = (function () {
     let runtime = '';
     let root_found = false;
     let in_tag = false;
-    let ast = new ASTNode(_file, {});
+    let ast = new ASTNode(_file, { file: tok.file });
     let parent = ast;
 
     function ast_node(type, data) {
@@ -804,32 +804,6 @@ var Adom = (function () {
       parent = current;
     }
 
-    function parse_selector () {
-      let combinator = false; // combinators are only allowed after identifiers
-      let dot = -1;
-      while (true) {
-        var t = tok;
-        if (accept('ident')) {
-          dot = t.pos + t.data.length;
-          combinator = true;
-        } else if (accept('.') || accept('#')) {
-          dot = t.pos + t.data.length;
-          expect('ident');
-          combinator = true;
-        } else if (combinator && (accept('+') || accept('>'))) {
-          combinator = false;
-        } else {
-          break;
-        }
-      }
-      if (accept('(')) {
-        expect('ident');
-        accept('string');
-        expect(')');
-        parse_selector();
-      } 
-    }
-
     const parse_tag_list = () => {
       if (accept("doctype")) {
         ast_node(_doctype, tok.data);
@@ -875,18 +849,6 @@ var Adom = (function () {
         parse_tag_list();
       } else if (in_tag && (peek('var') || peek('const') || peek('let'))) {
         parse_assignment();
-        parse_tag_list();
-      } else if (in_tag && accept('@')) {
-        parse_selector();
-        expect('[');
-        while (true) {
-          if (accept('ident')) {
-            expect('string');
-          } else {
-            break;
-          }
-        }
-        expect(']');
         parse_tag_list();
       }
     }
@@ -1582,15 +1544,49 @@ var Adom = (function () {
     let file_stack = [];
     let files = [];
     let tag_state = {};
+    /*
+    steps:
+    begin: 
+      file: index.adom, dir: src/, filetext: ''
+      getRequires
+        resolve paths with dir
+        check agains path map and create alias
+      perform replacements
+      foreach require
+        split file from parent directory
+        file may be an implicit index.js
+        goto begin
+    */
 
-    function bundle (file) {
+    function bundle (file, filepath) {
+      const path = require('path');
+      const fs = require('fs');
+
+      function getProperties (filepath) {
+        let parts = filepath.split('/');
+        let file = parts.pop();
+        let parent = parts.join('/');
+
+        if (file.indexOf('.') === -1) {
+          if (fs.existsSync(`${file}.js`)) {
+            file += '.js';
+          } else {
+            parent.push(`/${file}`);
+            file = 'index.js';
+          }
+        }
+
+        return { parent, file };
+      }
+
       function isalnum (c) {
         return ((c.toUpperCase() != c.toLowerCase()) || (c >= '0' && c <= '9'));
       }
 
-      function getRequires (file) {
+      function getRequires (file, parent) {
         let requires = [];
         let inRequire = false;
+
         for (let i = 0; i < file.length; i++) {
           if (file[i] === '/' && file[i+1] === '/') {
             while (true) {
@@ -1620,7 +1616,8 @@ var Adom = (function () {
             let end = i;
             if (inRequire === true) {
               requires.push({
-                file: str,
+                filepath: path.resolve(parent, str),
+                module: 'f0',
                 begin: begin,
                 end: end
               });
@@ -1649,18 +1646,27 @@ var Adom = (function () {
         }
         return requires;
       }
-      let requires = getRequires(file);
-      let outf = '';
-      let prev = 0;
-      for (let i = 0; i < requires.length; i++) {
-        let r = requires[i];
-        outf += file.slice(prev, r.begin) + 'generated';
-        if (i === requires.length - 1) {
-          outf += file.slice(r.end);
+
+      function makeModifications (file, requires) {
+        let out = '';
+        let prev = 0;
+        for (let i = 0; i < requires.length; i++) {
+          let r = requires[i];
+          out += file.slice(prev, r.begin) + r.module;
+          if (i === requires.length - 1) {
+            out += file.slice(r.end);
+          }
+          prev = r.end;
         }
-        prev = r.end;
+        return !out ? file : out;
       }
-      console.log(requires, outf);
+
+      let properties = getProperties(filepath);
+      let requires = getRequires(file, properties.parent);
+
+      console.log(requires);
+      console.log(makeModifications(file, requires));
+
       return file;
     }
 
@@ -1858,7 +1864,13 @@ var Adom = (function () {
 
     function walk (node) {
       if (node.type === _file) {
-        file_stack.push({ imports: [], exports: [], tags: {}, js: node.data.runtime });
+        file_stack.push({
+          imports: [],
+          exports: [],
+          tags: {},
+          js: node.data.runtime,
+          filepath: node.data.file
+        });
         node.children.forEach(walk);
         let n = `f${f_id++}`;
         files[n] = file_stack.pop();
@@ -1910,7 +1922,7 @@ var Adom = (function () {
           render_import(i, files[i.name].exports);
         }
         if (file.js) {
-          bundle(file.js).split('\n').forEach(line => render_line(line));
+          bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line));
         }
         for (t in file.tags) {
           render_component(t, file.tags[t]);
