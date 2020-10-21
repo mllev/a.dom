@@ -1656,23 +1656,6 @@ var Adom = (function () {
         return !out ? file : out;
       }
 
-      function renderFiles (files) {
-        let rendered = '';
-        for (let i = files.length - 1; i > 0; i--) {
-          let file = files[i];
-          rendered += `
-__files.${file.id} = (function() {
-  var module = { exports: {} };
-  var exports = module.exports;
-${file.text}
-  return module.exports;
-})();
-`;
-        }
-        rendered += files[0].text;
-        return rendered;
-      }
-
       function openFile (filepath) {
         try {
           let file = fs.readFileSync(filepath, 'utf8');
