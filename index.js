@@ -1682,13 +1682,25 @@ ${file.text}
       let idmap = {};
       let filemap = {};
       let properties = getProperties(filepath);
+      let toRender = [];
       let stack = [{
         requires: getRequires(file, properties.parent),
         text: file,
         parent: properties.parent,
         id: `f${_id++}`
       }];
-      let toRender = [];
+
+      class Node {
+        constructor(id, text) {
+          this.id = id;
+          this.text = text;
+          this.visited = false;
+          this.edges = [];
+        }
+        addEdge(node) {
+          this.edges.push(node);
+        }
+      }
 
       while (stack.length) {
         let info = stack.shift();
@@ -1696,20 +1708,19 @@ ${file.text}
         for (let i = 0; i < requires.length; i++) {
           let p = requires[i].filepath;
           let id = `f${idmap[p] ? idmap[p] : (idmap[p] = _id++)}`;
-          let text;
           if (!filemap[id]) {
-            text = openFile(requires[i].filepath);
-            filemap[id] = text;
+            let text = openFile(requires[i].filepath);
+            requires[i].id = id;
+            stack.push({
+              requires: getRequires(text, requires[i].parent),
+              text: text,
+              parent: requires[i].parent,
+              id: id
+            });
+            filemap[id] = true;
           } else {
-            text = filemap[id];
+            requires[i].id = id;
           }
-          requires[i].id = id;
-          stack.push({
-            requires: getRequires(text, requires[i].parent),
-            text: text,
-            parent: requires[i].parent,
-            id: id
-          });
         }
         toRender.push({ id: info.id, text: makeModifications(info.text, requires) });
       }
