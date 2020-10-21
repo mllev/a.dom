@@ -108,7 +108,7 @@ if (config.starter) {
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "npx adom-js --dev /=index.adom"
+    "dev": "npx adom-js --dev -r /=index.adom"
   },
   "author": "",
   "license": "ISC"

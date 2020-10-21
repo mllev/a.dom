@@ -1,3 +1,5 @@
+const { userInfo } = require('os');
+
 var Adom = (function () {
   const _file = 0;
   const _export = 1;
@@ -1544,19 +1546,6 @@ var Adom = (function () {
     let file_stack = [];
     let files = [];
     let tag_state = {};
-    /*
-    steps:
-    begin: 
-      file: index.adom, dir: src/, filetext: ''
-      getRequires
-        resolve paths with dir
-        check agains path map and create alias
-      perform replacements
-      foreach require
-        split file from parent directory
-        file may be an implicit index.js
-        goto begin
-    */
 
     function bundle (file, filepath) {
       const path = require('path');
@@ -1568,10 +1557,10 @@ var Adom = (function () {
         let parent = parts.join('/');
 
         if (file.indexOf('.') === -1) {
-          if (fs.existsSync(`${file}.js`)) {
+          if (fs.existsSync(`${parent}/${file}.js`)) {
             file += '.js';
           } else {
-            parent.push(`/${file}`);
+            parent += `/${file}`;
             file = 'index.js';
           }
         }
@@ -1615,11 +1604,13 @@ var Adom = (function () {
             }
             let end = i;
             if (inRequire === true) {
+              let p = path.resolve(parent, str);
+              let props = getProperties(p);
               requires.push({
-                filepath: path.resolve(parent, str),
-                module: 'f0',
+                filepath: props.parent + '/' + props.file,
                 begin: begin,
-                end: end
+                end: end,
+                parent: props.parent
               });
               inRequire = false;
             }
@@ -1652,7 +1643,7 @@ var Adom = (function () {
         let prev = 0;
         for (let i = 0; i < requires.length; i++) {
           let r = requires[i];
-          out += file.slice(prev, r.begin) + r.module;
+          out += file.slice(prev, r.begin) + r.id;
           if (i === requires.length - 1) {
             out += file.slice(r.end);
           }
@@ -1661,13 +1652,69 @@ var Adom = (function () {
         return !out ? file : out;
       }
 
+      function renderFiles (files) {
+        let rendered = '';
+        for (let i = files.length - 1; i > 0; i--) {
+          let file = files[i];
+          rendered += `
+__files.${file.id} = (function() {
+  var module = { exports: {} };
+  var exports = module.exports;
+${file.text}
+  return module.exports;
+})();
+`;
+        }
+        rendered += files[0].text;
+        return rendered;
+      }
+
+      function openFile (filepath) {
+        try {
+          let file = fs.readFileSync(filepath, 'utf8');
+          return file;
+        } catch (e) {
+          throw new Error(e);
+        }
+      }
+
+      let _id = 0;
+      let idmap = {};
+      let filemap = {};
       let properties = getProperties(filepath);
-      let requires = getRequires(file, properties.parent);
+      let stack = [{
+        requires: getRequires(file, properties.parent),
+        text: file,
+        parent: properties.parent,
+        id: `f${_id++}`
+      }];
+      let toRender = [];
 
-      console.log(requires);
-      console.log(makeModifications(file, requires));
+      while (stack.length) {
+        let info = stack.shift();
+        let requires = info.requires;
+        for (let i = 0; i < requires.length; i++) {
+          let p = requires[i].filepath;
+          let id = `f${idmap[p] ? idmap[p] : (idmap[p] = _id++)}`;
+          let text;
+          if (!filemap[id]) {
+            text = openFile(requires[i].filepath);
+            filemap[id] = text;
+          } else {
+            text = filemap[id];
+          }
+          requires[i].id = id;
+          stack.push({
+            requires: getRequires(text, requires[i].parent),
+            text: text,
+            parent: requires[i].parent,
+            id: id
+          });
+        }
+        toRender.push({ id: info.id, text: makeModifications(info.text, requires) });
+      }
 
-      return file;
+      return renderFiles(toRender);
     }
 
     function print_expression (expr) {
@@ -1918,6 +1965,10 @@ var Adom = (function () {
         render_line(`var $${name} = (function () {`, 1);
         render_line('var $exports = {};');
         render_line('var $components = {};');
+        render_line('var __files = {};');
+        render_line('function require(id) {', 1);
+        render_line('return __files[id]');
+        render_line('}', -1);
         for (i of file.imports) {
           render_import(i, files[i.name].exports);
         }
