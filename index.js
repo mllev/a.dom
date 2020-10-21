@@ -1,5 +1,3 @@
-const { userInfo } = require('os');
-
 var Adom = (function () {
   const _file = 0;
   const _export = 1;
