@@ -1551,6 +1551,9 @@ var Adom = (function () {
       const path = require('path');
       const fs = require('fs');
 
+      let _id = 0;
+      let idmap = {};
+
       function getProperties (filepath) {
         let parts = filepath.split('/');
         let file = parts.pop();
@@ -1610,7 +1613,8 @@ var Adom = (function () {
                 filepath: props.parent + '/' + props.file,
                 begin: begin,
                 end: end,
-                parent: props.parent
+                parent: props.parent,
+                id: `f${idmap[p] ? idmap[p] : (idmap[p] = _id++)}`
               });
               inRequire = false;
             }
@@ -1678,18 +1682,6 @@ ${file.text}
         }
       }
 
-      let _id = 0;
-      let idmap = {};
-      let filemap = {};
-      let properties = getProperties(filepath);
-      let toRender = [];
-      let stack = [{
-        requires: getRequires(file, properties.parent),
-        text: file,
-        parent: properties.parent,
-        id: `f${_id++}`
-      }];
-
       class Node {
         constructor(id, text) {
           this.id = id;
@@ -1702,30 +1694,75 @@ ${file.text}
         }
       }
 
+      function setUp () {
+        let properties = getProperties(filepath);
+        let initialId = `f${_id++}`;
+        let requires = getRequires(file, properties.parent);
+        let root = new Node(initialId, makeModifications(file, requires));
+        return {
+          requires: requires,
+          node: root 
+        };
+      }
+
+      let stack = [setUp()];
+      let graph = stack[0].node;
+      let keymap = {[graph.id]: graph};
+
+      function renderGraph (root) {
+        let rendered = '';
+        let stack = [root];
+        while (stack.length) {
+          let node = stack[stack.length-1];
+          if (node.edges.filter(edge => !edge.visited).length === 0) {
+            stack.pop();
+            if (node == root) {
+              rendered += node.text;
+            } else {
+              rendered += `
+__files.${node.id} = (function() {
+  var module = { exports: {} };
+  var exports = module.exports;
+${node.text}
+  return module.exports;
+})();
+`;
+            }
+          } else {
+            node.edges.forEach(edge => {
+              edge.visited = true;
+              stack.push(edge);
+            });
+          }
+        }
+        return rendered;
+      }
+
       while (stack.length) {
         let info = stack.shift();
         let requires = info.requires;
+        let pnode = info.node;
         for (let i = 0; i < requires.length; i++) {
-          let p = requires[i].filepath;
-          let id = `f${idmap[p] ? idmap[p] : (idmap[p] = _id++)}`;
-          if (!filemap[id]) {
-            let text = openFile(requires[i].filepath);
-            requires[i].id = id;
+          let r = requires[i];
+          let text = openFile(r.filepath);
+          let rq = getRequires(text, r.parent);
+          let m = makeModifications(text, rq);
+          let node;
+          if (!keymap[r.id]) {
+            node = new Node(r.id, m);
+            keymap[r.id] = node;
             stack.push({
-              requires: getRequires(text, requires[i].parent),
-              text: text,
-              parent: requires[i].parent,
-              id: id
+              requires: rq,
+              node: node
             });
-            filemap[id] = true;
           } else {
-            requires[i].id = id;
+            node = keymap[r.id];
           }
+          pnode.addEdge(node);
         }
-        toRender.push({ id: info.id, text: makeModifications(info.text, requires) });
       }
 
-      return renderFiles(toRender);
+      return renderGraph(graph);
     }
 
     function print_expression (expr) {
