@@ -1553,20 +1553,21 @@ var Adom = (function () {
       let idmap = {};
 
       function getProperties (filepath) {
-        let parts = filepath.split('/');
+        let del = filepath.indexOf('\\') > -1 ? '\\' : '/';
+        let parts = filepath.split(del);
         let file = parts.pop();
-        let parent = parts.join('/');
+        let parent = parts.join(del);
 
         if (file.indexOf('.') === -1) {
-          if (fs.existsSync(`${parent}/${file}.js`)) {
+          if (fs.existsSync(path.resolve(parent, `${file}.js`))) {
             file += '.js';
           } else {
-            parent += `/${file}`;
+            parent = path.resolve(parent, file);
             file = 'index.js';
           }
         }
 
-        return { parent, file };
+        return { parent, file: path.resolve(parent, file) };
       }
 
       function isalnum (c) {
@@ -1608,7 +1609,7 @@ var Adom = (function () {
               let p = path.resolve(parent, str);
               let props = getProperties(p);
               requires.push({
-                filepath: props.parent + '/' + props.file,
+                filepath: props.file,
                 begin: begin,
                 end: end,
                 parent: props.parent,
@@ -1700,14 +1701,14 @@ var Adom = (function () {
             if (node == root) {
               rendered += node.text;
             } else {
-              rendered += `
-__files.${node.id} = (function() {
-  var module = { exports: {} };
-  var exports = module.exports;
-${node.text}
-  return module.exports;
-})();
-`;
+              rendered += [
+                `__files.${node.id} = (function() {`,
+                `  var module = { exports: {} };`,
+                `  var exports = module.exports;`,
+                node.text,
+                `  return module.exports;`,
+                `})();\n`
+              ].join('\n');
             }
           } else {
             node.edges.forEach(edge => {
