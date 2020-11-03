@@ -1399,7 +1399,7 @@ var Adom = (function () {
     var keys = Object.keys(events);
     if (!node.__eventRefs) node.__eventRefs = {};
     else {
-      for (e in node.__eventRefs) {
+      for (var e in node.__eventRefs) {
         node.removeEventListener(e, node.__eventRefs[e]);
       }
     }
@@ -1509,7 +1509,7 @@ var Adom = (function () {
       if (isNew) {
         if (state.mount) state.mount();
         if (state.events) {
-          for (event in events) {
+          for (var event in events) {
             $$set_event(state.events, event, events[event]);
           }
         }
@@ -1520,7 +1520,7 @@ var Adom = (function () {
   }
 
   function $$clean_states () {
-    for (id in $$states) {
+    for (var id in $$states) {
       if (!$$rendered[id]) {
         if ($$states[id].unmount) {
           $$states[id].unmount();
