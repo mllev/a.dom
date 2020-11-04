@@ -403,9 +403,10 @@ var Adom = (function () {
     }
 
     function get_dir (path) {
-      let dir = path.split('/');
+      let del = path.indexOf('\\') > -1 ? '\\' : '/'
+      let dir = path.split(del);
       dir.pop();
-      return dir.join('/');
+      return dir.join(del);
     }
 
     function parse_string () {
