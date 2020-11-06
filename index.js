@@ -1366,9 +1366,12 @@ var Adom = (function () {
   var $$nodes = [];
 
   function $$a (node, attrs, isSvg) {
+    var old = node.__old;
     var ns = 'http://www.w3.org/2000/xlink';
     if (typeof attrs === 'string') {
-      node.nodeValue = attrs;
+      if (old.nodeValue !== attrs) {
+        old.nodeValue = node.nodeValue = attrs;
+      }
       return;
     }
     Object.keys(attrs).forEach(function (p) {
@@ -1378,7 +1381,9 @@ var Adom = (function () {
           return a[k];
         }).join(' ') : a;
       if (!$$is_svg && p in node) {
-        node[p] = v;
+        if (old[p] !== v) {
+          old[p] = node[p] = v;
+        }
       } else if (v === false || v == null) {
         if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
           node.removeAttributeNS(ns, 'href');
@@ -1387,9 +1392,13 @@ var Adom = (function () {
         }
       } else {
         if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
-          node.setAttributeNS(ns, 'href', v);
-        } else {
+          if (old[p] !== v) {
+            node.setAttributeNS(ns, 'href', v);
+            old[p] = v;
+          }
+        } else if (old[p] !== v) {
           node.setAttribute(p, v);
+          old[p] = v;
         }
       }
     });
@@ -1461,6 +1470,7 @@ var Adom = (function () {
     } else {
       node = $$create(type);
       node.__id = id;
+      node.__old = {};
       if (child) {
         parent.replaceChild(node, child);
       } else {
