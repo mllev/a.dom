@@ -1369,8 +1369,8 @@ var Adom = (function () {
     var old = node.__old;
     var ns = 'http://www.w3.org/2000/xlink';
     if (typeof attrs === 'string') {
-      if (old.nodeValue !== attrs) {
-        old.nodeValue = node.nodeValue = attrs;
+      if (node.nodeValue !== attrs) {
+        node.nodeValue = attrs;
       }
       return;
     }
