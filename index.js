@@ -1465,6 +1465,7 @@ var Adom = (function () {
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
     var tag = child && child.tagName ? child.tagName.toLowerCase() : null;
+    var initial = false;
     if (type === 'svg') $$is_svg = true;
     if (child && child.__id === id) {
       node = child;
@@ -1472,6 +1473,7 @@ var Adom = (function () {
       node = child;
       node.__id = id;
       node.__old = {};
+      initial = true;
     } else {
       node = $$create(type);
       node.__id = id;
@@ -1482,7 +1484,7 @@ var Adom = (function () {
         parent.appendChild(node);
       }
     }
-    $$a(node, attrs);
+    if (!initial) $$a(node, attrs);
     $$addEventListeners(node, events);
     if (children) {
       $$nodes.push({ ref: node, processed: 0 });
