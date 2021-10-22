@@ -19,5 +19,8 @@
   "bugs": {
     "url": "https://github.com/mllev/a.dom/issues"
   },
-  "homepage": "https://github.com/mllev/a.dom#readme"
+  "homepage": "https://github.com/mllev/a.dom#readme",
+  "dependencies": {
+    "typescript": "^4.3.5"
+  }
 }

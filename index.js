@@ -982,7 +982,7 @@ var Adom = (function () {
 
     function runtime () {
       return [
-        !mount ? `window.onload = function () {` : `(function () {`,
+        !mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`,
         `  var $$adom_state = ${JSON.stringify(state[0])};`,
         `  ${adom_runtime}`,
         `  (function (${Object.keys(state[0]).join(', ')}) {`,
@@ -990,7 +990,7 @@ var Adom = (function () {
         `${ast.data.runtime}`,
         `    $sync();`,
         `})(${Object.keys(state[0]).map(k => `$$adom_state.${k}`).join(', ')});`,
-        !mount ? `};` : `})();`
+        !mount ? `});` : `})();`
       ].join('\n');
     }
 
@@ -1464,9 +1464,14 @@ var Adom = (function () {
   function $$e (id, type, attrs, events, children) {
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
+    var tag = child && child.tagName ? child.tagName.toLowerCase() : null;
     if (type === 'svg') $$is_svg = true;
     if (child && child.__id === id) {
       node = child;
+    } else if (child && !child.__id && tag === type) {
+      node = child;
+      node.__id = id;
+      node.__old = {};
     } else {
       node = $$create(type);
       node.__id = id;
@@ -1542,6 +1547,207 @@ var Adom = (function () {
     $$rendered = {};
   }
 `;
+  function bundle (file, filepath) {
+    const path = require('path');
+    const fs = require('fs');
+
+    let _id = 0;
+    let idmap = {};
+
+    function getProperties (filepath) {
+      let del = filepath.indexOf('\\') > -1 ? '\\' : '/';
+      let parts = filepath.split(del);
+      let file = parts.pop();
+      let par = parts.join(del);
+
+      if (file.indexOf('.') === -1) {
+        if (fs.existsSync(path.resolve(par, `${file}.js`))) {
+          file += '.js';
+        } else {
+          par = path.resolve(par, file);
+          file = 'index.js';
+        }
+      }
+
+      return { parent: par, file: path.resolve(par, file) };
+    }
+
+    function isalnum (c) {
+      return ((c.toUpperCase() != c.toLowerCase()) || (c >= '0' && c <= '9'));
+    }
+
+    function getRequires (file, parent) {
+      let requires = [];
+      let inRequire = false;
+
+      for (let i = 0; i < file.length; i++) {
+        if (file[i] === '/' && file[i+1] === '/') {
+          while (true) {
+            if (i >= file.length) break;
+            if (file[i] === '\n' || file[i] === '\r') break;
+            i++;
+          }
+        } else if (file[i] === '/' && file[i+1] === '*') {
+          while (true) {
+            if (i >= file.length) break;
+            if (file[i] === '*' && file[i+1] === '/') {
+              i++;
+              break;
+            }
+            i++;
+          }
+        } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
+          let del = file[i++];
+          let str = '';
+          let begin = i;
+          while (true) {
+            if (i >= file.length) break;
+            if (file[i] === del) break;
+            if (file[i] === '\\') i++;
+            str += file[i++];
+          }
+          let end = i;
+          if (inRequire === true) {
+            let p = path.resolve(parent, str);
+            let props = getProperties(p);
+            requires.push({
+              filepath: props.file,
+              begin: begin,
+              end: end,
+              parent: props.parent,
+              id: `f${idmap[p] ? idmap[p] : (idmap[p] = _id++)}`
+            });
+            inRequire = false;
+          }
+        } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
+          file[i+3] === 'u' && file[i+4] === 'i' && file[i+5] === 'r' &&
+          file[i+6] === 'e') {
+          if (i === 0 || (file[i-1] !== '_' && !isalnum(file[i-1]))) {
+            i+=7;
+            if (file[i] === ' ' || file[i] === '\t') {
+              i++;
+              while (true) {
+                if (i >= file.length) break;
+                if (file[i] !== ' ' && file[i] !== '\t') break;
+                i++;
+              }
+            }
+            if (file[i] === '(') {
+              inRequire = true;
+            } else {
+              i--;
+            }
+          }
+        }
+      }
+      return requires;
+    }
+
+    function makeModifications (file, requires) {
+      let out = '';
+      let prev = 0;
+      for (let i = 0; i < requires.length; i++) {
+        let r = requires[i];
+        out += file.slice(prev, r.begin) + r.id;
+        if (i === requires.length - 1) {
+          out += file.slice(r.end);
+        }
+        prev = r.end;
+      }
+      return !out ? file : out;
+    }
+
+    function openFile (filepath) {
+      try {
+        let file = fs.readFileSync(filepath, 'utf8');
+        return file;
+      } catch (e) {
+        throw new Error(e);
+      }
+    }
+
+    class Node {
+      constructor(id, text) {
+        this.id = id;
+        this.text = text;
+        this.visited = false;
+        this.edges = [];
+      }
+      addEdge(node) {
+        this.edges.push(node);
+      }
+    }
+
+    function setUp () {
+      let properties = getProperties(filepath);
+      let initialId = `f${_id++}`;
+      let requires = getRequires(file, properties.parent);
+      let root = new Node(initialId, makeModifications(file, requires));
+      return {
+        requires: requires,
+        node: root 
+      };
+    }
+
+    let stack = [setUp()];
+    let graph = stack[0].node;
+    let keymap = {[graph.id]: graph};
+
+    function renderGraph (root) {
+      let rendered = '';
+      let stack = [root];
+      while (stack.length) {
+        let node = stack[stack.length-1];
+        if (node.edges.filter(edge => !edge.visited).length === 0) {
+          stack.pop();
+          if (node == root) {
+            rendered += node.text;
+          } else {
+            rendered += [
+              `__files.${node.id} = (function() {`,
+              `  var module = { exports: {} };`,
+              `  var exports = module.exports;`,
+              node.text,
+              `  return module.exports;`,
+              `})();\n`
+            ].join('\n');
+          }
+        } else {
+          node.edges.forEach(edge => {
+            edge.visited = true;
+            stack.push(edge);
+          });
+        }
+      }
+      return rendered;
+    }
+
+    while (stack.length) {
+      let info = stack.shift();
+      let requires = info.requires;
+      let pnode = info.node;
+      for (let i = 0; i < requires.length; i++) {
+        let r = requires[i];
+        let text = openFile(r.filepath);
+        let rq = getRequires(text, r.parent);
+        let m = makeModifications(text, rq);
+        let node;
+        if (!keymap[r.id]) {
+          node = new Node(r.id, m);
+          keymap[r.id] = node;
+          stack.push({
+            requires: rq,
+            node: node
+          });
+        } else {
+          node = keymap[r.id];
+        }
+        pnode.addEdge(node);
+      }
+    }
+
+    return renderGraph(graph);
+  }
 
   Adom.prototype.generate_runtime = function (ast) {
     let output = [];
@@ -1556,208 +1762,6 @@ var Adom = (function () {
     let files = [];
     let tag_state = {};
 
-    function bundle (file, filepath) {
-      const path = require('path');
-      const fs = require('fs');
-
-      let _id = 0;
-      let idmap = {};
-
-      function getProperties (filepath) {
-        let del = filepath.indexOf('\\') > -1 ? '\\' : '/';
-        let parts = filepath.split(del);
-        let file = parts.pop();
-        let parent = parts.join(del);
-
-        if (file.indexOf('.') === -1) {
-          if (fs.existsSync(path.resolve(parent, `${file}.js`))) {
-            file += '.js';
-          } else {
-            parent = path.resolve(parent, file);
-            file = 'index.js';
-          }
-        }
-
-        return { parent, file: path.resolve(parent, file) };
-      }
-
-      function isalnum (c) {
-        return ((c.toUpperCase() != c.toLowerCase()) || (c >= '0' && c <= '9'));
-      }
-
-      function getRequires (file, parent) {
-        let requires = [];
-        let inRequire = false;
-
-        for (let i = 0; i < file.length; i++) {
-          if (file[i] === '/' && file[i+1] === '/') {
-            while (true) {
-              if (i >= file.length) break;
-              if (file[i] === '\n' || file[i] === '\r') break;
-              i++;
-            }
-          } else if (file[i] === '/' && file[i+1] === '*') {
-            while (true) {
-              if (i >= file.length) break;
-              if (file[i] === '*' && file[i+1] === '/') {
-                i++;
-                break;
-              }
-              i++;
-            }
-          } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
-            let del = file[i++];
-            let str = '';
-            let begin = i;
-            while (true) {
-              if (i >= file.length) break;
-              if (file[i] === del) break;
-              if (file[i] === '\\') i++;
-              str += file[i++];
-            }
-            let end = i;
-            if (inRequire === true) {
-              let p = path.resolve(parent, str);
-              let props = getProperties(p);
-              requires.push({
-                filepath: props.file,
-                begin: begin,
-                end: end,
-                parent: props.parent,
-                id: `f${idmap[p] ? idmap[p] : (idmap[p] = _id++)}`
-              });
-              inRequire = false;
-            }
-          } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
-            file[i+3] === 'u' && file[i+4] === 'i' && file[i+5] === 'r' &&
-            file[i+6] === 'e') {
-            if (i === 0 || (file[i-1] !== '_' && !isalnum(file[i-1]))) {
-              i+=7;
-              if (file[i] === ' ' || file[i] === '\t') {
-                i++;
-                while (true) {
-                  if (i >= file.length) break;
-                  if (file[i] !== ' ' && file[i] !== '\t') break;
-                  i++;
-                }
-              }
-              if (file[i] === '(') {
-                inRequire = true;
-              } else {
-                i--;
-              }
-            }
-          }
-        }
-        return requires;
-      }
-
-      function makeModifications (file, requires) {
-        let out = '';
-        let prev = 0;
-        for (let i = 0; i < requires.length; i++) {
-          let r = requires[i];
-          out += file.slice(prev, r.begin) + r.id;
-          if (i === requires.length - 1) {
-            out += file.slice(r.end);
-          }
-          prev = r.end;
-        }
-        return !out ? file : out;
-      }
-
-      function openFile (filepath) {
-        try {
-          let file = fs.readFileSync(filepath, 'utf8');
-          return file;
-        } catch (e) {
-          throw new Error(e);
-        }
-      }
-
-      class Node {
-        constructor(id, text) {
-          this.id = id;
-          this.text = text;
-          this.visited = false;
-          this.edges = [];
-        }
-        addEdge(node) {
-          this.edges.push(node);
-        }
-      }
-
-      function setUp () {
-        let properties = getProperties(filepath);
-        let initialId = `f${_id++}`;
-        let requires = getRequires(file, properties.parent);
-        let root = new Node(initialId, makeModifications(file, requires));
-        return {
-          requires: requires,
-          node: root 
-        };
-      }
-
-      let stack = [setUp()];
-      let graph = stack[0].node;
-      let keymap = {[graph.id]: graph};
-
-      function renderGraph (root) {
-        let rendered = '';
-        let stack = [root];
-        while (stack.length) {
-          let node = stack[stack.length-1];
-          if (node.edges.filter(edge => !edge.visited).length === 0) {
-            stack.pop();
-            if (node == root) {
-              rendered += node.text;
-            } else {
-              rendered += [
-                `__files.${node.id} = (function() {`,
-                `  var module = { exports: {} };`,
-                `  var exports = module.exports;`,
-                node.text,
-                `  return module.exports;`,
-                `})();\n`
-              ].join('\n');
-            }
-          } else {
-            node.edges.forEach(edge => {
-              edge.visited = true;
-              stack.push(edge);
-            });
-          }
-        }
-        return rendered;
-      }
-
-      while (stack.length) {
-        let info = stack.shift();
-        let requires = info.requires;
-        let pnode = info.node;
-        for (let i = 0; i < requires.length; i++) {
-          let r = requires[i];
-          let text = openFile(r.filepath);
-          let rq = getRequires(text, r.parent);
-          let m = makeModifications(text, rq);
-          let node;
-          if (!keymap[r.id]) {
-            node = new Node(r.id, m);
-            keymap[r.id] = node;
-            stack.push({
-              requires: rq,
-              node: node
-            });
-          } else {
-            node = keymap[r.id];
-          }
-          pnode.addEdge(node);
-        }
-      }
-
-      return renderGraph(graph);
-    }
-
     function print_expression (expr) {
       switch (expr.type) {
         case 'ident':
@@ -1766,11 +1770,11 @@ var Adom = (function () {
         case 'bool':
           return expr.data.toString();
         case 'chunk':
-          return `"${expr.data.replace(/"/g, '\\"').replace(/(\r\n|\n|\r)/gm, '\\n')}"`
+          return '"' + expr.data.replace(/"/g, '\\"').replace(/(\r\n|\n|\r)/gm, '\\n') + '"';
         case 'string': {
-          return `${expr.data.map(function (c) {
+          return expr.data.map(function (c) {
              return print_expression(c)
-          }).join(' + ')}`;
+          }).join(' + ');
         } break;
         case 'accumulator': {
           let val = print_expression(expr.data[0]);
@@ -1990,7 +1994,8 @@ var Adom = (function () {
     }
 
     function render_files (files) {
-      for (name in files) {
+      const toBundle = [];
+      for (let name in files) {
         let file = files[name];
         tag_ctx = {...file.tags};
         for (i of file.imports) {
@@ -2010,16 +2015,18 @@ var Adom = (function () {
         render_line('function require(id) {', 1);
         render_line('return __files[id]');
         render_line('}', -1);
-        for (i of file.imports) {
+        for (let i of file.imports) {
           render_import(i, files[i.name].exports);
         }
         if (file.js) {
-          bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line));
+          toBundle.push({ file: { text: file.js, path: file.filepath }, line: output.length });
+          render_line('--replace--');
+          //bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line));
         }
-        for (t in file.tags) {
+        for (let t in file.tags) {
           render_component(t, file.tags[t]);
         }
-        for (e of file.exports) {
+        for (let e of file.exports) {
           render_export(e);
         }
         if (file.sync) {
@@ -2039,12 +2046,13 @@ var Adom = (function () {
         render_line('return { exports: $exports, components: $components }');
         render_line('})();', -1);
       }
+
+      return toBundle;
     }
 
     walk(ast);
-    render_files(files);
-
-    return output.join('\n');
+    const toBundle = render_files(files);
+    return [ output, toBundle ];
   };
 
   Adom.prototype.getPath = function (p, dir) {
@@ -2077,7 +2085,11 @@ var Adom = (function () {
   };
 
   Adom.prototype.finalize = function (ast) {
-    ast.data.runtime = this.generate_runtime(ast);
+    const runtime = this.generate_runtime(ast);
+    runtime[1].forEach((toBundle) => {
+      runtime[0][toBundle.line] = bundle(toBundle.file.text, toBundle.file.path);
+    });
+    ast.data.runtime = runtime[0].join('\n');
     let pending = [];
     let stack = [ast];
     while (stack.length) {
