@@ -16,6 +16,8 @@ var Adom = (function () {
     this.cache = config.cache || false;
     this.dirname = config.root || "";
     this.runtimeFilter = config.runtimeFilter;
+    this.jsPreBundleTransform = config.jsPreBundleTransform;
+    this.jsPostBundleTransform = config.jsPostBundleTransform;
     this.filters = Object.assign(default_filters, config.filters || {});
     this.files = {};
     this.uid = Math.floor(Math.random() * 10000);
@@ -984,7 +986,7 @@ var Adom = (function () {
       return [
         !mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`,
         `  var $$adom_state = ${JSON.stringify(state[0])};`,
-        `  ${adom_runtime}`,
+        `  ${ast.data.runtime_lib}`,
         `  (function (${Object.keys(state[0]).join(', ')}) {`,
         `    var $sync = function () {};`,
         `${ast.data.runtime}`,
@@ -1549,193 +1551,89 @@ var Adom = (function () {
     $$rendered = {};
   }
 `;
-  function bundle (file, filepath) {
-    const path = require('path');
-    const fs = require('fs');
 
-    let _id = 0;
-    let idmap = {};
+  let jsPreBundleTransformAsync = (text) => {
+    return new Promise((resolve, reject) => {
+      resolve(text);
+    });
+  };
 
-    function getProperties (filepath) {
-      let del = filepath.indexOf('\\') > -1 ? '\\' : '/';
-      let parts = filepath.split(del);
-      let file = parts.pop();
-      let par = parts.join(del);
+  let jsPostBundleTransformAsync = (text) => {
+    return new Promise((resolve, reject) => {
+      resolve(text);
+    });
+  };
 
-      if (file.indexOf('.') === -1) {
-        if (fs.existsSync(path.resolve(par, `${file}.js`))) {
-          file += '.js';
-        } else {
-          par = path.resolve(par, file);
-          file = 'index.js';
-        }
-      }
+  let jsPreBundleTransform = text => text;
+  let jsPostBundleTransform = text => text;
 
-      return { parent: par, file: path.resolve(par, file) };
-    }
+  function GraphNode (id, text) {
+    this.id = id;
+    this.text = text;
+    this.visited = false;
+    this.edges = [];
+  }
 
-    function isalnum (c) {
-      return ((c.toUpperCase() != c.toLowerCase()) || (c >= '0' && c <= '9'));
-    }
+  GraphNode.prototype.addEdge = function (node) {
+    this.edges.push(node);
+  };
 
-    function getRequires (file, parent) {
-      let requires = [];
-      let inRequire = false;
+  function Bundler () {
+    this.path = require('path');
+    this.fs = require('fs');
+    this._id = 0;
+    this.idmap = {};
+  }
 
-      for (let i = 0; i < file.length; i++) {
-        if (file[i] === '/' && file[i+1] === '/') {
-          while (true) {
-            if (i >= file.length) break;
-            if (file[i] === '\n' || file[i] === '\r') break;
-            i++;
-          }
-        } else if (file[i] === '/' && file[i+1] === '*') {
-          while (true) {
-            if (i >= file.length) break;
-            if (file[i] === '*' && file[i+1] === '/') {
-              i++;
-              break;
-            }
-            i++;
-          }
-        } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
-          let del = file[i++];
-          let str = '';
-          let begin = i;
-          while (true) {
-            if (i >= file.length) break;
-            if (file[i] === del) break;
-            if (file[i] === '\\') i++;
-            str += file[i++];
-          }
-          let end = i;
-          if (inRequire === true) {
-            let p = path.resolve(parent, str);
-            let props = getProperties(p);
-            requires.push({
-              filepath: props.file,
-              begin: begin,
-              end: end,
-              parent: props.parent,
-              id: `f${idmap[p] ? idmap[p] : (idmap[p] = _id++)}`
-            });
-            inRequire = false;
-          }
-        } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
-          file[i+3] === 'u' && file[i+4] === 'i' && file[i+5] === 'r' &&
-          file[i+6] === 'e') {
-          if (i === 0 || (file[i-1] !== '_' && !isalnum(file[i-1]))) {
-            i+=7;
-            if (file[i] === ' ' || file[i] === '\t') {
-              i++;
-              while (true) {
-                if (i >= file.length) break;
-                if (file[i] !== ' ' && file[i] !== '\t') break;
-                i++;
-              }
-            }
-            if (file[i] === '(') {
-              inRequire = true;
-            } else {
-              i--;
-            }
-          }
-        }
-      }
-      return requires;
-    }
+  Bundler.prototype.getProperties = function (filepath) {
+    let del = filepath.indexOf('\\') > -1 ? '\\' : '/';
+    let parts = filepath.split(del);
+    let file = parts.pop();
+    let par = parts.join(del);
 
-    function makeModifications (file, requires) {
-      let out = '';
-      let prev = 0;
-      for (let i = 0; i < requires.length; i++) {
-        let r = requires[i];
-        out += file.slice(prev, r.begin) + r.id;
-        if (i === requires.length - 1) {
-          out += file.slice(r.end);
-        }
-        prev = r.end;
-      }
-      return !out ? file : out;
-    }
-
-    function openFile (filepath) {
-      try {
-        let file = fs.readFileSync(filepath, 'utf8');
-        return file;
-      } catch (e) {
-        throw new Error(e);
+    if (file.indexOf('.') === -1) {
+      if (this.fs.existsSync(this.path.resolve(par, `${file}.js`))) {
+        file += '.js';
+      } else {
+        par = this.path.resolve(par, file);
+        file = 'index.js';
       }
     }
 
-    class Node {
-      constructor(id, text) {
-        this.id = id;
-        this.text = text;
-        this.visited = false;
-        this.edges = [];
-      }
-      addEdge(node) {
-        this.edges.push(node);
-      }
-    }
+    return { parent: par, file: this.path.resolve(par, file) };
+  };
 
-    function setUp () {
-      let properties = getProperties(filepath);
-      let initialId = `f${_id++}`;
-      let requires = getRequires(file, properties.parent);
-      let root = new Node(initialId, makeModifications(file, requires));
+  Bundler.prototype.bundleAsync = async function (file, filepath) {
+    const setUp = async () => {
+      let properties = this.getProperties(filepath);
+      let initialId = `f${this._id++}`;
+      file = await jsPreBundleTransformAsync(file);
+      let requires = this.getRequires(file, properties.parent);
+      let root = new GraphNode(initialId, this.makeModifications(file, requires));
       return {
         requires: requires,
         node: root 
       };
     }
 
-    let stack = [setUp()];
+    let stack = [await setUp()];
     let graph = stack[0].node;
     let keymap = {[graph.id]: graph};
-
-    function renderGraph (root) {
-      let rendered = '';
-      let stack = [root];
-      while (stack.length) {
-        let node = stack[stack.length-1];
-        if (node.edges.filter(edge => !edge.visited).length === 0) {
-          stack.pop();
-          if (node == root) {
-            rendered += node.text;
-          } else {
-            rendered += [
-              `__files.${node.id} = (function() {`,
-              `  var module = { exports: {} };`,
-              `  var exports = module.exports;`,
-              node.text,
-              `  return module.exports;`,
-              `})();\n`
-            ].join('\n');
-          }
-        } else {
-          node.edges.forEach(edge => {
-            edge.visited = true;
-            stack.push(edge);
-          });
-        }
-      }
-      return rendered;
-    }
 
     while (stack.length) {
       let info = stack.shift();
       let requires = info.requires;
       let pnode = info.node;
+
       for (let i = 0; i < requires.length; i++) {
         let r = requires[i];
-        let text = openFile(r.filepath);
-        let rq = getRequires(text, r.parent);
-        let m = makeModifications(text, rq);
+        let text = this.openFile(r.filepath);
+        text = await jsPreBundleTransformAsync(text);
+        let rq = this.getRequires(text, r.parent);
+        let m = this.makeModifications(text, rq);
         let node;
         if (!keymap[r.id]) {
-          node = new Node(r.id, m);
+          node = new GraphNode(r.id, m);
           keymap[r.id] = node;
           stack.push({
             requires: rq,
@@ -1748,8 +1646,177 @@ var Adom = (function () {
       }
     }
 
-    return renderGraph(graph);
-  }
+    return this.renderGraph(graph);
+  };
+
+  Bundler.prototype.bundle = function (file, filepath) {
+    const setUp = () => {
+      let properties = this.getProperties(filepath);
+      let initialId = `f${this._id++}`;
+      file = jsPreBundleTransform(file);
+      let requires = this.getRequires(file, properties.parent);
+      let root = new GraphNode(initialId, this.makeModifications(file, requires));
+      return {
+        requires: requires,
+        node: root 
+      };
+    }
+
+    let stack = [setUp()];
+    let graph = stack[0].node;
+    let keymap = {[graph.id]: graph};
+
+    while (stack.length) {
+      let info = stack.shift();
+      let requires = info.requires;
+      let pnode = info.node;
+
+      for (let i = 0; i < requires.length; i++) {
+        let r = requires[i];
+        let text = openFile(r.filepath);
+        text = jsPreBundleTransform(text);
+        let rq = this.getRequires(text, r.parent);
+        let m = this.makeModifications(text, rq);
+        let node;
+        if (!keymap[r.id]) {
+          node = new GraphNode(r.id, m);
+          keymap[r.id] = node;
+          stack.push({
+            requires: rq,
+            node: node
+          });
+        } else {
+          node = keymap[r.id];
+        }
+        pnode.addEdge(node);
+      }
+    }
+
+    return this.renderGraph(graph);
+  };
+
+  Bundler.prototype.isalnum = function (c) {
+    return ((c.toUpperCase() != c.toLowerCase()) || (c >= '0' && c <= '9'));
+  };
+
+  Bundler.prototype.getRequires = function (file, parent) {
+    let requires = [];
+    let inRequire = false;
+
+    for (let i = 0; i < file.length; i++) {
+      if (file[i] === '/' && file[i+1] === '/') {
+        while (true) {
+          if (i >= file.length) break;
+          if (file[i] === '\n' || file[i] === '\r') break;
+          i++;
+        }
+      } else if (file[i] === '/' && file[i+1] === '*') {
+        while (true) {
+          if (i >= file.length) break;
+          if (file[i] === '*' && file[i+1] === '/') {
+            i++;
+            break;
+          }
+          i++;
+        }
+      } else if (file[i] === '"' || file[i] === '\'' || file[i] === '`') {
+        let del = file[i++];
+        let str = '';
+        let begin = i;
+        while (true) {
+          if (i >= file.length) break;
+          if (file[i] === del) break;
+          if (file[i] === '\\') i++;
+          str += file[i++];
+        }
+        let end = i;
+        if (inRequire === true) {
+          let p = this.path.resolve(parent, str);
+          let props = this.getProperties(p);
+          requires.push({
+            filepath: props.file,
+            begin: begin,
+            end: end,
+            parent: props.parent,
+            id: `f${this.idmap[p] ? this.idmap[p] : (this.idmap[p] = this._id++)}`
+          });
+          inRequire = false;
+        }
+      } else if (file[i] === 'r' && file[i+1] === 'e' && file[i+2] === 'q' &&
+        file[i+3] === 'u' && file[i+4] === 'i' && file[i+5] === 'r' &&
+        file[i+6] === 'e') {
+        if (i === 0 || (file[i-1] !== '_' && !this.isalnum(file[i-1]))) {
+          i+=7;
+          if (file[i] === ' ' || file[i] === '\t') {
+            i++;
+            while (true) {
+              if (i >= file.length) break;
+              if (file[i] !== ' ' && file[i] !== '\t') break;
+              i++;
+            }
+          }
+          if (file[i] === '(') {
+            inRequire = true;
+          } else {
+            i--;
+          }
+        }
+      }
+    }
+    return requires;
+  };
+
+  Bundler.prototype.makeModifications = function (file, requires) {
+    let out = '';
+    let prev = 0;
+    for (let i = 0; i < requires.length; i++) {
+      let r = requires[i];
+      out += file.slice(prev, r.begin) + r.id;
+      if (i === requires.length - 1) {
+        out += file.slice(r.end);
+      }
+      prev = r.end;
+    }
+    return !out ? file : out;
+  };
+
+  Bundler.prototype.openFile = function (filepath) {
+    try {
+      let file = this.fs.readFileSync(filepath, 'utf8');
+      return file;
+    } catch (e) {
+      throw new Error(e);
+    }
+  };
+
+  Bundler.prototype.renderGraph = function (root) {
+    let rendered = '';
+    let stack = [root];
+    while (stack.length) {
+      let node = stack[stack.length-1];
+      if (node.edges.filter(edge => !edge.visited).length === 0) {
+        stack.pop();
+        if (node == root) {
+          rendered += node.text;
+        } else {
+          rendered += [
+            `__files.${node.id} = (function() {`,
+            `  var module = { exports: {} };`,
+            `  var exports = module.exports;`,
+            node.text,
+            `  return module.exports;`,
+            `})();\n`
+          ].join('\n');
+        }
+      } else {
+        node.edges.forEach(edge => {
+          edge.visited = true;
+          stack.push(edge);
+        });
+      }
+    }
+    return rendered;
+  };
 
   Adom.prototype.generate_runtime = function (ast) {
     let output = [];
@@ -2086,12 +2153,27 @@ var Adom = (function () {
     };
   };
 
-  Adom.prototype.finalize = function (ast) {
+  Adom.prototype.generateAndTransformJsAsync = async function (ast) {
     const runtime = this.generate_runtime(ast);
+    const bundler = new Bundler();
+    await Promise.all(runtime[1].map(async (toBundle) => {
+      runtime[0][toBundle.line] = await bundler.bundleAsync(toBundle.file.text, toBundle.file.path);
+    }));
+    ast.data.runtime = await jsPostBundleTransformAsync(runtime[0].join('\n'));
+    ast.data.runtime_lib = await jsPostBundleTransformAsync(adom_runtime);
+  };
+
+  Adom.prototype.generateAndTransformJs = function (ast) {
+    const runtime = this.generate_runtime(ast);
+    const bundler = new Bundler();
     runtime[1].forEach((toBundle) => {
-      runtime[0][toBundle.line] = bundle(toBundle.file.text, toBundle.file.path);
+      runtime[0][toBundle.line] = bundler.bundle(toBundle.file.text, toBundle.file.path);
     });
-    ast.data.runtime = runtime[0].join('\n');
+    ast.data.runtime = jsPostBundleTransform(runtime[0].join('\n'));
+    ast.data.runtime_lib = jsPostBundleTransform(adom_runtime);
+  };
+
+  Adom.prototype.finalize = function (ast) {
     let pending = [];
     let stack = [ast];
     while (stack.length) {
@@ -2125,18 +2207,60 @@ var Adom = (function () {
     });
   };
 
+  Adom.prototype.generateAst = function (file) {
+    let f = this.openFile(file);
+    let tokens = this.tokenize(f.text, f.name);
+    let ast = this.parse(tokens);
+    return ast;
+  };
+
+  Adom.prototype.renderAsync = async function (file, input_state) {
+    let html;
+    try {
+      let cacheKey = this.getPath(file);
+      let html;
+
+      if (this.jsPreBundleTransform) jsPreBundleTransformAsync = this.jsPreBundleTransform;
+      if (this.jsPostBundleTransform) jsPostBundleTransformAsync = this.jsPostBundleTransform;
+
+      if (this.cache && this.ast_cache[cacheKey]) {
+        html = this.execute(this.ast_cache[cacheKey], input_state || {});
+      } else {
+        let ast = this.generateAst(file);
+        await this.generateAndTransformJsAsync(ast);
+        this.finalize(ast);
+        html = this.execute(ast, input_state || {});
+        if (this.cache) {
+          this.ast_cache[cacheKey] = ast;
+        }
+      }
+
+      return html;
+    } catch (e) {
+      if (e.origin === 'adom') {
+        html = `<pre>${this.print_error(e)}</pre>`;
+      } else {
+        console.log(e);
+        html = `<pre>${e.toString()}</pre>`;
+      }
+      return html;
+    }
+  };
+
   Adom.prototype.render = function(file, input_state) {
     let html;
     try {
       let cacheKey = this.getPath(file);
       let html;
 
+      if (this.jsPreBundleTransform) jsPreBundleTransform = this.jsPreBundleTransform;
+      if (this.jsPostBundleTransform) jsPostBundleTransform = this.jsPostBundleTransform;
+
       if (this.cache && this.ast_cache[cacheKey]) {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
-        let f = this.openFile(file);
-        let tokens = this.tokenize(f.text, f.name);
-        let ast = this.parse(tokens);
+        let ast = this.generateAst(file);
+        this.generateAndTransformJs(ast);
         this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
