@@ -318,12 +318,12 @@ var Adom = (function () {
         }
         cursor = i;
         continue;
-      } else if (c === "-" && prog[cursor + 1] === "-") {
-        let i = cursor + 2;
+      } else if (c === "-" && prog[cursor + 1] === "-" && prog[cursor + 2] === "-") {
+        let i = cursor + 3;
         let found = false;
         while (i <= (end_pos - 2)) {
           if (
-            prog[i] === "\n" &&
+            prog[i] === "-" &&
             prog[i + 1] === "-" &&
             prog[i + 2] === "-"
           ) {
@@ -334,7 +334,7 @@ var Adom = (function () {
           tok.data += prog[i++];
         }
         if (!found) {
-          throw_adom_error({ msg: "expected closing --", pos: offs + cursor, file: file });
+          throw_adom_error({ msg: "expected closing ---", pos: offs + cursor, file: file });
         }
         cursor = i;
         tok.type = "js_context";
@@ -742,9 +742,7 @@ var Adom = (function () {
       let attr_data = parse_attributes();
       let events = attr_data[1];
       let attr = attr_data[0];
-      let possible_id = undefined;
       if (classlist.data.length > 0) {
-        possible_id = { namespace: name, name: classlist.data[0].data[0].data };
         if (attr.class) {
           if (attr.class.type === 'array') {
             attr.class.data = classlist.data.concat(attr.class.data); 
@@ -759,8 +757,7 @@ var Adom = (function () {
       let node = ast_node(_tag, {
         name: name,
         attributes: attr,
-        events: events,
-        possible_id: possible_id
+        events: events
       });
       let current = parent;
       parent = node;
@@ -853,6 +850,10 @@ var Adom = (function () {
       } else if (in_tag && (peek('var') || peek('const') || peek('let'))) {
         parse_assignment();
         parse_tag_list();
+      } else if (in_tag && peek('js_context')) {
+        parent.js = tok.data;
+        next();
+        parse_tag_list();
       }
     }
 
@@ -934,12 +935,7 @@ var Adom = (function () {
           let file = this.openFile(path, dir);
           let toks = this.tokenize(file.text, file.name);
           let _ast = this.parse(toks, file.name);
-          let ns = null;
-          if (accept('as')) {
-            ns = tok.data;
-            expect('ident');
-          }
-          let node = ast_node(_file, Object.assign(_ast.data, { namespace: ns }));
+          let node = ast_node(_file, _ast.data);
           node.children = _ast.children;
         } else if (accept("export")) {
           let id, pos = tok.pos;
@@ -996,12 +992,10 @@ var Adom = (function () {
       ].join('\n');
     }
 
-    function push_ctx (ns) {
+    function push_ctx () {
       file_ctx.push({
         exports: [],
-        custom_tags: {},
-        namespaces: {},
-        namespace: ns
+        custom_tags: {}
       });
     }
 
@@ -1010,7 +1004,7 @@ var Adom = (function () {
       if (!file_ctx.length) return;
       ctx.exports.forEach(e => {
         if (ctx.custom_tags[e.name]) {
-          add_custom_tag(e, ctx.custom_tags[e.name], ctx.namespace);
+          add_custom_tag(e, ctx.custom_tags[e.name]);
         }
       })
     }
@@ -1024,17 +1018,12 @@ var Adom = (function () {
       }
     }
 
-    function add_custom_tag (e, t, ns) {
+    function add_custom_tag (e, t) {
       let ctx = file_ctx[file_ctx.length - 1];
-      if (ns) {
-        if (!ctx.namespaces[ns]) ctx.namespaces[ns] = {};
-        ctx.namespaces[ns][e.name] = t;
-      } else {
-        if (ctx.custom_tags[e.name]) {
-          throw_adom_error({ msg: 'duplicate tag: ' + e.name, pos: e.pos, file: e.file });
-        }
-        ctx.custom_tags[e.name] = t;
+      if (ctx.custom_tags[e.name]) {
+        throw_adom_error({ msg: 'duplicate tag: ' + e.name, pos: e.pos, file: e.file });
       }
+      ctx.custom_tags[e.name] = t;
     }
 
     function escapeHTML (txt) {
@@ -1186,12 +1175,8 @@ var Adom = (function () {
       }
     }
 
-    function custom_tag (name, nsid) {
+    function custom_tag (name) {
       let ctx = file_ctx[file_ctx.length - 1];
-      if (nsid) {
-        let ns = ctx.namespaces[nsid.namespace];
-        if (ns && ns[nsid.name]) return ns[nsid.name];
-      }
       return ctx.custom_tags[name] || undefined;
     }
 
@@ -1205,7 +1190,7 @@ var Adom = (function () {
         }
         case _tag: {
           let n = r.data.name;
-          let t = custom_tag(n, r.data.possible_id);
+          let t = custom_tag(n);
           if (t) {
             state.push({ props: eval_object(r.data.attributes) });
             children(t, function () {
@@ -1280,7 +1265,7 @@ var Adom = (function () {
           break;
         }
         case _file: {
-          push_ctx(r.data.namespace);
+          push_ctx();
           children(r, yieldfn);
           pop_ctx();
           break;
@@ -1515,6 +1500,29 @@ var Adom = (function () {
     }
   };
 
+  function $$c2 (init) {
+    return function (id, props, events, yield_fn) {
+      var $state = $$states[id];
+      var isNew = false;
+      if (!$state) {
+        $state = { state: {}, events: {} };
+        $state.body = init($state.state, props, $$emit_event.bind($state), function (event, cb) {
+          $$set_event($state.events, event, cb);
+        });
+        for (var event in events) {
+          $$set_event($state.events, event, events[event]);
+        }
+        isNew = true;
+      }
+      $state.body(yield_fn);
+      if (isNew) {
+        $$emit_event.call($state, 'mount');
+      }
+      $$rendered[id] = true;
+      $$states[id] = $state;
+    }
+  }
+
   function $$c (Component, body, initial_state) {
     return function (id, props, events, yield_fn) {
       var state = $$states[id];
@@ -1542,9 +1550,11 @@ var Adom = (function () {
   function $$clean_states () {
     for (var id in $$states) {
       if (!$$rendered[id]) {
+        // temporary until $$c is gone
         if ($$states[id].unmount) {
           $$states[id].unmount();
         }
+        $$emit_event($$states[id], 'unmount');
         delete $$states[id];
       }
     }
@@ -1936,10 +1946,32 @@ var Adom = (function () {
       render_line(`var $${name} = $$c(${cl}, function ($, props, $$yield) { (function (${sk.join(',')}) {`, 1);
       render_line(`function $u0 () { ${update(sk)} }`);
       render_line(`function $u1 () { ${update(sk, true)} }`);
+
       in_tag = true;
       t.node.children.forEach(render_tag);
       in_tag = false;
       render_line(`})(${sk.map(k => `$.${k}`).join(',')}); }, ${s});`, -1);
+    }
+
+    function render_component2 (name, t) {
+      let sk = Object.keys(t.state);
+      render_line(`var $${name} = $$c2(function ($, props, $emit, $on) {`, 1);
+      render_line('var $_sync = $sync;');
+      render_line('return (function () {', 1);
+      render_line(`var $s = {${sk.map(k => `${k}: ${print_expression(t.state[k])}`).join(', ')}};`);
+      sk.forEach((k) => {
+        render_line(`var ${k} = $s.${k};`);
+      });
+      render_line('var $u0 = function () {};'); // temporary until render_component is gone
+      render_line(`var $sync = function () { ${sk.map(k => `$.${k} = ${k};`).join(' ')} $_sync() };`);
+      t.node.js.split('\n').forEach(line => render_line(line));
+      render_line('return function ($$yield) {', 1);
+      in_tag = true;
+      t.node.children.forEach(render_tag);
+      in_tag = false;
+      render_line('}', -1);
+      render_line('})();', -1);
+      render_line('});', -1);
     }
 
     function render_export (name) {
@@ -1947,18 +1979,14 @@ var Adom = (function () {
     }
 
     function render_import (data, exp) {
-      if (data.ns) {
-        render_line(`var ${data.ns} = $${data.name}.exports; var $${data.ns} = $${data.name}.components;`);
-      } else {
-        for (e of exp) {
-          render_line(`var $${e} = $${data.name}.components.${e};`);
-        }
+      for (let e of exp) {
+        render_line(`var $${e} = $${data.name}.components.${e};`);
       }
     }
 
     function state_initializer (s) {
       let out = 'function (props) { var $s = {}; ';
-      for (k in s) {
+      for (let k in s) {
         out += `var ${k} = ${print_expression(s[k])}; `;
         out += `$s.${k} = ${k}; `;
       }
@@ -1986,12 +2014,10 @@ var Adom = (function () {
       if (el.type === _tag) {
         let events = event_object(el.data.events);
         let attr = attribute_object(el.data.attributes);
-        let p = el.data.possible_id;
-        let pn = p ? `${p.namespace}.${p.name}` : undefined;
         let id = generate_id();
 
-        if (tag_ctx[el.data.name] || tag_ctx[pn]) {
-          let n = pn || el.data.name;
+        if (tag_ctx[el.data.name]) {
+          let n = el.data.name;
           render_line(`$${n}(${id}, ${attr}, ${events}, function () {`, 1);
         } else {
           render_line(`$$e(${id}, "${el.data.name}", ${attr}, ${events}, function () {`, 1);
@@ -2037,7 +2063,7 @@ var Adom = (function () {
         files[n] = file_stack.pop();
         if (file_stack.length) {
           let f = file_stack[file_stack.length - 1];
-          f.imports.push({ name: n, ns: node.data.namespace });
+          f.imports.push({ name: n });
         }
       } else if (node.type === _export) {
         let f = file_stack[file_stack.length - 1];
@@ -2067,18 +2093,13 @@ var Adom = (function () {
       for (let name in files) {
         let file = files[name];
         tag_ctx = {...file.tags};
-        for (i of file.imports) {
+        for (let i of file.imports) {
           f = files[i.name];
-          for (t of f.exports) {
-            if (i.ns) {
-              tag_ctx[`${i.ns}.${t}`] = f.tags[t];
-            } else {
-              tag_ctx[t] = f.tags[t];
-            }
+          for (let t of f.exports) {
+            tag_ctx[t] = f.tags[t];
           }
         }
         render_line(`var $${name} = (function () {`, 1);
-        render_line('var $exports = {};');
         render_line('var $components = {};');
         render_line('var __files = {};');
         render_line('function require(id) {', 1);
@@ -2093,7 +2114,11 @@ var Adom = (function () {
           //bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line));
         }
         for (let t in file.tags) {
-          render_component(t, file.tags[t]);
+          if (file.tags[t].node.js) {
+            render_component2(t, file.tags[t]);
+          } else {
+            render_component(t, file.tags[t]);
+          }
         }
         for (let e of file.exports) {
           render_export(e);
@@ -2103,7 +2128,7 @@ var Adom = (function () {
           render_line('if ($$is_syncing === false) {', 1);
           render_line('$$is_syncing = true;');
           render_line(`$$nodes.push({ ref: window['adom-root-${uuid}'], processed: 0 });`);
-          for (c of file.sync) {
+          for (let c of file.sync) {
             render_tag(c);
           }
           render_line('$$clean();');
@@ -2112,7 +2137,7 @@ var Adom = (function () {
           render_line('}', -1);
           render_line('};', -1);
         }
-        render_line('return { exports: $exports, components: $components }');
+        render_line('return { components: $components }');
         render_line('})();', -1);
       }
 

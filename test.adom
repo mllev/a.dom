@@ -1,0 +1,33 @@
+import 'button.adom'
+
+tag Todo [
+  let item = ''
+  let items = []
+
+  ---
+  function addItem() {
+    items.push(item)
+    item = ''
+  }
+
+  $on('mount', () => {
+    console.log('mounted!')
+  });
+  ---
+
+  h1 "Todo List"
+  input type='text' value={item} on:input='item = $e.target.value;' []
+  Button on:click='addItem()' text='add'[]
+  ul [
+    each (i in items) [
+      li "{{i}}"
+    ]
+  ]
+]
+
+html [
+  head[]
+  body root [
+    Todo[]
+  ]
+]
