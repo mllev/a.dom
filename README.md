@@ -6,10 +6,11 @@ ADOM is a revolutionary tool that combines the simplicity of the early web with 
 
 In less than 2k lines of code, with no dependencies whatsoever, ADOM includes:
 
-- an extremely terse templating language with data declaration, control flow, custom tags, and no whitespace sensitivity
-- a lightweight, high speed reactive UI engine exposed as a single API call to your Javascript
-- server side rendering that is simpler, faster, and *far* easier to understand than all modern solutions
-- flexible code separation and project structure
+- a complete templating language with syntax for data declaration, imports and exports, expressions, and rendering logic
+- reactive UI components that ship way less javascript to the client than Svelte
+- server side rendering and static site generation by default, by virtue of the fact that ADOM is a templating language
+- built-in javascript bundling for simpler javascript needs
+- easy 3rd party bundler, transpiler, and post-processor integration
 
 #### STARTING POINT
 The only thing you need to understand before continuing is how an HTML document is constructed. If you're comfortable creating a basic application in a single HTML file using `<script>` tags and `<style>` tags, you're ready to begin learning ADOM.
@@ -60,7 +61,7 @@ const compiler = new Adom();
 
 require('http').createServer(function (req, res) {
   res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
-  res.end(compiler.render('index.adom');
+  res.end(compiler.render('index.adom'));
 }).listen(8000, function () {
   console.log('Listening on port 8000');
 })
@@ -357,111 +358,12 @@ tag Primary [
 export Primary
 
 ```
-#### STYLES
-Regular CSS can be used in the classic way using long strings (triple quotes).
-```
-let styles = """
-body {
-  background: blue;
-}
-"""
-html [
-  head [
-    style "{{styles}}"
-  ]
-]
-```
-Of course, long strings can be used directly as textnodes.
-```
-html [
-  head [
-    style """
-      body {
-        background: blue;
-      }
-    """
-  ]
-]
-```
-A more preferrable way to work with CSS files is to import them into variables using the `file` keyword.
-```javascript
-let styles = file 'main.css'
-
-html [
-  head [
-    style "{{styles}}"
-  ]
-]
-```
-ADOM supports transormations on imported files. In this example, we will use Stylus to transform our stylus files into CSS.
-```javascript
-// server.js
-const stylus = require('stylus');
-
-// filters are specified here in the ADOM constructor
-const compiler = new Adom({
-  root: 'src',
-  filters: {
-    stylus: function (text) {
-      return stylus(text);
-    }
-  }
-});
-```
-To use the filter, simply pipe your file output into it. Currently only files support pipes.
-```javascript
-// index.adom
-let styles = file 'main.styl' | stylus
-
-html [
-  head [
-    style "{{styles}}"
-  ]
-]
-```
-Tag specific styles are achieved using the special `css` tag at the top of your tags.
-```javascript
-tag Primary [
-  css [
-    background 'grey'
-    padding '5px 15px'
-    border-radius '3px'
-  ]
-  button.btn-primary "{{ props.text }}"
-]
-```
-Style attributes are written normally, values are written in strings, and no colons or semicolons are used. All rules are applied to the tag's root element. To style a sub-element, selectors are used.
-```javascript
-tag Tile [
-  css [
-    width '500px'
-    height '500px'
-    background 'grey'
-
-    '& > div' [
-      box-sizing 'border-box' 
-      width '100%'
-      height '100%'
-      padding '20px'
-      background 'white'
-    ] 
-  ]
-  div [
-    div [
-      h4 "{{props.title}}"
-      p "{{props.body}}"
-    ]
-  ]
-]
-```
-Selectors are written in strings, and follow the same basic rules as other CSS preprocessors regarding media queries and the `&` character. The `&` is substituted for the outer selector (or implicit selector in the top level's case).
-
 #### REACTIVITY
-In ADOM, client-side javascript is written between sets of dashes `--`. All chunks of javascript are executed together in the same context when the window loads. This allows for complete flexibility about how your code is structured. To activate client-side functionality, all you must do is choose an element to be the `root` element of the app.
+In ADOM, client-side javascript is written between sets of dashes `---`. All chunks of javascript are executed together in the same context when the window loads. This allows for complete flexibility about how your code is structured. To activate client-side functionality, all you must do is choose an element to be the `root` element of the app.
 ```javascript
---
+---
 alert('hello from the client');
---
+---
 
 html [
   head []
@@ -479,11 +381,11 @@ All ADOM variables are directly accessible from Javascript. Events are attached 
 ```javascript
 let name = 'Matt'
 
---
+---
 function updateName (e) {
   name = e.target.value;
 }
---
+---
 
 html [
   head []
@@ -514,15 +416,15 @@ html [
 Understanding the above example, teaches you virtually all you need to know about ADOM. The only API call provided to the client is `$sync()`, and the only other bit of context that the programmer needs to memorize is `$e`, which is the event object of the current handler.
 
 #### COMPONENTS
-Let's take the counter below and componentize it.
+Let's take the counter below and turn it into a resusable component.
 ```javascript
 let count = 0
 
---
+---
 function increment () {
   count++
 }
---
+---
 
 html [
   head []
@@ -534,20 +436,17 @@ html [
   ]
 ]
 ```
-The following will not work just yet. The problem is that javascript is not gonna know what `count` is, because it's local to a tag.
+That's it!
 ```javascript
---
-function increment () {
-  count++
-}
---
-
 tag Counter [
   let count = 0
-  div [
-    h2 "Counter: {{ count }}"
-    button on:click="increment()" "increment"
-  ]
+  ---
+  function increment () {
+    count++
+  }
+  ---
+  h2 "Counter: {{ count }}"
+  button on:click="increment()" "increment"
 ]
 
 html [
@@ -555,105 +454,21 @@ html [
   body [
     div root [
       Counter []
-    ]
-  ]
-]
-```
-The first thing we can do is pass the context to the function itself.
-```javascript
---
-function increment (counter) {
-  counter.count++
-}
---
-
-tag Counter [
-  let count = 0
-  div [
-    h2 "Counter: {{ count }}"
-    button on:click="increment(this)" "increment"
-  ]
-]
-
-html [
-  head []
-  body [
-    div root [
+      Counter []
+      Counter []
+      Counter []
+      Counter []
       Counter []
     ]
   ]
 ]
 ```
-The next thing we can do is attach the state of the tag to an instance of a class. To do this all we must do is define a class with the same name as the tag.
-```javascript
---
-class Counter {
-  increment() {
-    this.count++
-  }
-}
---
-
-tag Counter [
-  let count = 0
-  div [
-    h2 "Counter: {{ count }}"
-    button on:click="this.increment()" "increment"
-  ]
-]
-
-html [
-  head []
-  body [
-    div root [
-      Counter []
-    ]
-  ]
-]
-
-```
-This is how *classical* components are achieved using ADOM. You can add an optional `mount` and `unmount` if you need to keep track of when the elements themselves are created or destroyed.
-```javascript
---
-class Counter {
-  increment() {
-    this.count++
-  }
-  mount () {
-    alert('created')
-  }
-  unmount () {
-    alert('destroyed')
-  }
-}
---
-
-tag Counter [
-  let count = 0
-  div [
-    h2 "Counter: {{ count }}"
-    button on:click="this.increment()" "increment"
-  ]
-]
-
-html [
-  head []
-  body [
-    div root [
-      Counter []
-    ]
-  ]
-]
-
-```
-The final way do manipulate tag specific data is by directly manipulating it.
+You can also directly manipulate it.
 ```javascript
 tag Counter [
   var count = 0
-  div [
-    h2 "Counter: {{ count }}"
-    button on:click="count++" "increment"
-  ]
+  h2 "Counter: {{ count }}"
+  button on:click="count++" "increment"
 ]
 
 html [

@@ -1,3 +1,0 @@
-export tag Button [
-  button on:click="this.emit('click')" "{{ props.text }}"
-]

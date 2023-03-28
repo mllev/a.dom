@@ -1,23 +1,17 @@
-import 'button.adom'
-
 tag Todo [
   let item = ''
   let items = []
 
   ---
   function addItem() {
-    items.push(item)
-    item = ''
+    items.push(item);
+    item = '';
   }
-
-  $on('mount', () => {
-    console.log('mounted!')
-  });
   ---
 
   h1 "Todo List"
-  input type='text' value={item} on:input='item = $e.target.value;' []
-  Button on:click='addItem()' text='add'[]
+  input type='text' bind:value={item} []
+  button on:click='addItem()' 'add'
   ul [
     each (i in items) [
       li "{{i}}"
@@ -25,9 +19,15 @@ tag Todo [
   ]
 ]
 
+let showTodo = false
+
 html [
   head[]
   body root [
-    Todo[]
+    button on:click="showTodo = !showTodo"
+      "{{showTodo == true ? 'hide' : 'show'}} todo"
+    if (showTodo) [
+      Todo[]
+    ]
   ]
 ]

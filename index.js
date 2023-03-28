@@ -1554,7 +1554,7 @@ var Adom = (function () {
         if ($$states[id].unmount) {
           $$states[id].unmount();
         }
-        $$emit_event($$states[id], 'unmount');
+        $$emit_event.call($$states[id], 'unmount');
         delete $$states[id];
       }
     }
@@ -1925,7 +1925,16 @@ var Adom = (function () {
       else return '{}';
     }
 
-    function attribute_object(obj) {
+    function attribute_object(data) {
+      const obj = data.attributes;
+      if (obj['bind:value']) {
+        const v = obj['bind:value'];
+        obj.value = v;
+        // maybe a 'change' event here instead of 'input'
+        data.events.push({ type: 'input', handler: `${print_expression(v)} = $e.target.value;`, sync: true });
+        delete obj['bind:value'];
+      }
+      console.log(obj)
       return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
     }
 
@@ -1958,9 +1967,8 @@ var Adom = (function () {
       render_line(`var $${name} = $$c2(function ($, props, $emit, $on) {`, 1);
       render_line('var $_sync = $sync;');
       render_line('return (function () {', 1);
-      render_line(`var $s = {${sk.map(k => `${k}: ${print_expression(t.state[k])}`).join(', ')}};`);
       sk.forEach((k) => {
-        render_line(`var ${k} = $s.${k};`);
+        render_line(`var ${k} = ${print_expression(t.state[k])};`);
       });
       render_line('var $u0 = function () {};'); // temporary until render_component is gone
       render_line(`var $sync = function () { ${sk.map(k => `$.${k} = ${k};`).join(' ')} $_sync() };`);
@@ -2012,8 +2020,8 @@ var Adom = (function () {
 
     function render_tag (el) {
       if (el.type === _tag) {
+        let attr = attribute_object(el.data);
         let events = event_object(el.data.events);
-        let attr = attribute_object(el.data.attributes);
         let id = generate_id();
 
         if (tag_ctx[el.data.name]) {
