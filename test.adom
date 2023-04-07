@@ -1,33 +1,31 @@
+let name = 'matt'
+
 tag Todo [
   let item = ''
   let items = []
-
   ---
   function addItem() {
     items.push(item);
     item = '';
   }
   ---
-
-  h1 "Todo List"
   input type='text' bind:value={item} []
   button on:click='addItem()' 'add'
   ul [
     each (i in items) [
-      li "{{i}}"
+      li '{{i}}'
     ]
   ]
 ]
 
-let showTodo = false
+let max = [repeat 0 10000]
 
 html [
   head[]
   body root [
-    button on:click="showTodo = !showTodo"
-      "{{showTodo == true ? 'hide' : 'show'}} todo"
-    if (showTodo) [
-      Todo[]
+    input bind:value={name} []
+    each (i in max) [
+      p style='font-size: 8px; margin: 0; padding: 0;' '{{ name }}'
     ]
   ]
 ]

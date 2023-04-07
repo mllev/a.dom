@@ -1,3 +1,13 @@
+/*
+Copyright 2023 Matthew Levenstein
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 var Adom = (function () {
   const _file = 0;
   const _export = 1;
@@ -1505,8 +1515,8 @@ var Adom = (function () {
       var $state = $$states[id];
       var isNew = false;
       if (!$state) {
-        $state = { state: {}, events: {} };
-        $state.body = init($state.state, props, $$emit_event.bind($state), function (event, cb) {
+        $state = { events: {} };
+        $state.body = init(props, $$emit_event.bind($state), function (event, cb) {
           $$set_event($state.events, event, cb);
         });
         for (var event in events) {
@@ -1514,36 +1524,12 @@ var Adom = (function () {
         }
         isNew = true;
       }
-      $state.body(yield_fn);
+      $state.body(id, props, yield_fn);
       if (isNew) {
         $$emit_event.call($state, 'mount');
       }
       $$rendered[id] = true;
       $$states[id] = $state;
-    }
-  }
-
-  function $$c (Component, body, initial_state) {
-    return function (id, props, events, yield_fn) {
-      var state = $$states[id];
-      var isNew = false;
-      if (!state) {
-        state = Object.assign(Component ? new Component() : {}, initial_state(props));
-        state.events = {};
-        state.emit = $$emit_event.bind(state);
-        isNew = true;
-      }
-      body(state, props, yield_fn);
-      if (isNew) {
-        if (state.mount) state.mount();
-        if (state.events) {
-          for (var event in events) {
-            $$set_event(state.events, event, events[event]);
-          }
-        }
-      }
-      $$rendered[id] = true;
-      $$states[id] = state;
     }
   }
 
@@ -1904,24 +1890,13 @@ var Adom = (function () {
       return '  '.repeat(indents);
     }
 
-    function update (state, reverse) {
-      if (!state) return '{}';
-      let p1 = '$.', p2 = '';
-      if (reverse) {
-        p1 = '';
-        p2 = '$.';
-      }
-      return state.map(k => `${p1}${k} = ${p2}${k};`).join('');
-    }
-
-    function event (e) {
-      let update = !in_tag ? '' : (e.handler.indexOf('this') === -1 ? '$u0();' : (e.sync ? '': '$u1();'));
+    function event2 (e) {
       let sync = e.sync ? '$sync();' : '';
-      return `"${e.type}": function ($e) { (function () { ${e.handler}; ${update} ${sync} }).call(${in_tag ? '$' : ''}); }`;
+      return `"${e.type}": function ($e) { ${e.handler}; ${sync} }`;
     }
 
-    function event_object (events, state) {
-      if (events.length) return `{${events.map(e => event(e, state)).join(',')}}`;
+    function event_object2 (events) {
+      if (events.length) return `{${events.map(e => event2(e)).join(',')}}`;
       else return '{}';
     }
 
@@ -1934,7 +1909,6 @@ var Adom = (function () {
         data.events.push({ type: 'input', handler: `${print_expression(v)} = $e.target.value;`, sync: true });
         delete obj['bind:value'];
       }
-      console.log(obj)
       return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
     }
 
@@ -1948,37 +1922,20 @@ var Adom = (function () {
       }
     }
 
-    function render_component (name, t) {
-      let sk = Object.keys(t.state);
-      let cl = `typeof ${name} === "function" ? ${name} : null`;
-      let s = state_initializer(t.state);
-      render_line(`var $${name} = $$c(${cl}, function ($, props, $$yield) { (function (${sk.join(',')}) {`, 1);
-      render_line(`function $u0 () { ${update(sk)} }`);
-      render_line(`function $u1 () { ${update(sk, true)} }`);
-
-      in_tag = true;
-      t.node.children.forEach(render_tag);
-      in_tag = false;
-      render_line(`})(${sk.map(k => `$.${k}`).join(',')}); }, ${s});`, -1);
-    }
-
     function render_component2 (name, t) {
       let sk = Object.keys(t.state);
-      render_line(`var $${name} = $$c2(function ($, props, $emit, $on) {`, 1);
-      render_line('var $_sync = $sync;');
-      render_line('return (function () {', 1);
+      render_line(`var $${name} = $$c2(function (props, $emit, $on) {`, 1);
       sk.forEach((k) => {
         render_line(`var ${k} = ${print_expression(t.state[k])};`);
       });
-      render_line('var $u0 = function () {};'); // temporary until render_component is gone
-      render_line(`var $sync = function () { ${sk.map(k => `$.${k} = ${k};`).join(' ')} $_sync() };`);
-      t.node.js.split('\n').forEach(line => render_line(line));
-      render_line('return function ($$yield) {', 1);
+      if (t.node.js) {
+        t.node.js.split('\n').forEach(line => render_line(line));
+      }
+      render_line('return function ($$id, props, $$yield) {', 1);
       in_tag = true;
       t.node.children.forEach(render_tag);
       in_tag = false;
       render_line('}', -1);
-      render_line('})();', -1);
       render_line('});', -1);
     }
 
@@ -2007,21 +1964,25 @@ var Adom = (function () {
     }
 
     function generate_id () {
+      const indexes = [];
+      if (in_tag) {
+        indexes.push(`$$id`);
+      }
       if (loop_depth) {
-        let indexes = [`'${tid()}'`];
+        indexes.push(`'${tid()}'`);
         for (let i = 0; i < loop_depth; i++) {
           indexes.push(`__index${i}`);
         }
-        return indexes.join(" + '-' + ");
       } else {
-        return `'${tid()}'`;
+        indexes.push(`'${tid()}'`);
       }
+      return indexes.join(" + '-' + ");
     }
 
     function render_tag (el) {
       if (el.type === _tag) {
         let attr = attribute_object(el.data);
-        let events = event_object(el.data.events);
+        let events = event_object2(el.data.events);
         let id = generate_id();
 
         if (tag_ctx[el.data.name]) {
@@ -2122,11 +2083,7 @@ var Adom = (function () {
           //bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line));
         }
         for (let t in file.tags) {
-          if (file.tags[t].node.js) {
-            render_component2(t, file.tags[t]);
-          } else {
-            render_component(t, file.tags[t]);
-          }
+          render_component2(t, file.tags[t]);
         }
         for (let e of file.exports) {
           render_export(e);
