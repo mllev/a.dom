@@ -60,6 +60,7 @@ for (let i = 0; i < process.argv.length; i++) {
 }
 
 let mimeTypes = {
+  css: 'text/css',
   html: 'text/html',
   ico: 'image/vnd.microsoft.icon',
   jpeg: 'image/jpeg',
