@@ -9,7 +9,7 @@ tag Todo [
     item = '';
   }
   ---
-  input type='text' bind:value={item} []
+  input bind:value={item} []
   button on:click='addItem()' 'add'
   ul [
     each (i in items) [
@@ -18,14 +18,10 @@ tag Todo [
   ]
 ]
 
-let max = [repeat 0 10000]
-
+doctype html
 html [
   head[]
   body root [
-    input bind:value={name} []
-    each (i in max) [
-      p style='font-size: 8px; margin: 0; padding: 0;' '{{ name }}'
-    ]
+    Todo[]
   ]
 ]

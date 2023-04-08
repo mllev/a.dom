@@ -1669,7 +1669,7 @@ var Adom = (function () {
 
       for (let i = 0; i < requires.length; i++) {
         let r = requires[i];
-        let text = openFile(r.filepath);
+        let text = this.openFile(r.filepath);
         text = jsPreBundleTransform(text);
         let rq = this.getRequires(text, r.parent);
         let m = this.makeModifications(text, rq);
