@@ -8,6 +8,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+const esbuild = require('esbuild');
+
 var Adom = (function () {
   const _file = 0;
   const _export = 1;
@@ -24,10 +26,8 @@ var Adom = (function () {
   function Adom (config = {}) {
     this.ast_cache = {};
     this.cache = config.cache || false;
-    this.dirname = config.root || "";
+    this.dirname = config.root || ".";
     this.runtimeFilter = config.runtimeFilter;
-    this.jsPreBundleTransform = config.jsPreBundleTransform;
-    this.jsPostBundleTransform = config.jsPostBundleTransform;
     this.filters = Object.assign(default_filters, config.filters || {});
     this.files = {};
     this.uid = Math.floor(Math.random() * 10000);
@@ -988,20 +988,6 @@ var Adom = (function () {
     let state = [initial_state];
     let file_ctx = [];
 
-    function runtime () {
-      return [
-        !mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`,
-        `  var $$adom_state = ${JSON.stringify(state[0])};`,
-        `  ${ast.data.runtime_lib}`,
-        `  (function (${Object.keys(state[0]).join(', ')}) {`,
-        `    var $sync = function () {};`,
-        `${ast.data.runtime}`,
-        `    $sync();`,
-        `})(${Object.keys(state[0]).map(k => `$$adom_state.${k}`).join(', ')});`,
-        !mount ? `});` : `})();`
-      ].join('\n');
-    }
-
     function push_ctx () {
       file_ctx.push({
         exports: [],
@@ -1210,7 +1196,7 @@ var Adom = (function () {
             break;
           }
           if (r.data.attributes.root) {
-            if (!mount) html += `<script>${runtime()}${end_script()}`;
+            if (!mount) html += `<script>${ast.data.runtime}${end_script()}`;
             if (ast.data.styles) html += `<style>${ast.data.styles}</style>`;
           }
           if (r.data.attributes.innerHTML) {
@@ -1291,7 +1277,7 @@ var Adom = (function () {
 
     return mount ? {
       html: html,
-      runtime: runtime()
+      runtime: ast.data.runtime
     } : html;
   };
 
@@ -1548,21 +1534,6 @@ var Adom = (function () {
   }
 `;
 
-  let jsPreBundleTransformAsync = (text) => {
-    return new Promise((resolve, reject) => {
-      resolve(text);
-    });
-  };
-
-  let jsPostBundleTransformAsync = (text) => {
-    return new Promise((resolve, reject) => {
-      resolve(text);
-    });
-  };
-
-  let jsPreBundleTransform = text => text;
-  let jsPostBundleTransform = text => text;
-
   function GraphNode (id, text) {
     this.id = id;
     this.text = text;
@@ -1814,7 +1785,7 @@ var Adom = (function () {
     return rendered;
   };
 
-  Adom.prototype.generate_runtime = function (ast) {
+  Adom.prototype.generate_runtime = function (ast, incoming_state) {
     let output = [];
     let indents = 2;
     let in_tag = false;
@@ -1826,6 +1797,7 @@ var Adom = (function () {
     let file_stack = [];
     let files = [];
     let tag_state = {};
+    let initial_state = [];
 
     function print_expression (expr) {
       switch (expr.type) {
@@ -2043,11 +2015,17 @@ var Adom = (function () {
         let t = { node };
         f.tags[node.data.name] = t;
         tag_state = {};
+        in_tag = true;
         node.children.forEach(walk);
+        in_tag = false;
         t.state = tag_state;
         tag_state = {};
       } else if (node.type === _set) {
-        tag_state[node.data.lhs.data] = node.data.rhs;
+        if (in_tag) {
+          tag_state[node.data.lhs.data] = node.data.rhs;
+        } else {
+          initial_state.push(`var ${node.data.lhs.data} = ${print_expression(node.data.rhs)};`);
+        }
       } else if (node.type === _tag) {
         if (node.data.attributes.root) {
           file_stack[file_stack.length - 1].sync = node.children;
@@ -2058,7 +2036,7 @@ var Adom = (function () {
     }
 
     function render_files (files) {
-      const toBundle = [];
+      initial_state.forEach((line) => render_line(line));
       for (let name in files) {
         let file = files[name];
         tag_ctx = {...file.tags};
@@ -2070,17 +2048,18 @@ var Adom = (function () {
         }
         render_line(`var $${name} = (function () {`, 1);
         render_line('var $components = {};');
+        /*
         render_line('var __files = {};');
         render_line('function require(id) {', 1);
         render_line('return __files[id]');
         render_line('}', -1);
+        */
         for (let i of file.imports) {
           render_import(i, files[i.name].exports);
         }
         if (file.js) {
-          toBundle.push({ file: { text: file.js, path: file.filepath }, line: output.length });
-          render_line('--replace--');
-          //bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line));
+          file.js.split('\n').forEach(line => render_line(line));
+          /* bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line)); */
         }
         for (let t in file.tags) {
           render_component2(t, file.tags[t]);
@@ -2105,13 +2084,27 @@ var Adom = (function () {
         render_line('return { components: $components }');
         render_line('})();', -1);
       }
+    }
 
-      return toBundle;
+    let mount = false;
+
+    function runtime () {
+      return [
+        !mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`,
+        `  var $$adom_input_state = ${JSON.stringify(incoming_state)};`,
+        `  ${adom_runtime}`,
+        `  (function (${Object.keys(incoming_state).join(', ')}) {`,
+        `    var $sync = function () {};`,
+        `${output.join('\n')}`,
+        `    $sync();`,
+        `  })(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});`,
+        !mount ? `});` : `})();`
+      ].join('\n');
     }
 
     walk(ast);
-    const toBundle = render_files(files);
-    return [ output, toBundle ];
+    render_files(files);
+    return runtime();
   };
 
   Adom.prototype.getPath = function (p, dir) {
@@ -2141,26 +2134,6 @@ var Adom = (function () {
       name: f,
       text: t
     };
-  };
-
-  Adom.prototype.generateAndTransformJsAsync = async function (ast) {
-    const runtime = this.generate_runtime(ast);
-    const bundler = new Bundler();
-    await Promise.all(runtime[1].map(async (toBundle) => {
-      runtime[0][toBundle.line] = await bundler.bundleAsync(toBundle.file.text, toBundle.file.path);
-    }));
-    ast.data.runtime = await jsPostBundleTransformAsync(runtime[0].join('\n'));
-    ast.data.runtime_lib = await jsPostBundleTransformAsync(adom_runtime);
-  };
-
-  Adom.prototype.generateAndTransformJs = function (ast) {
-    const runtime = this.generate_runtime(ast);
-    const bundler = new Bundler();
-    runtime[1].forEach((toBundle) => {
-      runtime[0][toBundle.line] = bundler.bundle(toBundle.file.text, toBundle.file.path);
-    });
-    ast.data.runtime = jsPostBundleTransform(runtime[0].join('\n'));
-    ast.data.runtime_lib = jsPostBundleTransform(adom_runtime);
   };
 
   Adom.prototype.finalize = function (ast) {
@@ -2210,14 +2183,21 @@ var Adom = (function () {
       let cacheKey = this.getPath(file);
       let html;
 
-      if (this.jsPreBundleTransform) jsPreBundleTransformAsync = this.jsPreBundleTransform;
-      if (this.jsPostBundleTransform) jsPostBundleTransformAsync = this.jsPostBundleTransform;
-
       if (this.cache && this.ast_cache[cacheKey]) {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
         let ast = this.generateAst(file);
-        await this.generateAndTransformJsAsync(ast);
+        ast.data.runtime = this.generate_runtime(ast, input_state || {});
+        const result = await esbuild.build({
+          stdin: {
+            contents: ast.data.runtime,
+            resolveDir: this.dirname
+          },
+          bundle: true,
+          write: false,
+          minify: true
+        });
+        ast.data.runtime = result.outputFiles[0].text;
         this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
@@ -2243,14 +2223,11 @@ var Adom = (function () {
       let cacheKey = this.getPath(file);
       let html;
 
-      if (this.jsPreBundleTransform) jsPreBundleTransform = this.jsPreBundleTransform;
-      if (this.jsPostBundleTransform) jsPostBundleTransform = this.jsPostBundleTransform;
-
       if (this.cache && this.ast_cache[cacheKey]) {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
         let ast = this.generateAst(file);
-        this.generateAndTransformJs(ast);
+        ast.data.runtime = this.generate_runtime(ast, input_state || {});
         this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {

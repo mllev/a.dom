@@ -143,12 +143,12 @@ if (config.starter) {
   }
 } else {
   let port = config.devPort || 5000
-  require('http').createServer(function (req, res) {
+  require('http').createServer(async function (req, res) {
     let url = req.url;
     console.log(req.method, url);
     if (routes[url]) {
       res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
-      res.end(c.render(routes[url]));
+      res.end(await c.renderAsync(routes[url]));
       return;
     } else {
       try {

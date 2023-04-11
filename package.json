@@ -20,5 +20,7 @@
     "url": "https://github.com/mllev/a.dom/issues"
   },
   "homepage": "https://github.com/mllev/a.dom#readme",
-  "dependencies": {}
+  "dependencies": {
+    "esbuild": "^0.17.16"
+  }
 }
