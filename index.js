@@ -27,8 +27,6 @@ var Adom = (function () {
     this.ast_cache = {};
     this.cache = config.cache || false;
     this.dirname = config.root || ".";
-    this.runtimeFilter = config.runtimeFilter;
-    this.filters = Object.assign(default_filters, config.filters || {});
     this.files = {};
     this.uid = Math.floor(Math.random() * 10000);
   }
@@ -46,12 +44,6 @@ var Adom = (function () {
   function throw_adom_error (err) {
     err.origin = 'adom';
     throw err;
-  };
-
-  const default_filters = {
-    json: function (text) {
-      return JSON.parse(text);
-    }
   };
 
   const void_tags = [
@@ -1570,57 +1562,10 @@ var Adom = (function () {
     return { parent: par, file: this.path.resolve(par, file) };
   };
 
-  Bundler.prototype.bundleAsync = async function (file, filepath) {
-    const setUp = async () => {
-      let properties = this.getProperties(filepath);
-      let initialId = `f${this._id++}`;
-      file = await jsPreBundleTransformAsync(file);
-      let requires = this.getRequires(file, properties.parent);
-      let root = new GraphNode(initialId, this.makeModifications(file, requires));
-      return {
-        requires: requires,
-        node: root 
-      };
-    }
-
-    let stack = [await setUp()];
-    let graph = stack[0].node;
-    let keymap = {[graph.id]: graph};
-
-    while (stack.length) {
-      let info = stack.shift();
-      let requires = info.requires;
-      let pnode = info.node;
-
-      for (let i = 0; i < requires.length; i++) {
-        let r = requires[i];
-        let text = this.openFile(r.filepath);
-        text = await jsPreBundleTransformAsync(text);
-        let rq = this.getRequires(text, r.parent);
-        let m = this.makeModifications(text, rq);
-        let node;
-        if (!keymap[r.id]) {
-          node = new GraphNode(r.id, m);
-          keymap[r.id] = node;
-          stack.push({
-            requires: rq,
-            node: node
-          });
-        } else {
-          node = keymap[r.id];
-        }
-        pnode.addEdge(node);
-      }
-    }
-
-    return this.renderGraph(graph);
-  };
-
   Bundler.prototype.bundle = function (file, filepath) {
     const setUp = () => {
       let properties = this.getProperties(filepath);
       let initialId = `f${this._id++}`;
-      file = jsPreBundleTransform(file);
       let requires = this.getRequires(file, properties.parent);
       let root = new GraphNode(initialId, this.makeModifications(file, requires));
       return {
@@ -1641,7 +1586,6 @@ var Adom = (function () {
       for (let i = 0; i < requires.length; i++) {
         let r = requires[i];
         let text = this.openFile(r.filepath);
-        text = jsPreBundleTransform(text);
         let rq = this.getRequires(text, r.parent);
         let m = this.makeModifications(text, rq);
         let node;
@@ -1786,7 +1730,7 @@ var Adom = (function () {
   };
 
   Adom.prototype.generateRuntime = function (ast, incoming_state) {
-    let output = [''];
+    let output = [{ transform: false, code: '' }];
     let indents = 2;
     let in_tag = false;
     let tag_id = 0;
@@ -1801,8 +1745,9 @@ var Adom = (function () {
 
     function print_expression (expr) {
       switch (expr.type) {
-        case 'ident':
         case 'null':
+          return expr.data;
+        case 'ident':
         case 'number':
         case 'bool':
           return expr.data.toString();
@@ -1887,9 +1832,9 @@ var Adom = (function () {
     function render_line (str, indent = 0) {
       if (indent === -1) {
         indents--;
-        output[output.length - 1] += `${fmt()}${str}\n`;
+        output[output.length - 1].code += `${fmt()}${str}\n`;
       } else {
-        output[output.length - 1] += `${fmt()}${str}\n`;
+        output[output.length - 1].code += `${fmt()}${str}\n`;
         indents += indent; 
       }
     }
@@ -1900,11 +1845,11 @@ var Adom = (function () {
       sk.forEach((k) => {
         render_line(`var ${k} = ${print_expression(t.state[k])};`);
       });
-      output.push('');
+      output.push({ transform: true, code: '' });
       if (t.node.js) {
         t.node.js.split('\n').forEach(line => render_line(line));
       }
-      output.push('');
+      output.push({ transform: false, code: '' });
       render_line('return function ($$id, props, $$yield) {', 1);
       in_tag = true;
       t.node.children.forEach(render_tag);
@@ -2044,6 +1989,7 @@ var Adom = (function () {
       render_line(`var $$adom_input_state = ${JSON.stringify(incoming_state)};`);
       render_line(`${adom_runtime}`);
       render_line(`(function (${Object.keys(incoming_state).join(', ')}) {`, 1);
+      render_line('var $sync = function () {};');
       initial_state.forEach((line) => render_line(line));
       for (let name in files) {
         let file = files[name];
@@ -2066,9 +2012,9 @@ var Adom = (function () {
           render_import(i, files[i.name].exports);
         }
         if (file.js) {
-          output.push('');
+          output.push({ transform: true, code: '' });
           file.js.split('\n').forEach(line => render_line(line));
-          output.push('');
+          output.push({ transform: false, code: '' });
           /* bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line)); */
         }
         for (let t in file.tags) {
@@ -2150,18 +2096,6 @@ var Adom = (function () {
     }
     pending.forEach(p => {
       let file = this.openFile(p.file, p.dir);
-      let f = p.filter; 
-      if (f) {
-        if (this.filters[f.name]) {
-          try {
-            file.text = this.filters[f.name](file.text);
-          } catch (e) {
-            throw_adom_error({ msg: f.name + ' filter error: ' + e.toString(), pos: f.pos, file: f.file });
-          }
-        } else {
-          throw_adom_error({ msg: 'unknown filter: ' + f.name, pos: f.pos, file: f.file });
-        }
-      }
       p.node.data.rhs.type = 'string'
       p.node.data.rhs.data = [{ type: 'chunk', data: file.text }];
     });
@@ -2174,17 +2108,18 @@ var Adom = (function () {
     return ast;
   };
 
-  Adom.prototype.processJs = async function (code) {
-    await Promise.all(code.map(async (chunk, index) => {
-      if (chunk.indexOf('import ') !== -1) {
+  Adom.prototype.processJs = async function (js) {
+    await Promise.all(js.map(async (chunk, index) => {
+      if (chunk.transform) {
         const opts = { format: 'cjs', loader: 'ts' };
-        const result = await esbuild.transform(chunk, opts);
-        code[index] = result.code;
+        const result = await esbuild.transform(chunk.code, opts);
+        js[index].code = result.code;
       }
     }));
+    const content = js.map((chunk) => chunk.code);
     const result = await esbuild.build({
       stdin: {
-        contents: code.join('\n'),
+        contents: content.join('\n'),
         resolveDir: this.dirname
       },
       bundle: true,
@@ -2236,7 +2171,7 @@ var Adom = (function () {
       } else {
         let ast = this.generateAst(file);
         let runtime = this.generateRuntime(ast, input_state || {});
-        ast.data.runtime = runtime.join('\n');
+        ast.data.runtime = runtime.map((chunk) => chunk.code).join('\n');
         this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
@@ -2261,7 +2196,7 @@ var Adom = (function () {
       let tokens = this.tokenize(str, 'main');
       let ast = this.parse(tokens);
       let runtime = this.generateRuntime(ast, {});
-      ast.data.runtime = runtime.join('\n');
+      ast.data.runtime = runtime.map((chunk) => chunk.code).join('\n');
       let out = this.execute(ast, {}, true);
       document.querySelector(sel).innerHTML = out.html;
       window.eval(out.runtime);
