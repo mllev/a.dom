@@ -49,6 +49,9 @@ for (let i = 0; i < process.argv.length; i++) {
     case '--dev':
       config.dev = true;
       break
+    case '--minify':
+      config.minify = true;
+      break
     case '--new':
       config.starter = true;
       config.app = process.argv[++i];

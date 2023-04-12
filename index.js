@@ -1785,8 +1785,8 @@ var Adom = (function () {
     return rendered;
   };
 
-  Adom.prototype.generate_runtime = function (ast, incoming_state) {
-    let output = [];
+  Adom.prototype.generateRuntime = function (ast, incoming_state) {
+    let output = [''];
     let indents = 2;
     let in_tag = false;
     let tag_id = 0;
@@ -1887,9 +1887,9 @@ var Adom = (function () {
     function render_line (str, indent = 0) {
       if (indent === -1) {
         indents--;
-        output.push(`${fmt()}${str}`);
+        output[output.length - 1] += `${fmt()}${str}\n`;
       } else {
-        output.push(`${fmt()}${str}`);
+        output[output.length - 1] += `${fmt()}${str}\n`;
         indents += indent; 
       }
     }
@@ -1900,9 +1900,11 @@ var Adom = (function () {
       sk.forEach((k) => {
         render_line(`var ${k} = ${print_expression(t.state[k])};`);
       });
+      output.push('');
       if (t.node.js) {
         t.node.js.split('\n').forEach(line => render_line(line));
       }
+      output.push('');
       render_line('return function ($$id, props, $$yield) {', 1);
       in_tag = true;
       t.node.children.forEach(render_tag);
@@ -2035,7 +2037,13 @@ var Adom = (function () {
       }
     }
 
+    let mount = false;
+
     function render_files (files) {
+      render_line(!mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`, 1);
+      render_line(`var $$adom_input_state = ${JSON.stringify(incoming_state)};`);
+      render_line(`${adom_runtime}`);
+      render_line(`(function (${Object.keys(incoming_state).join(', ')}) {`, 1);
       initial_state.forEach((line) => render_line(line));
       for (let name in files) {
         let file = files[name];
@@ -2058,7 +2066,9 @@ var Adom = (function () {
           render_import(i, files[i.name].exports);
         }
         if (file.js) {
+          output.push('');
           file.js.split('\n').forEach(line => render_line(line));
+          output.push('');
           /* bundle(file.js, file.filepath).split('\n').forEach(line => render_line(line)); */
         }
         for (let t in file.tags) {
@@ -2084,27 +2094,14 @@ var Adom = (function () {
         render_line('return { components: $components }');
         render_line('})();', -1);
       }
-    }
-
-    let mount = false;
-
-    function runtime () {
-      return [
-        !mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`,
-        `  var $$adom_input_state = ${JSON.stringify(incoming_state)};`,
-        `  ${adom_runtime}`,
-        `  (function (${Object.keys(incoming_state).join(', ')}) {`,
-        `    var $sync = function () {};`,
-        `${output.join('\n')}`,
-        `    $sync();`,
-        `  })(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});`,
-        !mount ? `});` : `})();`
-      ].join('\n');
+      render_line(`$sync();`);
+      render_line(`})(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});`, -1);
+      render_line(!mount ? `});` : `})();`, -1);
     }
 
     walk(ast);
     render_files(files);
-    return runtime();
+    return output;
   };
 
   Adom.prototype.getPath = function (p, dir) {
@@ -2177,6 +2174,26 @@ var Adom = (function () {
     return ast;
   };
 
+  Adom.prototype.processJs = async function (code) {
+    await Promise.all(code.map(async (chunk, index) => {
+      if (chunk.indexOf('import ') !== -1) {
+        const opts = { format: 'cjs', loader: 'ts' };
+        const result = await esbuild.transform(chunk, opts);
+        code[index] = result.code;
+      }
+    }));
+    const result = await esbuild.build({
+      stdin: {
+        contents: code.join('\n'),
+        resolveDir: this.dirname
+      },
+      bundle: true,
+      minify: this.minify,
+      write: false
+    });
+    return result.outputFiles[0].text;
+  };
+
   Adom.prototype.renderAsync = async function (file, input_state) {
     let html;
     try {
@@ -2187,17 +2204,8 @@ var Adom = (function () {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
         let ast = this.generateAst(file);
-        ast.data.runtime = this.generate_runtime(ast, input_state || {});
-        const result = await esbuild.build({
-          stdin: {
-            contents: ast.data.runtime,
-            resolveDir: this.dirname
-          },
-          bundle: true,
-          write: false,
-          minify: true
-        });
-        ast.data.runtime = result.outputFiles[0].text;
+        let runtime = this.generateRuntime(ast, input_state || {});
+        ast.data.runtime = await this.processJs(runtime);
         this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
@@ -2227,7 +2235,8 @@ var Adom = (function () {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
         let ast = this.generateAst(file);
-        ast.data.runtime = this.generate_runtime(ast, input_state || {});
+        let runtime = this.generateRuntime(ast, input_state || {});
+        ast.data.runtime = runtime.join('\n');
         this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
@@ -2251,7 +2260,8 @@ var Adom = (function () {
     try {
       let tokens = this.tokenize(str, 'main');
       let ast = this.parse(tokens);
-      ast.data.runtime = this.generate_runtime(ast);
+      let runtime = this.generateRuntime(ast, {});
+      ast.data.runtime = runtime.join('\n');
       let out = this.execute(ast, {}, true);
       document.querySelector(sel).innerHTML = out.html;
       window.eval(out.runtime);
