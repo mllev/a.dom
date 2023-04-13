@@ -24,9 +24,10 @@ var Adom = (function () {
   const _block = 10;
 
   function Adom (config = {}) {
-    this.ast_cache = {};
     this.cache = config.cache || false;
+    this.minify = config.minify || false;
     this.dirname = config.root || ".";
+    this.ast_cache = {};
     this.files = {};
     this.uid = Math.floor(Math.random() * 10000);
   }

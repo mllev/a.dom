@@ -100,7 +100,11 @@ let mimeTypes = {
   zip: 'application/zip'
 };
 
-let c = new Adom({ root: path.resolve(dir, config.root || ''), cache: false });
+let c = new Adom({
+  root: path.resolve(dir, config.root || ''),
+  cache: false,
+  minify: config.minify
+});
 
 if (config.starter) {
   if (!config.app) {
