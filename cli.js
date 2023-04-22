@@ -141,12 +141,15 @@ if (config.starter) {
   if (!config.file || !config.out) {
     console.log(help);
   } else {
-    let p = path.resolve(dir, config.out);
-    if (fs.existsSync(p) && !config.forceWrite) {
-      console.log('Error: file already exists:', p);
-    } else {
-      fs.writeFileSync(path.resolve(dir, config.out), c.render(config.file));
+    async function build () {
+      let p = path.resolve(dir, config.out);
+      if (fs.existsSync(p) && !config.forceWrite) {
+        console.log('Error: file already exists:', p);
+      } else {
+        fs.writeFileSync(path.resolve(dir, config.out), await c.renderAsync(config.file));
+      }
     }
+    build();
   }
 } else {
   let port = config.devPort || 5000

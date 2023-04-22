@@ -1016,7 +1016,7 @@ var Adom = (function () {
     }
 
     function escapeHTML (txt) {
-      return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     function assemble_attributes(attr) {
@@ -1024,6 +1024,7 @@ var Adom = (function () {
         if (k === 'root' || k === 'innerHTML') return '';
         let v = evaluate(attr[k]);
         if (v === false || v == null) return '';
+        if (typeof v === 'string' && v.indexOf('"') > -1) v = v.replace(/"/g, '&quot;');
         return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
       }).join('');
     }
@@ -1187,6 +1188,9 @@ var Adom = (function () {
             });
             state.pop();
             break;
+          }
+          if (n === 'html') {
+            html += '<!DOCTYPE html>';
           }
           if (r.data.attributes.root) {
             if (!mount) html += `<script>${ast.data.runtime}${end_script()}`;
@@ -1821,10 +1825,14 @@ var Adom = (function () {
     function attribute_object(data) {
       const obj = data.attributes;
       if (obj['bind:value']) {
+        let tval = '$e.target.value;'
+        if (obj.type && print_expression(obj.type) === '"number"') {
+          tval = 'parseInt($e.target.value);';
+        }
         const v = obj['bind:value'];
         obj.value = v;
         // maybe a 'change' event here instead of 'input'
-        data.events.push({ type: 'input', handler: `${print_expression(v)} = $e.target.value;`, sync: true });
+        data.events.push({ type: 'input', handler: `${print_expression(v)} = ${tval}`, sync: true });
         delete obj['bind:value'];
       }
       return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
