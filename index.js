@@ -8,8 +8,6 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-const esbuild = require('esbuild');
-
 var Adom = (function () {
   const _file = 0;
   const _export = 1;
@@ -575,22 +573,13 @@ var Adom = (function () {
     }
 
     function parse_lambda () {
-      let args = [];
-      expect('[');
-      args.push(tok.data);
-      expect('ident');
-      if (accept(',')) {
-        args.push(tok.data);
-        expect('ident');
-      }
       expect('->');
       let expr = parse_expr();
-      expect(']');
       return {
         type: 'lambda',
-        args: args,
+        args: ['_1', '_2', '_3', '_4'],
         expr: expr
-      }
+      };
     }
 
     function parse_expr (min_prec) {
@@ -916,7 +905,14 @@ var Adom = (function () {
       next();
       let dst = { data: tok.data, pos: tok.pos, file: tok.file };
       next();
-      expect("=");
+      if (peek('->')) {
+        ast_node(_set, {
+          lhs: dst,
+          rhs: parse_lambda()
+        });
+        return;
+      }
+      accept("=");
       let val = parse_rhs();
       ast_node(_set, {
         lhs: dst,
@@ -1445,7 +1441,6 @@ var Adom = (function () {
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
     var tag = child && child.tagName ? child.tagName.toLowerCase() : null;
-    var initial = false;
     if (type === 'svg') $$is_svg = true;
     if (child && child.__id === id) {
       node = child;
@@ -1453,7 +1448,6 @@ var Adom = (function () {
       node = child;
       node.__id = id;
       node.__old = {};
-      initial = true;
     } else {
       node = $$create(type);
       node.__id = id;
@@ -1464,7 +1458,7 @@ var Adom = (function () {
         parent.appendChild(node);
       }
     }
-    if (!initial) $$a(node, attrs);
+    $$a(node, attrs);
     $$addEventListeners(node, events);
     if (children) {
       $$nodes.push({ ref: node, processed: 0 });
@@ -1519,10 +1513,6 @@ var Adom = (function () {
   function $$clean_states () {
     for (var id in $$states) {
       if (!$$rendered[id]) {
-        // temporary until $$c is gone
-        if ($$states[id].unmount) {
-          $$states[id].unmount();
-        }
         $$emit_event.call($$states[id], 'unmount');
         delete $$states[id];
       }
@@ -1734,7 +1724,7 @@ var Adom = (function () {
     return rendered;
   };
 
-  Adom.prototype.generateRuntime = function (ast, incoming_state) {
+  Adom.prototype.generateRuntime = function (ast, incoming_state, mount) {
     let output = [{ transform: false, code: '' }];
     let indents = 2;
     let in_tag = false;
@@ -1991,8 +1981,6 @@ var Adom = (function () {
       }
     }
 
-    let mount = false;
-
     function render_files (files) {
       render_line(!mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`, 1);
       render_line(`var $$adom_input_state = ${JSON.stringify(incoming_state)};`);
@@ -2118,6 +2106,8 @@ var Adom = (function () {
   };
 
   Adom.prototype.processJs = async function (js) {
+    const esbuild = require('esbuild');
+
     await Promise.all(js.map(async (chunk, index) => {
       if (chunk.transform) {
         const opts = { format: 'cjs', loader: 'ts' };
@@ -2148,9 +2138,9 @@ var Adom = (function () {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
         let ast = this.generateAst(file);
+        this.finalize(ast);
         let runtime = this.generateRuntime(ast, input_state || {});
         ast.data.runtime = await this.processJs(runtime);
-        this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
           this.ast_cache[cacheKey] = ast;
@@ -2179,9 +2169,9 @@ var Adom = (function () {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
         let ast = this.generateAst(file);
+        this.finalize(ast);
         let runtime = this.generateRuntime(ast, input_state || {});
         ast.data.runtime = runtime.map((chunk) => chunk.code).join('\n');
-        this.finalize(ast);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
           this.ast_cache[cacheKey] = ast;
@@ -2204,7 +2194,7 @@ var Adom = (function () {
     try {
       let tokens = this.tokenize(str, 'main');
       let ast = this.parse(tokens);
-      let runtime = this.generateRuntime(ast, {});
+      let runtime = this.generateRuntime(ast, {}, true);
       ast.data.runtime = runtime.map((chunk) => chunk.code).join('\n');
       let out = this.execute(ast, {}, true);
       document.querySelector(sel).innerHTML = out.html;
