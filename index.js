@@ -849,11 +849,9 @@ var Adom = (function () {
       expect("tag");
       let tag = tok.data;
       let pos = tok.pos, file = tok.file;
-      let bind = accept('#');
-      if (bind) tag = tok.data;
       expect("ident");
       expect("[");
-      let node = ast_node(_custom, { name: tag, bind: bind, pos: pos, file: file });
+      let node = ast_node(_custom, { name: tag, pos: pos, file: file });
       let current = parent;
       parent = node;
       parse_custom_tag_body();
@@ -1006,6 +1004,7 @@ var Adom = (function () {
         let v = evaluate(attr[k]);
         if (v === false || v == null) return '';
         if (typeof v === 'string' && v.indexOf('"') > -1) v = v.replace(/"/g, '&quot;');
+        if (k.indexOf('bind:') !== -1) k = k.replace('bind:', '');
         return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
       }).join('');
     }
@@ -1490,6 +1489,12 @@ var Adom = (function () {
     }
   }
 
+  function $$repeat(val, count) {
+    var vals = [];
+    for (var i = 0; i < count; i++) vals.push(val);
+    return vals;
+  }
+
   function $$set_event (events, event, fn) {
     if (events[event]) {
       events[event].push(fn);
@@ -1813,10 +1818,10 @@ var Adom = (function () {
         case 'pipe': {
           switch(expr.data[0]) {
             case 'repeat': {
-              return `(${print_expression(expr.data[1])}).repeat(${print_expression(expr.data[2])})`;
+              return `$$repeat(${print_expression(expr.data[1])}, ${print_expression(expr.data[2])})`;
             } break;
             case 'length': {
-              return `(${print_expression(expr.data[1])}).length()`;
+              return `(${print_expression(expr.data[1])}).length`;
             } break;
             case 'map':
             case 'filter': {
