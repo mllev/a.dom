@@ -91,9 +91,6 @@ var Adom = (function () {
       "let",
       "root",
       "nosync",
-      "repeat",
-      "filter",
-      "map",
       "as"
     ];
 
@@ -553,7 +550,7 @@ var Adom = (function () {
         expr = {
           type: 'binop',
           op: op,
-          data: [expr, parse_expr(prec + 1)]
+          data: [expr, parse_expr1(prec + 1)]
         };
       }
 
@@ -564,37 +561,45 @@ var Adom = (function () {
           pos: expr.pos,
           file: expr.file
         };
-        expr.data.push(parse_expr());
+        expr.data.push(parse_expr1(0));
         expect(':');
-        expr.data.push(parse_expr());
+        expr.data.push(parse_expr1(0));
       }
 
       return expr;
     }
 
-    function parse_lambda () {
-      expect('->');
-      let expr = parse_expr();
-      return {
-        type: 'lambda',
-        args: ['_1', '_2', '_3', '_4'],
-        expr: expr
-      };
-    }
+    const pipeables = {
+      'repeat': 1,
+      'length': 0,
+      'map': 1,
+      'filter': 1
+    };
 
     function parse_expr (min_prec) {
       if (min_prec == null) min_prec = 0;
       let expr = parse_expr1(min_prec);
       while (true) {
-        if (accept('filter')) {
+        if (accept('|')) {
+          const func = tok.data;
+          const { pos, file } = tok;
+          expect('ident');
+          let count = pipeables[func];
+          if (count == null) {
+            throw_adom_error({
+              msg: `Cannot pipe into: ${func}`,
+              pos,
+              file
+            });
+          }
+          const args = [func, expr];
+          while (count > 0) {
+            args.push(parse_expr1(0));
+            count--;
+          }
           expr = {
-            type: 'filter',
-            data: [expr, parse_lambda()]
-          };
-        } else if (accept('map')) {
-          expr = {
-            type: 'map',
-            data: [expr, parse_lambda()]
+            type: 'pipe',
+            data: args
           };
         } else {
           break;
@@ -624,16 +629,7 @@ var Adom = (function () {
       expect("[");
       if (!peek(']')) {
         while (true) {
-          if (accept('repeat')) {
-            let expr = parse_expr();
-            let count = tok.data;
-            expect('number');
-            for (let i = 0; i < count; i++) {
-              arr.push(expr);
-            }
-          } else {
-            arr.push(parse_expr());
-          }
+          arr.push(parse_expr());
           if (!accept(",")) break;
         }
       }
@@ -891,10 +887,6 @@ var Adom = (function () {
           name: parse_strict_string(),
           dir: get_dir(tok.file)
         };
-        if (accept('|')) {
-          val.filter = { name: tok.data, pos: tok.pos, file: tok.file };
-          expect('ident');
-        }
       } else {
         val = parse_expr();
       }
@@ -905,13 +897,6 @@ var Adom = (function () {
       next();
       let dst = { data: tok.data, pos: tok.pos, file: tok.file };
       next();
-      if (peek('->')) {
-        ast_node(_set, {
-          lhs: dst,
-          rhs: parse_lambda()
-        });
-        return;
-      }
       accept("=");
       let val = parse_rhs();
       ast_node(_set, {
@@ -1034,7 +1019,7 @@ var Adom = (function () {
           return expr.data
         case 'string': {
           return expr.data.map(function (c) {
-             return evaluate(c)
+            return evaluate(c)
           }).join('');
         } break;
         case 'accumulator': {
@@ -1101,6 +1086,41 @@ var Adom = (function () {
         case 'parenthetical': {
           return evaluate(expr.data);
         } break;
+        case 'pipe': {
+          const op = expr.data[0];
+          switch (op) {
+            case 'repeat': {
+              const arr = [];
+              const count = evaluate(expr.data[2]);
+              for (let i = 0; i < count; i++) {
+                arr.push(evaluate(expr.data[1]));
+              }
+              return arr;
+            } break;
+            case 'length': {
+              const data = evaluate(expr.data[1]);
+              return data.length;
+            } break;
+            case 'filter':
+            case 'map': {
+              const t = expr.data[0]; // map or filter
+              const s = {};
+              let l = evaluate(expr.data[1]);
+              const r = expr.data[2];
+              state.push(s);
+              l = l[t]((_1, _2) => {
+                s._1 = _1;
+                s._2 = _2;
+                return evaluate(r);
+              });
+              state.pop();
+              return l;
+            } break;
+            default:
+              break; 
+          }
+          break;
+        }
         case 'filter':
         case 'map': {
           let s = {};
@@ -1790,10 +1810,23 @@ var Adom = (function () {
         case 'parenthetical': {
           return `(${print_expression(expr.data)})`;
         } break;
-        case 'map':
-        case 'filter': {
-          let l = expr.data[1];
-          return `${print_expression(expr.data[0])}.${expr.type}(function (${l.args.join(',')}) { return ${print_expression(l.expr)}; })`
+        case 'pipe': {
+          switch(expr.data[0]) {
+            case 'repeat': {
+              return `(${print_expression(expr.data[1])}).repeat(${print_expression(expr.data[2])})`;
+            } break;
+            case 'length': {
+              return `(${print_expression(expr.data[1])}).length()`;
+            } break;
+            case 'map':
+            case 'filter': {
+              const t = expr.data[0];
+              const l = expr.data[1];
+              const r = expr.data[2];
+              return `${print_expression(l)}.${t}(function (_1, _2) { return ${print_expression(r)}; })`
+            } break;
+          }
+          // console.log(expr.data)
         } break;
       }
     }
@@ -1865,16 +1898,6 @@ var Adom = (function () {
       for (let e of exp) {
         render_line(`var $${e} = $${data.name}.components.${e};`);
       }
-    }
-
-    function state_initializer (s) {
-      let out = 'function (props) { var $s = {}; ';
-      for (let k in s) {
-        out += `var ${k} = ${print_expression(s[k])}; `;
-        out += `$s.${k} = ${k}; `;
-      }
-      out += 'return $s; }';
-      return out;
     }
 
     function tid () {
@@ -2084,7 +2107,7 @@ var Adom = (function () {
       if (n.type === _set) {
         let dst = n.data.rhs;
         if (dst.type === 'file') {
-          pending.push({ file: dst.name, dir: dst.dir, node: n, filter: dst.filter });
+          pending.push({ file: dst.name, dir: dst.dir, node: n });
         }
       }
       n.children.forEach(child => {
@@ -2128,7 +2151,7 @@ var Adom = (function () {
     return result.outputFiles[0].text;
   };
 
-  Adom.prototype.renderAsync = async function (file, input_state) {
+  Adom.prototype.render = async function (file, input_state) {
     let html;
     try {
       let cacheKey = this.getPath(file);
@@ -2159,35 +2182,8 @@ var Adom = (function () {
     }
   };
 
-  Adom.prototype.render = function(file, input_state) {
-    let html;
-    try {
-      let cacheKey = this.getPath(file);
-      let html;
-
-      if (this.cache && this.ast_cache[cacheKey]) {
-        html = this.execute(this.ast_cache[cacheKey], input_state || {});
-      } else {
-        let ast = this.generateAst(file);
-        this.finalize(ast);
-        let runtime = this.generateRuntime(ast, input_state || {});
-        ast.data.runtime = runtime.map((chunk) => chunk.code).join('\n');
-        html = this.execute(ast, input_state || {});
-        if (this.cache) {
-          this.ast_cache[cacheKey] = ast;
-        }
-      }
-
-      return html;
-    } catch (e) {
-      if (e.origin === 'adom') {
-        html = `<pre>${this.print_error(e)}</pre>`;
-      } else {
-        console.log(e);
-        html = `<pre>${e.toString()}</pre>`;
-      }
-      return html;
-    }
+  Adom.prototype.renderAsync = async function (file, input_state) {
+    return await this.render(file, input_state);
   };
 
   Adom.prototype.mount = function (sel, str) {
