@@ -1576,7 +1576,13 @@ var Adom = (function () {
 
   function $$repeat(val, count) {
     var vals = [];
-    for (var i = 0; i < count; i++) vals.push(val);
+    for (var i = 0; i < count; i++) {
+      if (typeof val === 'object') {
+        vals.push(JSON.parse(JSON.stringify(val)));
+      } else {
+        vals.push(val);
+      }
+    }
     return vals;
   }
 
