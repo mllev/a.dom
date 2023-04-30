@@ -573,7 +573,20 @@ var Adom = (function () {
       'repeat': 1,
       'length': 0,
       'map': 1,
-      'filter': 1
+      'filter': 1,
+      'toupper': 0,
+      'tolower': 0,
+      'split': 1,
+      'includes': 1,
+      'indexof': 1,
+      'reverse': 0,
+      'tojson': 0,
+      'replace': 2,
+      'replaceall': 2,
+      'tostring': 0,
+      'join': 1,
+      'keys': 0,
+      'values': 0
     };
 
     function parse_expr (min_prec) {
@@ -1114,6 +1127,78 @@ var Adom = (function () {
               });
               state.pop();
               return l;
+            } break;
+            case 'toupper': {
+              const e = evaluate(expr.data[1]);
+              return e.toUpperCase();
+            } break;
+            case 'tolower': {
+              const e = evaluate(expr.data[1]);
+              return e.toLowerCase();
+              return;
+            } break;
+            case 'split': {
+              const e = evaluate(expr.data[1]);
+              const del = evaluate(expr.data[2]);
+              return e.split(del);
+            } break;
+            case 'includes': {
+              const e = evaluate(expr.data[1]);
+              const i = evaluate(expr.data[2]);
+              return e.indexOf(i) > -1;
+            } break;
+            case 'indexof': {
+              const e = evaluate(expr.data[1]);
+              const i = evaluate(expr.data[2]);
+              return e.indexOf(i);
+            } break;
+            case 'reverse': {
+              const e = evaluate(expr.data[1]);
+              if (Array.isArray(e)) {
+                return e.reverse();
+              } else {
+                return e.split('').reverse().join('')
+              }
+              return;
+            } break;
+            case 'tojson': {
+              const e = evaluate(expr.data[1]);
+              return JSON.parse(e);
+            } break;
+            case 'replace': {
+              const e = evaluate(expr.data[1]);
+              const r = evaluate(expr.data[2]);
+              const n = evaluate(expr.data[3]);
+              return e.replace(r, n);
+              return;
+            } break;
+            case 'replaceall': {
+              const e = evaluate(expr.data[1]);
+              const r = evaluate(expr.data[2]);
+              const n = evaluate(expr.data[3]);
+              return e.replaceAll(r, n);
+              return;
+            } break;
+            case 'tostring': {
+              const e = evaluate(expr.data[1]);
+              if (typeof e === 'object') {
+                return JSON.stringify(e);
+              } else {
+                return e.toString();
+              }
+            } break;
+            case 'join': {
+              const e = evaluate(expr.data[1]);
+              const del = evaluate(expr.data[2]);
+              return e.join(del);
+            } break;
+            case 'keys': {
+              const e = evaluate(expr.data[1]);
+              return Object.keys(e);
+            } break;
+            case 'values': {
+              const e = evaluate(expr.data[1]);
+              return Object.values(e);
             } break;
             default:
               break; 
@@ -1829,6 +1914,65 @@ var Adom = (function () {
               const l = expr.data[1];
               const r = expr.data[2];
               return `${print_expression(l)}.${t}(function (_1, _2) { return ${print_expression(r)}; })`
+            } break;
+            case 'toupper': {
+              return `(${print_expression(expr.data[1])}).toUpperCase()`;
+            } break;
+            case 'tolower': {
+              return `(${print_expression(expr.data[1])}).toLowerCase()`;
+            } break;
+            case 'split': {
+              const e2 = expr.data[2];
+              return `(${print_expression(expr.data[1])}).split(${print_expression(e2)})`;
+            } break;
+            case 'includes': {
+              const e2 = expr.data[2];
+              return `((${print_expression(expr.data[1])}).indexOf(${print_expression(e2)}) > -1)`;
+              return;
+            } break;
+            case 'indexof': {
+              const e2 = expr.data[2];
+              return `(${print_expression(expr.data[1])}).indexOf(${print_expression(e2)})`;
+            } break;
+            case 'reverse': {
+              const e = expr.data[1];
+              const pe = print_expression(e);
+              return `(Array.isArray(${pe}) ? (${pe}).reverse() : (${pe}).split('').reverse().join(''))`;
+              return;
+            } break;
+            case 'tojson': {
+              return `JSON.parse(${print_expression(expr.data[1])})`;
+            } break;
+            case 'replace': {
+              const l = expr.data[1];
+              const r = expr.data[2];
+              const v = expr.data[3];
+              return `(${print_expression(l)}).replace(${print_expression(r)}, ${print_expression(v)})`;
+              return;
+            } break;
+            case 'replaceall': {
+              const l = expr.data[1];
+              const r = expr.data[2];
+              const v = expr.data[3];
+              return `(${print_expression(l)}).replaceAll(${print_expression(r)}, ${print_expression(v)})`;
+              return;
+            } break;
+            case 'tostring': {
+              const e = expr.data[1];
+              const pe = print_expression(e);
+              return `(typeof (${pe}) === 'object' ? JSON.stringify(${pe}) : (${pe}).toString())`;
+            } break;
+            case 'join': {
+              const l = expr.data[1];
+              const r = expr.data[2];
+              return `(${print_expression(l)}).join(${print_expression(r)})`;
+            } break;
+            case 'keys': {
+              return `Object.keys(${print_expression(expr.data[1])})`;
+            } break;
+            case 'values': {
+              return `Object.values(${print_expression(expr.data[1])})`;
+              return;
             } break;
           }
           // console.log(expr.data)
