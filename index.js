@@ -287,6 +287,38 @@ var Adom = (function () {
         tokens.push({ type: 'chunk', data: str, pos: offs + cursor, file: file })
         cursor = i;
         continue;
+      } else if (c === '`') {
+        let i = cursor + 1;
+        let text = '';
+        while (true) {
+          if (i > end_pos) {
+            throw_adom_error({ msg: "unterminated string", pos: offs + cursor, file: file });
+          }
+          if (prog[i] === '`') {
+            i++;
+            break;
+          }
+          if (prog[i] === "\\" && prog[i + 1] === '`') {
+            text += prog[i + 1];
+            i += 2;
+          }
+          text += prog[i++];
+        }
+        let lines = text.split(/\r?\n/);
+        const start = lines[0];
+        const end = lines[lines.length - 1];
+        if (start === '') lines.shift();
+        if (!/\S/.test(end)) {
+          const len = end.length;
+          lines = lines.map((line) => {
+            return line.slice(len);
+          });
+        }
+        text = lines.join('\n');
+        tokens.push({ type: 'string', pos: offs + cursor, file: file });
+        tokens.push({ type: 'chunk', data: text, pos: offs + cursor, file: file })
+        cursor = i;
+        continue;
       } else if (c === '"' || c === "'") {
         let del = c;
         let i = cursor + 1;
