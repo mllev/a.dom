@@ -5,4 +5,3 @@ dev-project/
 node_modules
 package-lock.json
 test.adom
-adom.c
