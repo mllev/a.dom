@@ -185,6 +185,28 @@ int adom__is_symbol(unsigned int c) {
   return 0;
 }
 
+int adom__parse_num(unsigned int *ptr, float *fres, int *ires) {
+  float num = 0.0;
+  int d = 0;
+  float div = 10.0;
+  while (_adom__is_num(*ptr) || (_adom__match(*ptr, '.') && !d)) {
+    if (_adom__match(*ptr, '.')) d = 1;
+    else if (d) {
+      num += (float)((char)*ptr - '0') / div;
+      div *= 10.0;
+    } else {
+      num = (num * 10.0) + (float)((char)*ptr - '0');
+    }
+    ptr++;
+  }
+  if (!d) {
+    *ires = (int)num;
+    return 0;
+  }
+  *fres = num;
+  return 1;
+}
+
 char *adom_compile_to_html(const char* file, const char* data, int dlen) {
   int i, j, length;
   char *out;
@@ -266,32 +288,57 @@ char *adom_compile_to_html(const char* file, const char* data, int dlen) {
     if (_adom__is_num(c)) {
       unsigned int* ptr = &(prog[i]);
       int len = 0;
-
+      int d = 0;
+      float fres;
+      int ires;
       while (1) {
         if (i >= length) break;
-        if (!_adom__is_num(prog[i]) || _adom__match(prog[i], '.')) break;
+        if (_adom__match(prog[i], '.')) {
+          if (d == 1) break;
+          d = 1;
+        } else if (!_adom__is_num(prog[i])) {
+          break;
+        }
         i++;
         len++;
       }
       printf("NUMBER: ");
       adom__print_string(ptr, len);
       printf("\n");
+      if (adom__parse_num(ptr, &fres, &ires)) {
+        printf("PARSED NUMBER: %f\n", fres);
+      } else {
+        printf("PARSED NUMBER: %d\n", ires);
+      }
       continue;
     }
 
     if (_adom__match(c, '-') && _adom__is_num(c2)) {
-      unsigned int* ptr = &(prog[i]);
       int len = 0;
-      i++;
+      float fres;
+      int ires;
+      unsigned int* ptr = &(prog[i++]);
+      int d = 0;
       while (1) {
         if (i >= length) break;
-        if (!_adom__is_num(prog[i]) || _adom__match(prog[i], '.')) break;
+        if (_adom__match(prog[i], '.')) {
+          if (d == 1) break;
+          d = 1;
+        } else if (!_adom__is_num(prog[i])) {
+          break;
+        }
         i++;
         len++;
       }
-      printf("NUMBER: -");
+      printf("NUMBER: ");
       adom__print_string(ptr, len);
       printf("\n");
+      ptr++;
+      if (adom__parse_num(ptr, &fres, &ires)) {
+        printf("PARSED NUMBER: %f\n", fres * -1);
+      } else {
+        printf("PARSED NUMBER: %d\n", ires * -1);
+      }
       continue;
     }
 
