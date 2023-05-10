@@ -66,6 +66,7 @@ struct adom__token {
     float numf;
     int numi;
   } value;
+  int pos;
 };
 
 struct adom__context {
@@ -216,8 +217,41 @@ const char* adom__is_keyword(const unsigned int *ident, int length) {
 
 #define adom__is_ascii(x) (((x)&0x80)==0)
 #define adom__is_num(x) (adom__is_ascii(x) && (char)x >= '0' && (char)x <= '9')
+#define adom__is_newline(x) (adom__is_ascii(x) && ((char)x == '\n' || (char)x == '\r'))
 #define adom__is_space(x) (adom__is_ascii(x) && ((char)x == ' ' || (char)x == '\t' || (char)x == '\n' || (char)x == '\r'))
 #define adom__match(x, c) (adom__is_ascii(x) && ((char)(x) == (c)))
+
+void adom__print_error(struct adom__context *ctx, const char *msg, int pos) {
+  unsigned int *prog = ctx->src.content;
+  int max = ctx->src.len;
+  int start = pos;
+  int end = pos;
+  int i;
+  while (1) {
+    if (start == 0) break;
+    if (adom__is_newline(prog[start])) {
+      start++;
+      break;
+    }
+    start--;
+  }
+  while (1) {
+    if (end == max-1) break;
+    if (adom__is_newline(prog[end])) {
+      end--;
+      break;
+    }
+    end++;
+  }
+  printf("%s:\n", msg);
+  adom__print_string(&(prog[start]), end - start);
+  printf("\n");
+  for (i = 0; i < (pos - start); i++) {
+    printf("-");
+  }
+  printf("^\n");
+}
+
 
 int adom__is_symbol(unsigned int c) {
   int i;
@@ -294,13 +328,14 @@ int adom__next(struct adom__context *ctx) {
     unsigned int* ptr;
     int len = 0;
     char del = (char)c;
+    int start = i;
 
     ptr = &(prog[++i]);
 
     while (1) {
-      if (i >= length) {
-        printf("Unterminated string\n");
-        return 1;
+      if ((del != '`' && adom__is_newline(prog[i])) || (i >= length)) {
+        adom__print_error(ctx, "Unterminated string", start);
+        return 0;
       }
       if (adom__match(prog[i], del)) {
         if (!adom__match(prog[i-1], '\\')) {
@@ -375,10 +410,10 @@ int adom__next(struct adom__context *ctx) {
     int ires;
     unsigned int* ptr = &(prog[i++]);
     int d = 0;
+    len++;
     while (1) {
       if (i >= length) break;
-      if (adom__match(prog[i], '.')) {
-        if (d == 1) break;
+      if (adom__match(prog[i], '.') && !d) {
         d = 1;
       } else if (!adom__is_num(prog[i])) {
         break;
