@@ -20,12 +20,61 @@ char *adom_compile_ir_to_html(
 );
 
 /* internal API*/
+enum adom__value_type {
+  ADOM_STRING,
+  ADOM_INT,
+  ADOM_FLOAT,
+  ADOM_BOOLEAN,
+  ADOM_OBJECT,
+  ADOM_ARRAY,
+  ADOM_NULL
+};
+
+enum adom__token_type {
+  ADOM_TOK_STRING,
+  ADOM_TOK_INT,
+  ADOM_TOK_FLOAT,
+  ADOM_TOK_BOOLEAN,
+  ADOM_TOK_SYMBOL,
+  ADOM_TOK_KEYWORD,
+  ADOM_TOK_TAG,
+  ADOM_TOK_EACH,
+  ADOM_TOK_IF,
+  ADOM_TOK_ELSE,
+  ADOM_TOK_IN,
+  ADOM_TOK_IMPORT,
+  ADOM_TOK_EXPORT,
+  ADOM_TOK_YIELD,
+  ADOM_TOK_ON,
+  ADOM_FOK_FILE,
+  ADOM_TOK_LET,
+  ADOM_TOK_LOCAL,
+  ADOM_TOK_GLOBAL,
+  ADOM_TOK_IDENTIFIER,
+  ADOM_TOK_BINOP
+};
+
+struct adom__token {
+  enum adom__token_type type;
+  union {
+    char sym;
+    const char *keyword;
+    struct {
+      unsigned int* data;
+      int len;
+    } ident;
+    float numf;
+    int numi;
+  } value;
+};
+
 struct adom__context {
   struct {
     unsigned int *content;
     int len;
   } src;
   int cursor;
+  struct adom__token token;
 };
 
 unsigned int adom__get_code_point(FILE *file) {
@@ -207,168 +256,232 @@ int adom__parse_num(unsigned int *ptr, float *fres, int *ires) {
   return 1;
 }
 
-char *adom_compile_to_html(const char* file, const char* data, int dlen) {
-  int i, j, length;
-  char *out;
+int adom__init(struct adom__context *ctx, const char *file) {
+  int length;
   unsigned int *prog;
-
   prog = adom__read_file_utf8(file, &length);
+  if (!prog) return 1;
+  ctx->src.content = prog;
+  ctx->src.len = length;
+  ctx->cursor = 0;
+  return 0;
+}
 
-  if (!prog) return NULL;
+void adom__destroy(struct adom__context *ctx) {
+  free(ctx->src.content);
+}
 
-  for (i = 0; i < length; i++) {
-    unsigned int c, c2;
-    const char *keyword;
+int adom__next(struct adom__context *ctx) {
+  unsigned int c, c2;
+  const char *keyword;
+  int j, i = ctx->cursor;
+  unsigned int *prog = ctx->src.content;
+  int length = ctx->src.len;
 
-    /* skip white space */
-    while (_adom__is_space(prog[i])) {
+  /* skip white space */
+  while (_adom__is_space(prog[i])) {
+    i++;
+  }
+
+  if (i >= length) {
+    return 0;
+  }
+
+  c  = prog[i];
+  c2 = prog[i+1];
+
+  if (_adom__match(c, '"') || _adom__match(c, '\'') || _adom__match(c, '`')) {
+    unsigned int* ptr;
+    int len = 0;
+    char del = (char)c;
+    int err = 0;
+
+    ptr = &(prog[++i]);
+
+    while (1) {
+      if (i >= length) {
+        printf("Unterminated string\n");
+        return 1;
+      }
+      if (_adom__match(prog[i], del)) {
+        if (!_adom__match(prog[i-1], '\\')) {
+          break;
+        }
+      }
+      /* todo: handle escape characters */
+      len++;
+      i++;
+    }
+    ctx->token.type = ADOM_TOK_STRING;
+    ctx->token.value.ident.data = ptr;
+    ctx->token.value.ident.len = len;
+    goto done;
+  }
+
+  if (_adom__match(c, '/') && _adom__match(c2, '/')) {
+    while (1) {
+      if (i >= length || _adom__match(prog[i], '\n')) {
+        break;
+      }
+      i++;
+    }
+    goto done;
+  }
+
+  if (_adom__match(c, '/') && _adom__match(c2, '*')) {
+    while (1) {
+      if (i >= length) break;
+      if (_adom__match(prog[i], '*') && _adom__match(prog[i+1], '/')) {
+        i++;
+        break;
+      }
+      i++;
+    }
+    goto done;
+  }
+
+  if (_adom__is_num(c)) {
+    unsigned int* ptr = &(prog[i]);
+    int len = 0;
+    int d = 0;
+    float fres;
+    int ires;
+    while (1) {
+      if (i >= length) break;
+      if (_adom__match(prog[i], '.')) {
+        if (d == 1) break;
+        d = 1;
+      } else if (!_adom__is_num(prog[i])) {
+        break;
+      }
+      i++;
+      len++;
+    }
+    printf("NUMBER: ");
+    adom__print_string(ptr, len);
+    printf("\n");
+    if (adom__parse_num(ptr, &fres, &ires)) {
+      ctx->token.type = ADOM_TOK_FLOAT;
+      ctx->token.value.numf = fres;
+    } else {
+      ctx->token.type = ADOM_TOK_INT;
+      ctx->token.value.numi = ires;
+    }
+    goto done;
+  }
+
+  if (_adom__match(c, '-') && _adom__is_num(c2)) {
+    int len = 0;
+    float fres;
+    int ires;
+    unsigned int* ptr = &(prog[i++]);
+    int d = 0;
+    while (1) {
+      if (i >= length) break;
+      if (_adom__match(prog[i], '.')) {
+        if (d == 1) break;
+        d = 1;
+      } else if (!_adom__is_num(prog[i])) {
+        break;
+      }
+      i++;
+      len++;
+    }
+    printf("NUMBER: ");
+    adom__print_string(ptr, len);
+    printf("\n");
+    ptr++;
+    if (adom__parse_num(ptr, &fres, &ires)) {
+      ctx->token.type = ADOM_TOK_FLOAT;
+      ctx->token.value.numf = fres * -1;
+    } else {
+      ctx->token.type = ADOM_TOK_INT;
+      ctx->token.value.numf = ires * -1;
+    }
+    goto done;
+  }
+
+  if (adom__is_symbol(c)) {
+    /*  todo: add binop tok  */
+    ctx->token.type = ADOM_TOK_SYMBOL;
+    ctx->token.value.sym = (char)c;
+    goto done;
+  }
+
+  {
+    int len = 0;
+    unsigned int* ptr = &(prog[i]);
+
+    while (!_adom__is_space(prog[i]) && !adom__is_symbol(prog[i])) {
+      len++;
       i++;
     }
 
-    if (i >= length) {
+    keyword = adom__is_keyword(ptr, len);
+
+    if (keyword) {
+      ctx->token.type = ADOM_TOK_KEYWORD;
+      ctx->token.value.keyword = keyword;
+    } else {
+      ctx->token.type = ADOM_TOK_IDENTIFIER;
+      ctx->token.value.ident.data = ptr;
+      ctx->token.value.ident.len = len;
+    }
+    goto done;
+  }
+  return 0;
+done:
+  ctx->cursor = ++i;
+  return 1;
+}
+
+void adom__print_token(struct adom__context *adom) {
+  switch (adom->token.type) {
+    case ADOM_TOK_STRING: {
+      printf("STRING: ");
+      adom__print_string(adom->token.value.ident.data, adom->token.value.ident.len);
+      printf("\n");
       break;
     }
-
-    c  = prog[i];
-    c2 = prog[i+1];
-
-    if (_adom__match(c, '"') || _adom__match(c, '\'') || _adom__match(c, '`')) {
-      unsigned int* ptr;
-      int len = 0;
-      char del = (char)c;
-      int err = 0;
-
-      ptr = &(prog[++i]);
-
-      while (1) {
-        if (i >= length) {
-          printf("Unterminated string\n");
-          err = 1;
-          break;
-        }
-        if (_adom__match(prog[i], del)) {
-          if (!_adom__match(prog[i-1], '\\')) {
-            break;
-          }
-        }
-        /* todo: handle escape characters */
-        len++;
-        i++;
-      }
-      if (err) {
-        break;
-      }
-      printf("STRING: ");
-      adom__print_string(ptr, len);
+    case ADOM_TOK_INT: {
+      printf("PARSED NUMBER: %d\n", adom->token.value.numi);
+      break;
+    }
+    case ADOM_TOK_FLOAT: {
+      printf("PARSED NUMBER: %f\n", adom->token.value.numf);
+      break;
+    }
+    case ADOM_TOK_SYMBOL: {
+      printf("SYMBOL: %c\n", adom->token.value.sym);
+      break;
+    }
+    case ADOM_TOK_IDENTIFIER: {
+      printf("IDENTIFIER: ");
+      adom__print_string(adom->token.value.ident.data, adom->token.value.ident.len);
       printf("\n");
-      continue;
+      break;
     }
-
-    if (_adom__match(c, '/') && _adom__match(c2, '/')) {
-      while (1) {
-        if (i >= length || _adom__match(prog[i], '\n')) {
-          break;
-        }
-        i++;
-      }
-      continue;
+    case ADOM_TOK_KEYWORD: {
+      printf("KEYWORD: %s\n", adom->token.value.keyword);
+      break;
     }
-
-    if (_adom__match(c, '/') && _adom__match(c2, '*')) {
-      while (1) {
-        if (i >= length) break;
-        if (_adom__match(prog[i], '*') && _adom__match(prog[i+1], '/')) {
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-
-    if (_adom__is_num(c)) {
-      unsigned int* ptr = &(prog[i]);
-      int len = 0;
-      int d = 0;
-      float fres;
-      int ires;
-      while (1) {
-        if (i >= length) break;
-        if (_adom__match(prog[i], '.')) {
-          if (d == 1) break;
-          d = 1;
-        } else if (!_adom__is_num(prog[i])) {
-          break;
-        }
-        i++;
-        len++;
-      }
-      printf("NUMBER: ");
-      adom__print_string(ptr, len);
-      printf("\n");
-      if (adom__parse_num(ptr, &fres, &ires)) {
-        printf("PARSED NUMBER: %f\n", fres);
-      } else {
-        printf("PARSED NUMBER: %d\n", ires);
-      }
-      continue;
-    }
-
-    if (_adom__match(c, '-') && _adom__is_num(c2)) {
-      int len = 0;
-      float fres;
-      int ires;
-      unsigned int* ptr = &(prog[i++]);
-      int d = 0;
-      while (1) {
-        if (i >= length) break;
-        if (_adom__match(prog[i], '.')) {
-          if (d == 1) break;
-          d = 1;
-        } else if (!_adom__is_num(prog[i])) {
-          break;
-        }
-        i++;
-        len++;
-      }
-      printf("NUMBER: ");
-      adom__print_string(ptr, len);
-      printf("\n");
-      ptr++;
-      if (adom__parse_num(ptr, &fres, &ires)) {
-        printf("PARSED NUMBER: %f\n", fres * -1);
-      } else {
-        printf("PARSED NUMBER: %d\n", ires * -1);
-      }
-      continue;
-    }
-
-    if (adom__is_symbol(c)) {
-      printf("SYMBOL: %c\n", (char)c);
-      continue;
-    }
-
-    {
-      int len = 0;
-      unsigned int* ptr = &(prog[i]);
-
-      while (!_adom__is_space(prog[i]) && !adom__is_symbol(prog[i])) {
-        len++;
-        i++;
-      }
-
-      keyword = adom__is_keyword(ptr, len);
-
-      if (keyword) {
-        printf("KEYWORD: %s\n", keyword);
-      } else {
-        printf("IDENTIFIER: ");
-        adom__print_string(ptr, len);
-        printf("\n");
-      }
+    default: {
+      break;
     }
   }
+}
 
-  free(prog);
+char *adom_compile_to_html(const char* file, const char* data, int dlen) {
+  struct adom__context adom;
+  char *out;
+
+  if (adom__init(&adom, file)) {
+    return NULL;
+  }
+
+  while (adom__next(&adom)) {
+    adom__print_token(&adom);
+  }
 
   return out;
 }
