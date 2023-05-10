@@ -430,7 +430,7 @@ int adom__next(struct adom__context *ctx) {
       ctx->token.value.numf = fres * -1;
     } else {
       ctx->token.type = ADOM_TOK_INT;
-      ctx->token.value.numf = ires * -1;
+      ctx->token.value.numi = ires * -1;
     }
     goto done;
   }
