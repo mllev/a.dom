@@ -85,18 +85,18 @@ unsigned int adom__get_code_point(FILE *file) {
     return 0;
   } else if ((c & 0x80) == 0) {
     return c;
-  } else if ((c & 0xE0) == 0xC0) {
-    p = c & 0x1F;
+  } else if ((c & 0xe0) == 0xc0) {
+    p = c & 0x1f;
     p = (p << 6) | (fgetc(file) & 0x3F);
-  } else if ((c & 0xF0) == 0xE0) {
-    p = c & 0x0F;
-    p = (p << 6) | (fgetc(file) & 0x3F);
-    p = (p << 6) | (fgetc(file) & 0x3F);
-  } else if ((c & 0xF8) == 0xF0) {
+  } else if ((c & 0xf0) == 0xe0) {
+    p = c & 0x0f;
+    p = (p << 6) | (fgetc(file) & 0x3f);
+    p = (p << 6) | (fgetc(file) & 0x3f);
+  } else if ((c & 0xf8) == 0xf0) {
     p = c & 0x07;
-    p = (p << 6) | (fgetc(file) & 0x3F);
-    p = (p << 6) | (fgetc(file) & 0x3F);
-    p = (p << 6) | (fgetc(file) & 0x3F);
+    p = (p << 6) | (fgetc(file) & 0x3f);
+    p = (p << 6) | (fgetc(file) & 0x3f);
+    p = (p << 6) | (fgetc(file) & 0x3f);
   }
 
   return p;
@@ -107,19 +107,19 @@ int adom__print_utf8(unsigned int p, char* out) {
     out[0] = p;
     return 1;
   } else if (p < 0x800) {
-    out[0] = (p >> 6) | 0xC0;
-    out[1] = (p & 0x3F) | 0x80;
+    out[0] = (p >> 6) | 0xc0;
+    out[1] = (p & 0x3f) | 0x80;
     return 2;
   } else if (p < 0x10000) {
-    out[0] = (p >> 12) | 0xE0;
-    out[1] = ((p >> 6) & 0x3F) | 0x80;
-    out[2] = (p & 0x3F) | 0x80;
+    out[0] = (p >> 12) | 0xe0;
+    out[1] = ((p >> 6) & 0x3f) | 0x80;
+    out[2] = (p & 0x3f) | 0x80;
     return 3;
   } else {
-    out[0] = (p >> 18) | 0xF0;
-    out[1] = ((p >> 12) & 0x3F) | 0x80;
-    out[2] = ((p >> 6) & 0x3F) | 0x80;
-    out[3] = (p & 0x3F) | 0x80;
+    out[0] = (p >> 18) | 0xf0;
+    out[1] = ((p >> 12) & 0x3f) | 0x80;
+    out[2] = ((p >> 6) & 0x3f) | 0x80;
+    out[3] = (p & 0x3f) | 0x80;
     return 4;
   }
 }
@@ -214,10 +214,10 @@ const char* adom__is_keyword(const unsigned int *ident, int length) {
   return NULL;
 }
 
-#define _adom__is_ascii(x) (((x)&0x80)==0)
-#define _adom__is_num(x) (_adom__is_ascii(x) && (char)x >= '0' && (char)x <= '9')
-#define _adom__is_space(x) (_adom__is_ascii(x) && ((char)x == ' ' || (char)x == '\t' || (char)x == '\n' || (char)x == '\r'))
-#define _adom__match(x, c) (_adom__is_ascii(x) && ((char)(x) == (c)))
+#define adom__is_ascii(x) (((x)&0x80)==0)
+#define adom__is_num(x) (adom__is_ascii(x) && (char)x >= '0' && (char)x <= '9')
+#define adom__is_space(x) (adom__is_ascii(x) && ((char)x == ' ' || (char)x == '\t' || (char)x == '\n' || (char)x == '\r'))
+#define adom__match(x, c) (adom__is_ascii(x) && ((char)(x) == (c)))
 
 int adom__is_symbol(unsigned int c) {
   int i;
@@ -227,7 +227,7 @@ int adom__is_symbol(unsigned int c) {
     '!'
   };
   for (i = 0; i < 21; i++) {
-    if (_adom__match(c, symlist[i])) {
+    if (adom__match(c, symlist[i])) {
       return 1;
     }
   }
@@ -238,8 +238,8 @@ int adom__parse_num(unsigned int *ptr, float *fres, int *ires) {
   float num = 0.0;
   int d = 0;
   float div = 10.0;
-  while (_adom__is_num(*ptr) || (_adom__match(*ptr, '.') && !d)) {
-    if (_adom__match(*ptr, '.')) d = 1;
+  while (adom__is_num(*ptr) || (adom__match(*ptr, '.') && !d)) {
+    if (adom__match(*ptr, '.')) d = 1;
     else if (d) {
       num += (float)((char)*ptr - '0') / div;
       div *= 10.0;
@@ -274,12 +274,12 @@ void adom__destroy(struct adom__context *ctx) {
 int adom__next(struct adom__context *ctx) {
   unsigned int c, c2;
   const char *keyword;
-  int j, i = ctx->cursor;
+  int i = ctx->cursor;
   unsigned int *prog = ctx->src.content;
   int length = ctx->src.len;
 
   /* skip white space */
-  while (_adom__is_space(prog[i])) {
+  while (adom__is_space(prog[i])) {
     i++;
   }
 
@@ -290,11 +290,10 @@ int adom__next(struct adom__context *ctx) {
   c  = prog[i];
   c2 = prog[i+1];
 
-  if (_adom__match(c, '"') || _adom__match(c, '\'') || _adom__match(c, '`')) {
+  if (adom__match(c, '"') || adom__match(c, '\'') || adom__match(c, '`')) {
     unsigned int* ptr;
     int len = 0;
     char del = (char)c;
-    int err = 0;
 
     ptr = &(prog[++i]);
 
@@ -303,8 +302,8 @@ int adom__next(struct adom__context *ctx) {
         printf("Unterminated string\n");
         return 1;
       }
-      if (_adom__match(prog[i], del)) {
-        if (!_adom__match(prog[i-1], '\\')) {
+      if (adom__match(prog[i], del)) {
+        if (!adom__match(prog[i-1], '\\')) {
           break;
         }
       }
@@ -318,9 +317,9 @@ int adom__next(struct adom__context *ctx) {
     goto done;
   }
 
-  if (_adom__match(c, '/') && _adom__match(c2, '/')) {
+  if (adom__match(c, '/') && adom__match(c2, '/')) {
     while (1) {
-      if (i >= length || _adom__match(prog[i], '\n')) {
+      if (i >= length || adom__match(prog[i], '\n')) {
         break;
       }
       i++;
@@ -328,10 +327,10 @@ int adom__next(struct adom__context *ctx) {
     goto done;
   }
 
-  if (_adom__match(c, '/') && _adom__match(c2, '*')) {
+  if (adom__match(c, '/') && adom__match(c2, '*')) {
     while (1) {
       if (i >= length) break;
-      if (_adom__match(prog[i], '*') && _adom__match(prog[i+1], '/')) {
+      if (adom__match(prog[i], '*') && adom__match(prog[i+1], '/')) {
         i++;
         break;
       }
@@ -340,7 +339,7 @@ int adom__next(struct adom__context *ctx) {
     goto done;
   }
 
-  if (_adom__is_num(c)) {
+  if (adom__is_num(c)) {
     unsigned int* ptr = &(prog[i]);
     int len = 0;
     int d = 0;
@@ -348,10 +347,10 @@ int adom__next(struct adom__context *ctx) {
     int ires;
     while (1) {
       if (i >= length) break;
-      if (_adom__match(prog[i], '.')) {
+      if (adom__match(prog[i], '.')) {
         if (d == 1) break;
         d = 1;
-      } else if (!_adom__is_num(prog[i])) {
+      } else if (!adom__is_num(prog[i])) {
         break;
       }
       i++;
@@ -370,7 +369,7 @@ int adom__next(struct adom__context *ctx) {
     goto done;
   }
 
-  if (_adom__match(c, '-') && _adom__is_num(c2)) {
+  if (adom__match(c, '-') && adom__is_num(c2)) {
     int len = 0;
     float fres;
     int ires;
@@ -378,10 +377,10 @@ int adom__next(struct adom__context *ctx) {
     int d = 0;
     while (1) {
       if (i >= length) break;
-      if (_adom__match(prog[i], '.')) {
+      if (adom__match(prog[i], '.')) {
         if (d == 1) break;
         d = 1;
-      } else if (!_adom__is_num(prog[i])) {
+      } else if (!adom__is_num(prog[i])) {
         break;
       }
       i++;
@@ -412,7 +411,7 @@ int adom__next(struct adom__context *ctx) {
     int len = 0;
     unsigned int* ptr = &(prog[i]);
 
-    while (!_adom__is_space(prog[i]) && !adom__is_symbol(prog[i])) {
+    while (!adom__is_space(prog[i]) && !adom__is_symbol(prog[i])) {
       len++;
       i++;
     }
