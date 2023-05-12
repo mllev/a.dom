@@ -40,18 +40,31 @@ enum adom__value_type {
   ADOM_NULL
 };
 
+const char *adom__keywords[] = {
+  "tag",
+  "each",
+  "if",
+  "in",
+  "else",
+  "import",
+  "export",
+  "yield",
+  "on",
+  "file",
+  "let", /* remove maybe */
+  "local",
+  "global",
+  "root",
+  "nosync"
+};
+
 enum adom__token_type {
-  ADOM_TOK_STRING,
-  ADOM_TOK_INT,
-  ADOM_TOK_FLOAT,
-  ADOM_TOK_BOOLEAN,
-  ADOM_TOK_SYMBOL,
-  ADOM_TOK_KEYWORD,
+  /* match ordering of keywords above */
   ADOM_TOK_TAG,
   ADOM_TOK_EACH,
   ADOM_TOK_IF,
-  ADOM_TOK_ELSE,
   ADOM_TOK_IN,
+  ADOM_TOK_ELSE,
   ADOM_TOK_IMPORT,
   ADOM_TOK_EXPORT,
   ADOM_TOK_YIELD,
@@ -60,12 +73,26 @@ enum adom__token_type {
   ADOM_TOK_LET,
   ADOM_TOK_LOCAL,
   ADOM_TOK_GLOBAL,
+
+  ADOM_TOK_STRING,
+  ADOM_TOK_INT,
+  ADOM_TOK_FLOAT,
+  ADOM_TOK_BOOLEAN,
+  ADOM_TOK_SYMBOL,
+  ADOM_TOK_KEYWORD, /* remove */
   ADOM_TOK_IDENTIFIER,
-  ADOM_TOK_BINOP
+  ADOM_TOK_OP,
+  ADOM_TOK_EOF
 };
 
+typedef enum adom__value_type adom__value_type;
+typedef enum adom__token_type adom__token_type;
+
+typedef struct adom__token adom__token;
+typedef struct adom__context adom__context;
+
 struct adom__token {
-  enum adom__token_type type;
+  adom__token_type type;
   union {
     char sym;
     const char *keyword;
@@ -85,7 +112,8 @@ struct adom__context {
     int len;
   } src;
   int cursor;
-  struct adom__token token;
+  int error;
+  adom__token token;
 };
 
 unsigned int adom__get_code_point(FILE *file) {
@@ -185,25 +213,7 @@ unsigned int *adom__read_file_utf8(const char *name, int *length) {
 #endif
 }
 
-const char *adom__keywords[] = {
-  "tag",
-  "each",
-  "if",
-  "in",
-  "else",
-  "import",
-  "yield",
-  "on",
-  "export",
-  "file",
-  "let", /* remove maybe */
-  "local",
-  "global",
-  "root",
-  "nosync"
-};
-
-const char* adom__is_keyword(const unsigned int *ident, int length) {
+int adom__is_keyword(const unsigned int *ident, int length) {
   int i;
   for (i = 0; i < 15; i++) {
     const char* key = adom__keywords[i];
@@ -219,10 +229,10 @@ const char* adom__is_keyword(const unsigned int *ident, int length) {
       }
     }
     if (found) {
-      return adom__keywords[i];
+      return i;
     }
   }
-  return NULL;
+  return 0;
 }
 
 #define adom__is_ascii(x) (((x)&0x80)==0)
@@ -231,7 +241,7 @@ const char* adom__is_keyword(const unsigned int *ident, int length) {
 #define adom__is_space(x) (adom__is_ascii(x) && ((char)x == ' ' || (char)x == '\t' || (char)x == '\n' || (char)x == '\r'))
 #define adom__match(x, c) (adom__is_ascii(x) && ((char)(x) == (c)))
 
-void adom__print_error(struct adom__context *ctx, const char *msg, int pos) {
+void adom__print_error(adom__context *ctx, const char *msg, int pos) {
   unsigned int *prog = ctx->src.content;
   int max = ctx->src.len;
   int start = pos;
@@ -260,17 +270,29 @@ void adom__print_error(struct adom__context *ctx, const char *msg, int pos) {
     printf("-");
   }
   printf("^\n");
+  ctx->error = 1;
 }
 
 
 int adom__is_symbol(unsigned int c) {
   int i;
   const char symlist[] = {
-    '.', '=', '[', ']', ';', '{', '}', '(', ')', ':',
-    ',', '>', '<', '?', '|', '+', '/', '-', '*', '%',
-    '!'
+    '.', '=', '[', ']', ';', '{', '}', '(', ')', ':', ',', '?', '\'', '"', '`'
   };
-  for (i = 0; i < 21; i++) {
+  for (i = 0; i < 15; i++) {
+    if (adom__match(c, symlist[i])) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int adom__is_op(unsigned int c) {
+  int i;
+  const char symlist[] = {
+    '>', '<', '|', '+', '/', '-', '*', '%', '!'
+  };
+  for (i = 0; i < 9; i++) {
     if (adom__match(c, symlist[i])) {
       return 1;
     }
@@ -300,7 +322,7 @@ int adom__parse_num(unsigned int *ptr, float *fres, int *ires) {
   return 1;
 }
 
-int adom__init(struct adom__context *ctx, const char *file) {
+int adom__init(adom__context *ctx, const char *file) {
   int length;
   unsigned int *prog;
   prog = adom__read_file_utf8(file, &length);
@@ -308,15 +330,17 @@ int adom__init(struct adom__context *ctx, const char *file) {
   ctx->src.content = prog;
   ctx->src.len = length;
   ctx->cursor = 0;
+  ctx->error = 0;
   return 0;
 }
 
-void adom__destroy(struct adom__context *ctx) {
+void adom__destroy(adom__context *ctx) {
   free(ctx->src.content);
 }
 
-int adom__next(struct adom__context *ctx) {
+void adom__next(adom__context *ctx) {
   unsigned int c, c2;
+  int kidx;
   const char *keyword;
   int i = ctx->cursor;
   unsigned int *prog = ctx->src.content;
@@ -328,6 +352,7 @@ int adom__next(struct adom__context *ctx) {
   }
 
   if (i >= length) {
+    ctx->token.type = ADOM_TOK_EOF;
     return 0;
   }
 
@@ -439,8 +464,13 @@ int adom__next(struct adom__context *ctx) {
     goto done;
   }
 
+  if (adom__is_op(c)) {
+    ctx->token.type = ADOM_TOK_OP;
+    ctx->token.value.sym = (char)c;
+    goto done;
+  }
+
   if (adom__is_symbol(c)) {
-    /*  todo: add binop tok  */
     ctx->token.type = ADOM_TOK_SYMBOL;
     ctx->token.value.sym = (char)c;
     goto done;
@@ -450,15 +480,20 @@ int adom__next(struct adom__context *ctx) {
     int len = 0;
     unsigned int* ptr = &(prog[i]);
 
-    while (!adom__is_space(prog[i]) && !adom__is_symbol(prog[i])) {
+    while (
+      !adom__is_space(prog[i])  &&
+      !adom__is_symbol(prog[i]) &&
+      !adom__is_op(prog[i])
+    ) {
       len++;
       i++;
     }
 
-    keyword = adom__is_keyword(ptr, len);
+    kidx = adom__is_keyword(ptr, len);
+    keyword = ado__keywords[kidx];
 
     if (keyword) {
-      ctx->token.type = ADOM_TOK_KEYWORD;
+      ctx->token.type = (adom__token_type)kidx;
       ctx->token.value.keyword = keyword;
     } else {
       ctx->token.type = ADOM_TOK_IDENTIFIER;
@@ -469,11 +504,11 @@ int adom__next(struct adom__context *ctx) {
   }
   return 0;
 done:
-  ctx->cursor = ++i;
+  ctx->cursor = i+1;
   return 1;
 }
 
-void adom__print_token(struct adom__context *adom) {
+void adom__print_token(adom__context *adom) {
   switch (adom->token.type) {
     case ADOM_TOK_STRING: {
       printf("STRING: ");
@@ -493,6 +528,10 @@ void adom__print_token(struct adom__context *adom) {
       printf("SYMBOL: %c\n", adom->token.value.sym);
       break;
     }
+    case ADOM_TOK_OP: {
+      printf("OPERATOR: %c\n", adom->token.value.sym);
+      break;
+    }
     case ADOM_TOK_IDENTIFIER: {
       printf("IDENTIFIER: ");
       adom__print_string(adom->token.value.ident.data, adom->token.value.ident.len);
@@ -509,8 +548,51 @@ void adom__print_token(struct adom__context *adom) {
   }
 }
 
+int adom__accept(adom__context *ctx, adom__token_type type) {
+  if (ctx->token.type == type) {
+    adom__next(ctx);
+    return 1;
+  }
+  return 0;
+}
+
+#define adom__expect(ctx, type) if (!_adom__expect(ctx, type)) return 0;
+int _adom__expect(adom__context *ctx, adom__token_type type) {
+  if (ctx->token.type == type) {
+    adom__next(ctx);
+    return 1;
+  }
+  adom__print_error(ctx, "Unexpected token", ctx->token.pos);
+  return 0;
+}
+
+#define adom__handle_err(ctx) if (ctx->error) return 0;
+
+#define adom__parse_expr(ctx) if (!_adom__parse_expr(ctx)) return 0;
+int _adom__parse_expr(adom__context *ctx) {
+  adom__handle_err(ctx);
+  return 1;
+}
+
+int adom__parse_file(adom__context *ctx) {
+  adom__handle_err(ctx);
+  while (1) {
+    if (adom__accept(ctx, ADOM_TOK_IMPORT)) {
+      adom__expect(ctx, ADOM_TOK_STRING);
+    } else if (adom__accept(ctx, ADOM_TOK_LET)) {
+      adom__expect(ctx, ADOM_TOK_IDENTIFIER);
+      adom__expect(ctx, ADOM_TOK_SYMBOL); /* expect = */
+      adom__parse_expr(ctx);
+    } else {
+      adom__print_error(ctx, "Unexpected token", ctx->token.pos);
+      return 0;
+    }
+  }
+  return 1;
+}
+
 char *adom_compile_to_html(const char* file, const char* data, int dlen) {
-  struct adom__context adom;
+  adom__context adom;
   char *out;
 
   if (adom__init(&adom, file)) {
