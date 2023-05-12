@@ -2116,10 +2116,19 @@ var Adom = (function () {
       if (this.cache && this.ast_cache[cacheKey]) {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
+
+        const startTime = process.hrtime.bigint();
+
         let ast = this.generateAst(file);
         let runtime = this.generateRuntime(ast, input_state || {});
         ast.data.runtime = await this.processJs(runtime);
         html = this.execute(ast, input_state || {});
+
+        const endTime = process.hrtime.bigint();
+        const elapsedTimeInNanos = Number(endTime - startTime);
+        const elapsedTimeInMicros = elapsedTimeInNanos / 1000;
+        console.log(`compiled in: ${elapsedTimeInMicros.toFixed(2)} microseconds`);
+
         if (this.cache) {
           this.ast_cache[cacheKey] = ast;
         }
