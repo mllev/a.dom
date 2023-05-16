@@ -103,6 +103,8 @@ enum adom__token_type {
   ADOM_TOK_LEQ,
   ADOM_TOK_GEQ,
   ADOM_TOK_NEQ,
+  ADOM_TOK_OR,
+  ADOM_TOK_AND,
 
   ADOM_TOK_STRING,
   ADOM_TOK_INT,
@@ -409,21 +411,37 @@ int adom__next(adom__context *ctx) {
 
   if (adom__match(c, '<') && adom__match(c2, '=')) {
     ctx->token.type = ADOM_TOK_LEQ;
+    i+=2;
     goto done;
   }
 
   if (adom__match(c, '>') && adom__match(c2, '=')) {
     ctx->token.type = ADOM_TOK_GEQ;
+    i+=2;
     goto done;
   }
 
   if (adom__match(c, '!') && adom__match(c2, '=')) {
     ctx->token.type = ADOM_TOK_NEQ;
+    i+=2;
     goto done;
   }
 
   if (adom__match(c, '=') && adom__match(c2, '=')) {
     ctx->token.type = ADOM_TOK_ISEQ;
+    i+=2;
+    goto done;
+  }
+
+  if (adom__match(c, '|') && adom__match(c2, '|')) {
+    ctx->token.type = ADOM_TOK_OR;
+    i+=2;
+    goto done;
+  }
+
+  if (adom__match(c, '&') && adom__match(c2, '&')) {
+    ctx->token.type = ADOM_TOK_AND;
+    i+=2;
     goto done;
   }
   
@@ -442,6 +460,7 @@ int adom__next(adom__context *ctx) {
       }
       if (adom__match(prog[i], del)) {
         if (!adom__match(prog[i-1], '\\')) {
+          i++;
           break;
         }
       }
@@ -534,6 +553,7 @@ int adom__next(adom__context *ctx) {
 
   if ((symbol = adom__is_symbol(c)) != -1) {
     ctx->token.type = symbol;
+    i++;
     goto done;
   }
 
@@ -545,7 +565,8 @@ int adom__next(adom__context *ctx) {
       adom__is_alpha(prog[i])   ||
       adom__is_num(prog[i])     ||
       adom__match(prog[i], '_') ||
-      adom__match(prog[i], '-')
+      adom__match(prog[i], '-') ||
+      adom__match(prog[i], ':')
     ) {
       len++;
       i++;
@@ -574,7 +595,8 @@ int adom__next(adom__context *ctx) {
   }
   return 0;
 done:
-  ctx->cursor = i+1;
+  adom__print_token(ctx);
+  ctx->cursor = i;
   return 1;
 }
 
@@ -644,15 +666,23 @@ void adom__print_token(adom__context *adom) {
 int _adom__expect(adom__context *ctx, adom__token_type type);
 int _adom__parse_atom(adom__context *ctx);
 int _adom__parse_expr(adom__context *ctx, int minprec);
+int _adom__parse_tag(adom__context *ctx);
 int _adom__parse_access(adom__context *ctx);
+int _adom__parse_conditional(adom__context *ctx);
+int _adom__parse_loop(adom__context *ctx);
+int _adom__parse_taglist(adom__context *ctx);
 
-int adom__parse_file(adom__context *ctx);
+int adom__parse_file(adom__context *ctx, int tag);
 
 #define adom__handle_err(ctx) if (ctx->error) return 0;
 #define adom__expect(ctx, type) if (!_adom__expect(ctx, type)) return 0;
 #define adom__parse_atom(ctx) if (!_adom__parse_atom(ctx)) return 0;
 #define adom__parse_expr(ctx, p) if (!_adom__parse_expr(ctx, p)) return 0;
+#define adom__parse_tag(ctx) if (!_adom__parse_tag(ctx)) return 0;
 #define adom__parse_access(ctx) if (!_adom__parse_access(ctx)) return 0;
+#define adom__parse_conditional(ctx) if (!_adom__parse_conditional(ctx)) return 0;
+#define adom__parse_loop(ctx) if (!_adom__parse_loop(ctx)) return 0;
+#define adom__parse_taglist(ctx) if (!_adom__parse_taglist(ctx)) return 0;
 
 int adom__peek(adom__context *ctx, adom__token_type type) {
   if (ctx->token.type == type) {
@@ -760,21 +790,136 @@ int _adom__parse_atom(adom__context *ctx) {
   return 0;
 }
 
-int _adom__parse_expr(adom__context *ctx, int minprec) {
+int adom__get_prec(adom__context *ctx) {
+  switch (ctx->token.type) {
+    case ADOM_TOK_OR: return 1;
+    case ADOM_TOK_AND: return 2;
+    case ADOM_TOK_EQ: return 3;
+    case ADOM_TOK_NEQ: return 3;
+    case ADOM_TOK_LEQ: return 4;
+    case ADOM_TOK_GEQ: return 4;
+    case ADOM_TOK_LT: return 4;
+    case ADOM_TOK_GT: return 4;
+    case ADOM_TOK_PLUS: return 5;
+    case ADOM_TOK_MINUS: return 5;
+    case ADOM_TOK_MULT: return 6;
+    case ADOM_TOK_DIV: return 6;
+    case ADOM_TOK_MOD: return 6;
+    case ADOM_TOK_PIPE: return 7;
+    default: return -1;
+  }
+}
+
+int _adom__parse_expr(adom__context *ctx, int min) {
   adom__handle_err(ctx);
   adom__parse_atom(ctx);
+  while (1) {
+    int prec = adom__get_prec(ctx);
+    if (prec < min) break;
+    adom__parse_expr(ctx, prec + 1);
+  }
+  if (min < 1 && adom__accept(ctx, ADOM_TOK_QMARK)) {
+    adom__parse_expr(ctx, 0);
+    adom__expect(ctx, ADOM_TOK_COLON);
+    adom__parse_expr(ctx, 0);
+  }
   return 1;
 }
 
-int adom__parse_file(adom__context *ctx) {
+int _adom__parse_conditional(adom__context *ctx) {
+  adom__handle_err(ctx);
+  adom__expect(ctx, ADOM_TOK_IF);
+  adom__expect(ctx, ADOM_TOK_LPAREN);
+  adom__parse_expr(ctx, 0);
+  adom__expect(ctx, ADOM_TOK_RPAREN);
+  adom__expect(ctx, ADOM_TOK_LBRACK);
+  adom__parse_taglist(ctx);
+  adom__expect(ctx, ADOM_TOK_RBRACK);
+}
+
+int _adom__parse_loop(adom__context *ctx) {
+  adom__handle_err(ctx);
+  adom__expect(ctx, ADOM_TOK_EACH);
+  adom__expect(ctx, ADOM_TOK_LPAREN);
+  adom__expect(ctx, ADOM_TOK_IDENTIFIER);
+  if (adom__accept(ctx, ADOM_TOK_COMMA)) {
+    adom__expect(ctx, ADOM_TOK_IDENTIFIER);
+  }
+  adom__expect(ctx, ADOM_TOK_IN);
+  adom__parse_expr(ctx, 0);
+  adom__expect(ctx, ADOM_TOK_RPAREN);
+  adom__expect(ctx, ADOM_TOK_LBRACK);
+  adom__parse_taglist(ctx);
+  adom__expect(ctx, ADOM_TOK_RBRACK);
+}
+
+int _adom__parse_taglist(adom__context *ctx) {
+  while (1) {
+    if (adom__peek(ctx, ADOM_TOK_IDENTIFIER)) {
+      adom__parse_tag(ctx);
+    } else if (adom__peek(ctx, ADOM_TOK_EACH)) {
+      adom__parse_loop(ctx);
+    } else if (adom__peek(ctx, ADOM_TOK_IF)) {
+      adom__parse_conditional(ctx);
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
+int _adom__parse_tag(adom__context *ctx) {
+  /* todo: make sure valid html tag or custom tag */
+  adom__handle_err(ctx);
+  adom__expect(ctx, ADOM_TOK_IDENTIFIER);
+  while (1) {
+    if (!adom__accept(ctx, ADOM_TOK_IDENTIFIER)) {
+      break;
+    }
+    if (adom__accept(ctx, ADOM_TOK_EQ)) {
+      if (adom__accept(ctx, ADOM_TOK_LBRACE)) {
+        adom__parse_expr(ctx, 0);
+        adom__expect(ctx, ADOM_TOK_RBRACE);
+      } else {
+        adom__expect(ctx, ADOM_TOK_STRING);
+      }
+    } else {
+      /*  attr=true */
+    }
+  }
+  if (adom__accept(ctx, ADOM_TOK_STRING)) {
+    return 1;
+  }
+
+  adom__expect(ctx, ADOM_TOK_LBRACK);
+  adom__parse_taglist(ctx);
+  adom__expect(ctx, ADOM_TOK_RBRACK);
+  return 1;
+}
+
+int adom__parse_file(adom__context *ctx, int tag) {
   adom__handle_err(ctx);
   while (1) {
-    if (adom__accept(ctx, ADOM_TOK_IMPORT)) {
+    if (tag == 0 && adom__accept(ctx, ADOM_TOK_IMPORT)) {
       adom__expect(ctx, ADOM_TOK_STRING);
     } else if (adom__accept(ctx, ADOM_TOK_LET)) {
       adom__expect(ctx, ADOM_TOK_IDENTIFIER);
       adom__expect(ctx, ADOM_TOK_EQ);
       adom__parse_expr(ctx, 0);
+    } else if (adom__accept(ctx, ADOM_TOK_TAG)) {
+      adom__expect(ctx, ADOM_TOK_IDENTIFIER);
+      adom__expect(ctx, ADOM_TOK_LBRACK);
+      adom__parse_file(ctx, 1);
+    } else if (adom__accept(ctx, ADOM_TOK_JS)) {
+      /* print */
+    } else if (adom__peek(ctx, ADOM_TOK_IDENTIFIER)) {
+      adom__parse_tag(ctx);
+    } else if (adom__peek(ctx, ADOM_TOK_EACH)) {
+      adom__parse_loop(ctx);
+    } else if (adom__peek(ctx, ADOM_TOK_IF)) {
+      adom__parse_conditional(ctx);
+    } else if (adom__accept(ctx, ADOM_TOK_EOF)) {
+      break;
     } else {
       adom__print_error(ctx, "Unexpected token", ctx->token.pos);
       return 0;
@@ -792,8 +937,10 @@ char *adom_compile_to_html(const char* file, const char* data, int dlen) {
   }
   
   adom__next(&adom);
-  adom__parse_file(&adom);
+  adom__parse_file(&adom, 0);
+
   return out;
+
   while (adom__next(&adom)) {
     adom__print_token(&adom);
   }
