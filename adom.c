@@ -32,7 +32,6 @@ char *adom_compile_ir_to_html(
 /* internal API*/
 enum adom__value_type {
   ADOM_STRING,
-  ADOM_INT,
   ADOM_FLOAT,
   ADOM_BOOLEAN,
   ADOM_OBJECT,
@@ -131,7 +130,6 @@ enum adom__token_type {
   ADOM_TOK_AND,
 
   ADOM_TOK_STRING,
-  ADOM_TOK_INT,
   ADOM_TOK_FLOAT,
   ADOM_TOK_BOOL,
   ADOM_TOK_NULL,
@@ -151,13 +149,11 @@ struct adom__token {
   adom__token_type type;
   union {
     char sym;
-    const char *keyword;
     struct {
       unsigned int* data;
       int len;
     } ident;
-    float numf;
-    int numi;
+    float num;
   } value;
   int pos;
 };
@@ -278,6 +274,72 @@ unsigned int *adom__read_file_utf8(const char *name, int *length) {
 #define adom__is_space(x) (adom__is_ascii(x) && ((char)x == ' ' || (char)x == '\t' || (char)x == '\n' || (char)x == '\r'))
 #define adom__match(x, c) (adom__is_ascii(x) && ((char)(x) == (c)))
 
+void adom__print_token(adom__context *adom) {
+  if (adom->token.type < 13) {
+    printf("%s", adom__keywords[adom->token.type]);
+    return;
+  }
+  if (adom->token.type < 33) {
+    printf("%c", adom__symbols[adom->token.type - 13]);
+    return;
+  }
+  switch (adom->token.type) {
+    case ADOM_TOK_STRING: {
+      adom__print_string(adom->token.value.ident.data, adom->token.value.ident.len);
+      break;
+    }
+    case ADOM_TOK_FLOAT: {
+      printf("%f", adom->token.value.num);
+      break;
+    }
+    case ADOM_TOK_NULL: {
+      printf("null");
+      break;
+    }
+    case ADOM_TOK_BOOL: {
+      const char *t = "true";
+      const char *f = "false";
+      printf("%s", adom->token.value.sym ? t : f);
+      break;
+    }
+    case ADOM_TOK_IDENTIFIER: {
+      adom__print_string(adom->token.value.ident.data, adom->token.value.ident.len);
+      break;
+    }
+    case ADOM_TOK_LEQ: {
+      printf("<=");
+      break;
+    }
+    case ADOM_TOK_GEQ: {
+      printf(">=");
+      break;
+    }
+    case ADOM_TOK_NEQ: {
+      printf("!=");
+      break;
+    }
+    case ADOM_TOK_ISEQ: {
+      printf("==");
+      break;
+    }
+    case ADOM_TOK_OR: {
+      printf("||");
+      break;
+    }
+    case ADOM_TOK_AND: {
+      printf("&&");
+      break;
+    }
+    case ADOM_TOK_PIPEABLE: {
+      printf("%s", adom__pipeables[(int)adom->token.value.sym]);
+      break;
+    }
+    default: {
+      break;
+    }
+  }
+}
+
 void adom__print_error(adom__context *ctx, const char *msg, int pos) {
   unsigned int *prog = ctx->src.content;
   int max = ctx->src.len;
@@ -364,7 +426,7 @@ int adom__is_symbol(unsigned int c) {
   return -1;
 }
 
-int adom__parse_num(unsigned int *ptr, float *fres, int *ires) {
+float adom__parse_num(unsigned int *ptr) {
   float num = 0.0;
   int d = 0;
   float div = 10.0;
@@ -378,12 +440,7 @@ int adom__parse_num(unsigned int *ptr, float *fres, int *ires) {
     }
     ptr++;
   }
-  if (!d) {
-    *ires = (int)num;
-    return 0;
-  }
-  *fres = num;
-  return 1;
+  return num;
 }
 
 int adom__init(adom__context *ctx, const char *file) {
@@ -405,7 +462,6 @@ void adom__destroy(adom__context *ctx) {
 int adom__next(adom__context *ctx) {
   unsigned int c, c2;
   int kidx, pidx;
-  const char *keyword;
   int i = ctx->cursor;
   unsigned int *prog = ctx->src.content;
   int length = ctx->src.len;
@@ -543,7 +599,6 @@ begin:
     int len = 0;
     int d = 0;
     float fres;
-    int ires;
     while (1) {
       if (i >= length) break;
       if (adom__match(prog[i], '.')) {
@@ -555,20 +610,15 @@ begin:
       i++;
       len++;
     }
-    if (adom__parse_num(ptr, &fres, &ires)) {
-      ctx->token.type = ADOM_TOK_FLOAT;
-      ctx->token.value.numf = fres;
-    } else {
-      ctx->token.type = ADOM_TOK_INT;
-      ctx->token.value.numi = ires;
-    }
+    fres = adom__parse_num(ptr);
+    ctx->token.type = ADOM_TOK_FLOAT;
+    ctx->token.value.num = fres;
     goto done;
   }
 
   if (adom__match(c, '-') && adom__is_num(c2)) {
     int len = 0;
     float fres;
-    int ires;
     unsigned int* ptr = &(prog[i++]);
     int d = 0;
     len++;
@@ -583,13 +633,9 @@ begin:
       len++;
     }
     ptr++;
-    if (adom__parse_num(ptr, &fres, &ires)) {
-      ctx->token.type = ADOM_TOK_FLOAT;
-      ctx->token.value.numf = fres * -1;
-    } else {
-      ctx->token.type = ADOM_TOK_INT;
-      ctx->token.value.numi = ires * -1;
-    }
+    fres = adom__parse_num(ptr);
+    ctx->token.type = ADOM_TOK_FLOAT;
+    ctx->token.value.num = fres * -1;
     goto done;
   }
 
@@ -618,9 +664,8 @@ begin:
     pidx = adom__is_pipeable(ptr, len);
 
     if (kidx > -1) {
-      keyword = adom__keywords[kidx];
       ctx->token.type = (adom__token_type)kidx;
-      ctx->token.value.keyword = keyword;
+      ctx->token.value.sym = (char)kidx;
     } else if (pidx > -1) {
       ctx->token.type = ADOM_TOK_PIPEABLE;
       ctx->token.value.sym = (char)pidx;
@@ -641,79 +686,10 @@ begin:
   }
   return 0;
 done:
-  adom__print_token(ctx);
-  printf("\n");
   ctx->cursor = i;
   return 1;
 }
 
-void adom__print_token(adom__context *adom) {
-  if (adom->token.type < 13) {
-    printf("%s", adom__keywords[adom->token.type]);
-    return;
-  }
-  if (adom->token.type < 33) {
-    printf("%c", adom__symbols[adom->token.type - 13]);
-    return;
-  }
-  switch (adom->token.type) {
-    case ADOM_TOK_STRING: {
-      adom__print_string(adom->token.value.ident.data, adom->token.value.ident.len);
-      break;
-    }
-    case ADOM_TOK_INT: {
-      printf("int(%d)", adom->token.value.numi);
-      break;
-    }
-    case ADOM_TOK_FLOAT: {
-      printf("float(%f)", adom->token.value.numf);
-      break;
-    }
-    case ADOM_TOK_NULL: {
-      printf("null");
-      break;
-    }
-    case ADOM_TOK_BOOL: {
-      const char *t = "true";
-      const char *f = "false";
-      printf("boolean(%s)", adom->token.value.sym ? t : f);
-      break;
-    }
-    case ADOM_TOK_IDENTIFIER: {
-      printf("identifier(");
-      adom__print_string(adom->token.value.ident.data, adom->token.value.ident.len);
-      printf(")");
-      break;
-    }
-    case ADOM_TOK_LEQ: {
-      printf("<=");
-      break;
-    }
-    case ADOM_TOK_GEQ: {
-      printf(">=");
-      break;
-    }
-    case ADOM_TOK_NEQ: {
-      printf("!=");
-      break;
-    }
-    case ADOM_TOK_ISEQ: {
-      printf("==");
-      break;
-    }
-    case ADOM_TOK_OR: {
-      printf("||");
-      break;
-    }
-    case ADOM_TOK_AND: {
-      printf("&&");
-      break;
-    }
-    default: {
-      break;
-    }
-  }
-}
 
 /*  parser */
 int _adom__expect(adom__context *ctx, adom__token_type type);
@@ -782,7 +758,6 @@ int _adom__parse_atom(adom__context *ctx) {
   }
   if (
       adom__peek(ctx, ADOM_TOK_FLOAT) ||
-      adom__peek(ctx, ADOM_TOK_INT) ||
       adom__peek(ctx, ADOM_TOK_BOOL) ||
       adom__peek(ctx, ADOM_TOK_NULL)
     ) {
@@ -800,11 +775,13 @@ int _adom__parse_atom(adom__context *ctx) {
   }
   if (adom__accept(ctx, ADOM_TOK_LPAREN)) {
     adom__parse_expr(ctx, 0);
+    adom__print_token(ctx);
     adom__expect(ctx, ADOM_TOK_RPAREN);
     adom__parse_access(ctx);
     return 1;
   }
-  if (adom__accept(ctx, ADOM_TOK_LBRACE)) {
+  if (adom__peek(ctx, ADOM_TOK_LBRACE)) {
+    adom__next(ctx);
     while (1) {
       if (adom__accept(ctx, ADOM_TOK_STRING) ||
           adom__accept(ctx, ADOM_TOK_IDENTIFIER)) {
@@ -813,6 +790,7 @@ int _adom__parse_atom(adom__context *ctx) {
         if (!adom__accept(ctx, ADOM_TOK_COMMA)) {
           break;
         }
+        adom__print_token(ctx);
       } else {
         break;
       }
@@ -820,7 +798,8 @@ int _adom__parse_atom(adom__context *ctx) {
     adom__expect(ctx, ADOM_TOK_RBRACE);
     return 1;
   }
-  if (adom__accept(ctx, ADOM_TOK_LBRACK)) {
+  if (adom__peek(ctx, ADOM_TOK_LBRACK)) {
+    adom__next(ctx);
     while (1) {
       if (adom__peek(ctx, ADOM_TOK_RBRACK)) {
         break;
@@ -833,10 +812,8 @@ int _adom__parse_atom(adom__context *ctx) {
     adom__expect(ctx, ADOM_TOK_RBRACK);
     return 1;
   }
-  if (adom__accept(ctx, ADOM_TOK_INT)) {
-    return 1;
-  }
-  if (adom__accept(ctx, ADOM_TOK_FLOAT)) {
+  if (adom__peek(ctx, ADOM_TOK_FLOAT)) {
+    adom__next(ctx);
     return 1;
   }
   adom__print_error(ctx, "Unexpected", ctx->token.pos);
@@ -868,20 +845,23 @@ int _adom__parse_expr(adom__context *ctx, int min) {
   adom__parse_atom(ctx);
   while (1) {
     int prec = adom__get_prec(ctx);
-    if (prec < min) break;
+    if (prec < min) {
+      break;
+    }
     if (adom__accept(ctx, ADOM_TOK_PIPE)) {
-      int i, args,  pipe = (int)ctx->token.value.sym;
+      int i, args, pipe = (int)ctx->token.value.sym;
       adom__expect(ctx, ADOM_TOK_PIPEABLE);
       args = adom__pipe_args[pipe];
       for (i = 0; i < args; i++) {
-        adom__parse_expr(ctx, 0);
+        adom__parse_expr(ctx, prec + 1);
       }
     } else {
       adom__next(ctx);
       adom__parse_expr(ctx, prec + 1);
     }
   }
-  if (min < 1 && adom__accept(ctx, ADOM_TOK_QMARK)) {
+  if (min < 1 && adom__peek(ctx, ADOM_TOK_QMARK)) {
+    adom__next(ctx);
     adom__parse_expr(ctx, 0);
     adom__expect(ctx, ADOM_TOK_COLON);
     adom__parse_expr(ctx, 0);
@@ -898,6 +878,7 @@ int _adom__parse_conditional(adom__context *ctx) {
   adom__expect(ctx, ADOM_TOK_LBRACK);
   adom__parse_taglist(ctx);
   adom__expect(ctx, ADOM_TOK_RBRACK);
+  return 1;
 }
 
 int _adom__parse_loop(adom__context *ctx) {
@@ -914,6 +895,7 @@ int _adom__parse_loop(adom__context *ctx) {
   adom__expect(ctx, ADOM_TOK_LBRACK);
   adom__parse_taglist(ctx);
   adom__expect(ctx, ADOM_TOK_RBRACK);
+  return 1;
 }
 
 int _adom__parse_taglist(adom__context *ctx) {
@@ -1010,12 +992,6 @@ char *adom_compile_to_html(const char* file, const char* data, int dlen) {
   
   adom__next(&adom);
   _adom__parse_file(&adom, 0);
-
-  return out;
-
-  while (adom__next(&adom)) {
-    adom__print_token(&adom);
-  }
 
   return out;
 }
