@@ -1495,7 +1495,8 @@ var Adom = (function () {
         }).join(' ') : a;
       if (!$$is_svg && p in node) {
         if (old[p] !== v) {
-          old[p] = node[p] = v;
+          old[p] = v;
+          node[p] = v;
         }
       } else if (v === false || v == null) {
         if ($$is_svg && (p === 'href' || p === 'xlink:href')) {
@@ -1597,7 +1598,7 @@ var Adom = (function () {
     }
     $$a(node, attrs);
     $$addEventListeners(node, events);
-    if (children) {
+    if (children && !attrs.innerHTML) {
       $$nodes.push({ ref: node, processed: 0 });
       children();
       $$clean();
