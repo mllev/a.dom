@@ -75,6 +75,38 @@ const char *adom__pipeables[] = {
   "values"
 };
 
+const char* adom__op_name[] = {
+  "OP_IADD",
+  "OP_ISUB",
+  "OP_IMUL",
+  "OP_IDIV",
+  "OP_ILT",
+  "OP_IGT",
+  "OP_IGE",
+  "OP_ILE",
+  "OP_IEQ",
+  "OP_FPSH",
+  "OP_FADD",
+  "OP_FSUB",
+  "OP_FMUL",
+  "OP_FDIV",
+  "OP_FGT",
+  "OP_FGE",
+  "OP_FLE",
+  "OP_FEQ",
+  "OP_LD",
+  "OP_ST",
+  "OP_JMPZ",
+  "OP_JMPN",
+  "OP_CALL",
+  "OP_RET",
+  "OP_EXIT",
+  "OP_PSH",
+  "OP_IPUT",
+  "OP_SPUT",
+  "OP_NL"
+};
+
 const int adom__pipe_args[] = {
   1, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 2, 2, 0, 1, 0, 0
 };
@@ -139,8 +171,49 @@ enum adom__token_type {
   ADOM_TOK_EOF
 };
 
+enum adom__op {
+  ADOM_OP_IADD,
+  ADOM_OP_ISUB,
+  ADOM_OP_IMUL,
+  ADOM_OP_IDIV,
+  ADOM_OP_ILT,
+  ADOM_OP_IGT,
+  ADOM_OP_IGE,
+  ADOM_OP_ILE,
+  ADOM_OP_IEQ,
+  ADOM_OP_FADD,
+  ADOM_OP_FSUB,
+  ADOM_OP_FMUL,
+  ADOM_OP_FDIV,
+  ADOM_OP_FLT,
+  ADOM_OP_FGT,
+  ADOM_OP_FGE,
+  ADOM_OP_FLE,
+  ADOM_OP_FEQ,
+  ADOM_OP_LD,
+  ADOM_OP_ST,
+  ADOM_OP_JMPZ,
+  ADOM_OP_JMPN,
+  ADOM_OP_CALL,
+  ADOM_OP_RET,
+  ADOM_OP_EXIT,
+  ADOM_OP_PSH,
+  ADOM_OP_IPUT,
+  ADOM_OP_SPUT,
+  ADOM_OP_NL
+};
+
+#ifdef uint32_t
+  #define u32 uint32_t
+#else
+  #define u32 unsigned int
+#endif
+
+#define f64 double
+
 typedef enum adom__value_type adom__value_type;
 typedef enum adom__token_type adom__token_type;
+typedef enum adom__op adom__op;
 
 typedef struct adom__token adom__token;
 typedef struct adom__context adom__context;
