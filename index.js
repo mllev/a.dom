@@ -1516,7 +1516,7 @@ var Adom = (function () {
         }
       }
     });
-    return node;
+    return;
   }
 
   function $$addEventListeners (node, events) {
@@ -1641,8 +1641,9 @@ var Adom = (function () {
     return function (id, props, events, yield_fn) {
       var $state = $$states[id];
       var isNew = false;
+      var newp = JSON.stringify(props);
       if (!$state) {
-        $state = { events: {} };
+        $state = { events: {}, props: newp };
         $state.body = init(props, $$emit_event.bind($state), function (event, cb) {
           $$set_event($state.events, event, cb);
         });
@@ -1651,10 +1652,15 @@ var Adom = (function () {
         }
         isNew = true;
       }
+      const oldp = $state.props;
       $state.body(id, props, yield_fn);
+      $state.props = newp;
       if (isNew) {
         $$emit_event.call($state, 'mount');
+      } else if (newp !== oldp) {
+        $$emit_event.call($state, 'change');
       }
+      $$emit_event.call($state, 'render');
       $$rendered[id] = true;
       $$states[id] = $state;
     }
