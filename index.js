@@ -1051,7 +1051,14 @@ var Adom = (function () {
         if (v === false || v == null) return '';
         if (typeof v === 'string' && v.indexOf('"') > -1) v = v.replace(/"/g, '&quot;');
         if (k.indexOf('bind:') !== -1) k = k.replace('bind:', '');
-        return ` ${k}="${Array.isArray(v) ? v.join(' ') : v}"`
+        if (Array.isArray(v)) v = v.map((c) => {
+          if (typeof c === 'object') {
+            return Object.keys(c).filter((k) => c[k]).join(' ');
+          }
+          return c;
+        }).join(' ');
+        if (typeof v === 'object') v = Object.keys(v).filter((k) => v[k]).join(' ');
+        return ` ${k}="${v}"`
       }).join('');
     }
 
@@ -1489,7 +1496,11 @@ var Adom = (function () {
     }
     Object.keys(attrs).forEach(function (p) {
       var a = attrs[p];
-      var v = a && a.constructor === Array ? a.join(' ')
+      var v = a && a.constructor === Array ? a.map(function (v) {
+        return typeof v === 'object' ? Object.keys(v).filter(function (k) {
+          return v[k];
+        }).join(' ') : v
+      }).join(' ')
         : typeof a === 'object' ? Object.keys(a).filter(function (k) {
           return a[k];
         }).join(' ') : a;
@@ -1818,7 +1829,6 @@ var Adom = (function () {
               return;
             } break;
           }
-          // console.log(expr.data)
         } break;
       }
     }
