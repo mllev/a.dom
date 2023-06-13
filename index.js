@@ -45,6 +45,159 @@ var Adom = (function () {
     throw err;
   };
 
+  const valid_tags = [
+    'a',
+    'abbr',
+    'acronym',
+    'address',
+    'applet',
+    'area',
+    'article',
+    'aside',
+    'audio',
+    'b',
+    'base',
+    'basefont',
+    'bdi',
+    'bdo',
+    'bgsound',
+    'big',
+    'blink',
+    'blockquote',
+    'body',
+    'br',
+    'button',
+    'canvas',
+    'caption',
+    'center',
+    'cite',
+    'code',
+    'col',
+    'colgroup',
+    'command',
+    'content',
+    'data',
+    'datalist',
+    'dd',
+    'del',
+    'details',
+    'dfn',
+    'dialog',
+    'dir',
+    'div',
+    'dl',
+    'dt',
+    'element',
+    'em',
+    'embed',
+    'fieldset',
+    'figcaption',
+    'figure',
+    'font',
+    'footer',
+    'form',
+    'frame',
+    'frameset',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'head',
+    'header',
+    'hgroup',
+    'hr',
+    'html',
+    'i',
+    'iframe',
+    'image',
+    'img',
+    'input',
+    'ins',
+    'isindex',
+    'kbd',
+    'keygen',
+    'label',
+    'legend',
+    'li',
+    'link',
+    'listing',
+    'main',
+    'map',
+    'mark',
+    'marquee',
+    'math',
+    'menu',
+    'menuitem',
+    'meta',
+    'meter',
+    'multicol',
+    'nav',
+    'nextid',
+    'nobr',
+    'noembed',
+    'noframes',
+    'noscript',
+    'object',
+    'ol',
+    'optgroup',
+    'option',
+    'output',
+    'p',
+    'param',
+    'picture',
+    'plaintext',
+    'pre',
+    'progress',
+    'q',
+    'rb',
+    'rbc',
+    'rp',
+    'rt',
+    'rtc',
+    'ruby',
+    's',
+    'samp',
+    'script',
+    'search',
+    'section',
+    'select',
+    'shadow',
+    'slot',
+    'small',
+    'source',
+    'spacer',
+    'span',
+    'strike',
+    'strong',
+    'style',
+    'sub',
+    'summary',
+    'sup',
+    'svg',
+    'table',
+    'tbody',
+    'td',
+    'template',
+    'textarea',
+    'tfoot',
+    'th',
+    'thead',
+    'time',
+    'title',
+    'tr',
+    'track',
+    'tt',
+    'u',
+    'ul',
+    'var',
+    'video',
+    'wbr',
+    'xmp'
+  ]
+
+
   const void_tags = [
     "area",
     "base",
@@ -770,6 +923,7 @@ var Adom = (function () {
 
     function parse_tag() {
       let name = tok.data;
+      let { pos, file } = tok;
       expect("ident");
       let classlist = parse_class_list();
       let attr_data = parse_attributes();
@@ -790,7 +944,9 @@ var Adom = (function () {
       let node = ast_node(_tag, {
         name: name,
         attributes: attr,
-        events: events
+        events: events,
+        pos,
+        file
       });
       let current = parent;
       parent = node;
@@ -1004,6 +1160,7 @@ var Adom = (function () {
   Adom.prototype.execute = function(ast, initial_state, mount) {
     let html = "";
     let state = [initial_state];
+    let custom_tags = [];
     let file_ctx = [];
 
     function push_ctx () {
@@ -1018,7 +1175,7 @@ var Adom = (function () {
       if (!file_ctx.length) return;
       ctx.exports.forEach(e => {
         if (ctx.custom_tags[e.name]) {
-          add_custom_tag(e, ctx.custom_tags[e.name]);
+          add_custom_tag(e, ctx.custom_tags[e.name].tag, ctx.custom_tags);
         }
       })
     }
@@ -1032,12 +1189,12 @@ var Adom = (function () {
       }
     }
 
-    function add_custom_tag (e, t) {
+    function add_custom_tag (e, tag, file_tags) {
       let ctx = file_ctx[file_ctx.length - 1];
       if (ctx.custom_tags[e.name]) {
         throw_adom_error({ msg: 'duplicate tag: ' + e.name, pos: e.pos, file: e.file });
       }
-      ctx.custom_tags[e.name] = t;
+      ctx.custom_tags[e.name] = { tag, file_tags };
     }
 
     function escapeHTML (txt) {
@@ -1210,14 +1367,12 @@ var Adom = (function () {
               const r = evaluate(expr.data[2]);
               const n = evaluate(expr.data[3]);
               return e.replace(r, n);
-              return;
             } break;
             case 'replaceall': {
               const e = evaluate(expr.data[1]);
               const r = evaluate(expr.data[2]);
               const n = evaluate(expr.data[3]);
               return e.replaceAll(r, n);
-              return;
             } break;
             case 'tostring': {
               const e = evaluate(expr.data[1]);
@@ -1306,8 +1461,9 @@ var Adom = (function () {
     }
 
     function custom_tag (name) {
-      let ctx = file_ctx[file_ctx.length - 1];
-      return ctx.custom_tags[name] || undefined;
+      const ctx = file_ctx[file_ctx.length - 1];
+      const local_tags = custom_tags.length > 0 ? custom_tags[custom_tags.length - 1] : {};
+      return local_tags[name] || ctx.custom_tags[name] || undefined;
     }
 
     let in_script = false;
@@ -1322,11 +1478,13 @@ var Adom = (function () {
           let n = r.data.name;
           let t = custom_tag(n);
           if (t) {
+            custom_tags.push(t.file_tags);
             state.push({ props: eval_object(r.data.attributes) });
-            children(t, function () {
+            children(t.tag, function () {
               children(r, yieldfn);
             });
             state.pop();
+            custom_tags.pop();
             break;
           }
           if (n === 'html') {
@@ -1341,6 +1499,9 @@ var Adom = (function () {
             html += `<${n}${assemble_attributes(a)}>${evaluate(a.innerHTML)}</${n}>`;
           } else {
             html += `<${n}${assemble_attributes(r.data.attributes)}>`;
+            if (valid_tags.indexOf(n) === -1) {
+              throw_adom_error({ msg: 'Invalid tag: ' + n, pos: r.data.pos, file: r.data.file });
+            }
             if (void_tags.indexOf(n) === -1) {
               if (n === 'script') in_script = true;
               children(r, yieldfn);
@@ -1351,7 +1512,7 @@ var Adom = (function () {
           break;
         }
         case _custom: {
-          add_custom_tag(r.data, r);
+          add_custom_tag(r.data, r, file_ctx[file_ctx.length - 1].custom_tags);
           break;
         }
         case _textnode: {
