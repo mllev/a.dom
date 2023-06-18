@@ -323,7 +323,6 @@ var Adom = (function () {
       "var",
       "const",
       "let",
-      "root",
       "nosync",
       "as"
     ];
@@ -620,10 +619,10 @@ var Adom = (function () {
     let tok = tokens[0];
     let cursor = 0;
     let runtime = '';
-    let root_found = false;
     let in_tag = false;
     let ast = new ASTNode(_file, { file: tok.file });
     let parent = ast;
+    let js_found = false;
 
     function ast_node(type, data) {
       let node = new ASTNode(type, data);
@@ -944,20 +943,7 @@ var Adom = (function () {
       let events = [];
       while (true) {
         let key = tok.data;
-        if (accept("root")) {
-          let pos = tok.pos;
-          let file = tok.file;
-          if (root_found === true) {
-            throw_adom_error({
-              msg: 'root node already declared',
-              pos: pos,
-              file: file
-            });
-          }
-          root_found = true;
-          attr.root = true;
-          attr.id = { type: 'string', data: [{ type: 'chunk', data: `adom-root-${UID}` }] };
-        } else if (accept("ident")) {
+        if (accept("ident")) {
           // allow ':' in attribute names
           while (accept(':')) {
             key += ':'
@@ -987,6 +973,7 @@ var Adom = (function () {
           expect("ident");
           expect("=");
           handler = parse_strict_string();
+          js_found = true;
           let nosync = accept('nosync');
           events.push({ type: evt, handler: handler, sync: !nosync });
         } else {
@@ -1122,6 +1109,7 @@ var Adom = (function () {
         parse_tag_list();
       } else if (in_tag && peek('js_context')) {
         parent.js = tok.data;
+        js_found = true;
         next();
         parse_tag_list();
       }
@@ -1224,6 +1212,7 @@ var Adom = (function () {
           parse_assignment();
         } else if (peek('js_context')) {
           runtime += tok.data;
+          js_found = true;
           next();
         } else {
           throw_adom_error({ msg: "unexpected: " + tok.type, pos: tok.pos, file: tok.file });
@@ -1284,7 +1273,7 @@ var Adom = (function () {
 
     function assemble_attributes(attr) {
       return Object.keys(attr).map(function (k) {
-        if (k === 'root' || k === 'innerHTML') return '';
+        if (k === 'innerHTML') return '';
         let v = evaluate(attr[k]);
         if (v === false || v == null) return '';
         if (typeof v === 'string' && v.indexOf('"') > -1) v = v.replace(/"/g, '&quot;');
@@ -1437,7 +1426,6 @@ var Adom = (function () {
               } else {
                 return e.split('').reverse().join('')
               }
-              return;
             } break;
             case 'tojson': {
               const e = evaluate(expr.data[1]);
@@ -1571,10 +1559,6 @@ var Adom = (function () {
           if (n === 'html') {
             html += '<!DOCTYPE html>';
           }
-          if (r.data.attributes.root) {
-            if (!mount) html += `<script>${ast.data.runtime}${end_script()}`;
-            if (ast.data.styles) html += `<style>${ast.data.styles}</style>`;
-          }
           if (r.data.attributes.innerHTML) {
             let a = r.data.attributes;
             html += `<${n}${assemble_attributes(a)}>${evaluate(a.innerHTML)}</${n}>`;
@@ -1587,6 +1571,9 @@ var Adom = (function () {
               if (n === 'script') in_script = true;
               children(r, yieldfn);
               in_script = false;
+              if (!mount && n === 'head') {
+                html += `<script>${ast.data.runtime}${end_script()}`;
+              }
               html += `</${n}>`;
             }
           }
@@ -2024,7 +2011,6 @@ var Adom = (function () {
             case 'includes': {
               const e2 = expr.data[2];
               return `((${print_expression(expr.data[1])}).indexOf(${print_expression(e2)}) > -1)`;
-              return;
             } break;
             case 'indexof': {
               const e2 = expr.data[2];
@@ -2034,7 +2020,6 @@ var Adom = (function () {
               const e = expr.data[1];
               const pe = print_expression(e);
               return `(Array.isArray(${pe}) ? (${pe}).reverse() : (${pe}).split('').reverse().join(''))`;
-              return;
             } break;
             case 'tojson': {
               return `JSON.parse(${print_expression(expr.data[1])})`;
@@ -2044,14 +2029,12 @@ var Adom = (function () {
               const r = expr.data[2];
               const v = expr.data[3];
               return `(${print_expression(l)}).replace(${print_expression(r)}, ${print_expression(v)})`;
-              return;
             } break;
             case 'replaceall': {
               const l = expr.data[1];
               const r = expr.data[2];
               const v = expr.data[3];
               return `(${print_expression(l)}).replaceAll(${print_expression(r)}, ${print_expression(v)})`;
-              return;
             } break;
             case 'tostring': {
               const e = expr.data[1];
@@ -2068,7 +2051,6 @@ var Adom = (function () {
             } break;
             case 'values': {
               return `Object.values(${print_expression(expr.data[1])})`;
-              return;
             } break;
           }
         } break;
@@ -2203,7 +2185,7 @@ var Adom = (function () {
       }
     }
 
-    function walk (node) {
+    function walk (node, yieldfn) {
       if (node.type === _file) {
         file_stack.push({
           imports: [],
@@ -2240,10 +2222,21 @@ var Adom = (function () {
           initial_state.push(`var ${node.data.lhs.data} = ${print_expression(node.data.rhs)};`);
         }
       } else if (node.type === _tag) {
-        if (node.data.attributes.root) {
-          file_stack[file_stack.length - 1].sync = node.children;
+        const f = file_stack[file_stack.length - 1];
+        if (node.data.name === 'body') {
+          f.sync = node.children;
+        } else if (f.tags[node.data.name]) {
+          f.tags[node.data.name].node.children.forEach((child) => {
+            walk(child, () => {
+              node.children.forEach(walk);
+            });
+          });
         } else {
           node.children.forEach(walk);
+        }
+      } else if (node.type === _yield) {
+        if (yieldfn) {
+          yieldfn();
         }
       }
     }
@@ -2284,7 +2277,7 @@ var Adom = (function () {
           render_line('$sync = function () {', 1);
           render_line('if ($$is_syncing === false) {', 1);
           render_line('$$is_syncing = true;');
-          render_line(`$$nodes.push({ ref: window['adom-root-${uuid}'], processed: 0 });`);
+          render_line(`$$nodes.push({ ref: document.body, processed: 0 });`);
           for (let c of file.sync) {
             render_tag(c);
           }
