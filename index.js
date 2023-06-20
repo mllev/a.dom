@@ -9,18 +9,6 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 */
 
 var Adom = (function () {
-  const _file = 0;
-  const _export = 1;
-  const _doctype = 2;
-  const _if = 3;
-  const _each = 4;
-  const _tag = 5;
-  const _custom = 6;
-  const _yield = 7;
-  const _textnode = 8;
-  const _set = 9;
-  const _block = 10;
-
   function Adom (config = {}) {
     this.cache = config.cache || false;
     this.minify = config.minify || false;
@@ -620,7 +608,7 @@ var Adom = (function () {
     let cursor = 0;
     let runtime = '';
     let in_tag = false;
-    let ast = new ASTNode(_file, { file: tok.file });
+    let ast = new ASTNode('file', { file: tok.file });
     let parent = ast;
     let js_found = false;
 
@@ -1009,7 +997,7 @@ var Adom = (function () {
           attr.class = classlist;
         }
       }
-      let node = ast_node(_tag, {
+      let node = ast_node('tag', {
         name: name,
         attributes: attr,
         events: events,
@@ -1023,7 +1011,7 @@ var Adom = (function () {
         expect("]");
       } else if (peek("string")) {
         let str = parse_string();
-        ast_node(_textnode, str);
+        ast_node('textnode', str);
       } else {
         unexpected();
       }
@@ -1035,9 +1023,9 @@ var Adom = (function () {
       let condition = parse_expr();
       expect(")");
       let current = parent;
-      let node = ast_node(_if, condition);
+      let node = ast_node('if', condition);
       parent = node;
-      let pass = ast_node(_block);
+      let pass = ast_node('block');
       parent = pass;
       if (accept("[")) {
         parse_tag_list();
@@ -1047,7 +1035,7 @@ var Adom = (function () {
       }
       if (accept("else")) {
         parent = node;
-        let fail = ast_node(_block);
+        let fail = ast_node('block');
         parent = fail;
         if (accept("[")) {
           parse_tag_list();
@@ -1062,11 +1050,7 @@ var Adom = (function () {
     }
 
     const parse_tag_list = () => {
-      if (accept("doctype")) {
-        ast_node(_doctype, tok.data);
-        expect("ident");
-        parse_tag_list();
-      } else if (accept("if")) {
+      if (accept("if")) {
         parse_if_statement();
         parse_tag_list();
       } else if (accept("each")) {
@@ -1079,7 +1063,7 @@ var Adom = (function () {
         }
         expect("in");
         let list = parse_expr();
-        let node = ast_node(_each, {
+        let node = ast_node('each', {
           list: list,
           iterators: [it0, it1]
         });
@@ -1099,16 +1083,17 @@ var Adom = (function () {
         parse_tag_list();
       } else if (peek("string")) {
         let str = parse_string();
-        ast_node(_textnode, str);
+        ast_node('textnode', str);
         parse_tag_list();
       } else if (accept("yield")) {
-        ast_node(_yield);
+        ast_node('yield');
         parse_tag_list();
       } else if (in_tag && (peek('var') || peek('const') || peek('let'))) {
         parse_assignment();
         parse_tag_list();
       } else if (in_tag && peek('js_context')) {
         parent.js = tok.data;
+        ast_node('js', tok.data);
         js_found = true;
         next();
         parse_tag_list();
@@ -1121,7 +1106,7 @@ var Adom = (function () {
       let pos = tok.pos, file = tok.file;
       expect("ident");
       expect("[");
-      let node = ast_node(_custom, { name: tag, pos: pos, file: file });
+      let node = ast_node('custom', { name: tag, pos: pos, file: file });
       let current = parent;
       parent = node;
       parse_custom_tag_body();
@@ -1168,7 +1153,7 @@ var Adom = (function () {
       next();
       accept("=");
       let val = parse_rhs();
-      ast_node(_set, {
+      ast_node('set', {
         lhs: dst,
         rhs: val
       });
@@ -1188,7 +1173,7 @@ var Adom = (function () {
           let file = this.openFile(path, dir);
           let toks = this.tokenize(file.text, file.name);
           let _ast = this.parse(toks, file.name);
-          let node = ast_node(_file, _ast.data);
+          let node = ast_node('file', _ast.data);
           node.children = _ast.children;
         } else if (accept("export")) {
           let id, pos = tok.pos;
@@ -1199,7 +1184,7 @@ var Adom = (function () {
             id = tok.data;
             expect('ident');
           }
-          ast_node(_export, {
+          ast_node('export', {
             name: id,
             pos: pos,
             file: file
@@ -1539,11 +1524,7 @@ var Adom = (function () {
 
     function walk (r, yieldfn) {
       switch (r.type) {
-        case _doctype: {
-          html += '<!DOCTYPE html>';
-          break;
-        }
-        case _tag: {
+        case 'tag': {
           let n = r.data.name;
           let t = custom_tag(n);
           if (t) {
@@ -1579,11 +1560,11 @@ var Adom = (function () {
           }
           break;
         }
-        case _custom: {
+        case 'custom': {
           add_custom_tag(r.data, r, file_ctx[file_ctx.length - 1].custom_tags);
           break;
         }
-        case _textnode: {
+        case 'textnode': {
           if (in_script) {
             html += evaluate(r.data);
           } else {
@@ -1591,11 +1572,11 @@ var Adom = (function () {
           }
           break;
         }
-        case _set: {
+        case 'set': {
           set_state(r.data.lhs, r.data.rhs);
           break;
         }
-        case _if: {
+        case 'if': {
           let pass = r.children[0];
           let fail = r.children[1];
           if (evaluate(r.data)) {
@@ -1605,7 +1586,7 @@ var Adom = (function () {
           }
           break;
         }
-        case _each: {
+        case 'each': {
           let i0 = r.data.iterators[0];
           let i1 = r.data.iterators[1];
           let scope = {};
@@ -1618,15 +1599,15 @@ var Adom = (function () {
           state.pop();
           break;
         }
-        case _yield: {
+        case 'yield': {
           if (yieldfn) yieldfn();
           break;
         }
-        case _export: {
+        case 'export': {
           add_export(r.data);
           break;
         }
-        case _file: {
+        case 'file': {
           push_ctx();
           children(r, yieldfn);
           pop_ctx();
@@ -1713,6 +1694,11 @@ var Adom = (function () {
   var $$is_syncing = false;
   var $$is_svg = false;
   var $$nodes = [];
+  var $$_id = 0;
+
+  function $$id () {
+    return 'id-' + $$_id++;
+  }
 
   function $$a (node, attrs, isSvg) {
     var old = node.__old;
@@ -1815,7 +1801,8 @@ var Adom = (function () {
     return { parent: node.ref, child: child };
   }
 
-  function $$e (type, id, attrs, events, children) {
+  function $$e (type, attrs, events, children) {
+    var id = $$id();
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
     var tag = child && child.tagName ? child.tagName.toLowerCase() : null;
@@ -1878,7 +1865,8 @@ var Adom = (function () {
   };
 
   function $$c2 (init) {
-    return function (id, props, events, yield_fn) {
+    return function (props, events, yield_fn) {
+      var id = $$id();
       var $state = $$states[id];
       var isNew = false;
       var newp = JSON.stringify(props);
@@ -1893,7 +1881,7 @@ var Adom = (function () {
         isNew = true;
       }
       const oldp = $state.props;
-      $state.body(id, props, yield_fn);
+      $state.body(props, yield_fn);
       $state.props = newp;
       if (isNew) {
         $$emit_event.call($state, 'mount');
@@ -1916,6 +1904,247 @@ var Adom = (function () {
     $$rendered = {};
   }
 `;
+
+  Adom.prototype.generateRuntime2 = function (ast, incoming_state) {
+    const out = [''];
+
+    function emit(txt) {
+      out[out.length - 1] += txt;
+    }
+
+    function walk(node) {
+      switch (node.type) {
+        case 'js':
+          emit(node.data);
+          break;
+        case 'file':
+          node.children.forEach((child) => {
+            walk(child);
+          });
+          break;
+        case 'custom': {
+          let written = false;
+          emit('var $');
+          emit(node.data.name);
+          emit(' = $$c2(function (props, $emit, $on) {\n');
+          node.children.forEach((child) => {
+            if (child.type !== 'set' && child.type !== 'js' && !written) {
+              emit('return function($$id, props2, $$yield2) {\n');
+              written = true;
+            }
+            walk(child);
+          })
+          emit('}\n');
+          emit('});\n');
+        } break;
+        case 'tag':
+          emit('$$e("');
+          emit(node.data.name);
+          emit('", {}, {}, function () {\n');
+          emit('});\n');
+          // $$e("div", $$id + "-a-15", { "class": ["pad", props2["active"] ? "active" : "", props2["playing"] ? "playing" : ""] }, { "click": function($e) {
+          console.log('!!!', node);
+          break;
+        case 'set': {
+          emit('var ');
+          emit(node.data.lhs.data);
+          emit(' = ');
+          walk(node.data.rhs);
+          emit(';\n');
+        } break;
+        case 'null':
+          emit('null');
+          break;
+        case 'ident':
+        case 'number':
+        case 'bool':
+          emit(node.data.toString());
+          break;
+        case 'chunk':
+          emit('"' + node.data.replace(/"/g, '\\"').replace(/(\r\n|\n|\r)/gm, '\\n') + '"');
+          break;
+        case 'string':
+          node.data.forEach(function (c, i) {
+            walk(c);
+            if (i < node.data.length - 1) {
+              emit(' + ');
+            }
+          });
+          break;
+        case 'accumulator': {
+          walk(node.data[0]);
+          for (let i = 1; i < node.data.length; i++) {
+            emit('[');
+            walk(node.data[i]);
+            emit(']');
+          }
+        } break;
+        case 'array': {
+          emit('[');
+          node.data.forEach((i) => {
+            walk(i);
+            emit(', ');
+          });
+          emit(']');
+        } break;
+        case 'object': {
+          const keys = Object.keys(node.data);
+          emit('{');
+          keys.forEach((k) => {
+            emit(`"${k}": `)
+            walk(node.data[k]);
+            emit(', ');
+          });
+          emit('}');
+        } break;
+        case 'ternary': {
+          emit('((');
+          walk(node.data[0]);
+          emit(')?(');
+          walk(node.data[1]);
+          emit('):(');
+          walk(node.data[2]);
+          emit('))');
+        } break;
+        case 'unop': {
+          emit('(');
+          walk(node.data);
+          emit('(');
+        } break;
+        case 'binop': {
+          emit('(');
+          walk(node.data[0]);
+          emit(node.op);
+          walk(node.data[1]);
+          emit(')');
+        } break;
+        case 'parenthetical': {
+          emit('(');
+          emit(node.data);
+          emit(')');
+        } break;
+        case 'pipe': {
+          switch(node.data[0]) {
+            case 'repeat': {
+              emit('$$repeat(');
+              walk(node.data[1]);
+              emit(', ');
+              emit(node.data[2]);
+            } break;
+            case 'length': {
+              walk(node.data[1]);
+              emit('.length');
+            } break;
+            case 'map':
+            case 'filter': {
+              walk(node.data[1]);
+              emit('.');
+              walk(node.data[0]);
+              emit('(function (_a, _b) { return ');
+              walk(node.data[2]);
+              emit('; })');
+            } break;
+            case 'toupper': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').toUpperCase()');
+            } break;
+            case 'tolower': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').toLowerCase()');
+            } break;
+            case 'split': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').split(');
+              walk(node.data[2]);
+              emit(')');
+            } break;
+            case 'includes': {
+              emit('((');
+              walk(node.data[1]);
+              emit(').indexOf(');
+              walk(node.data[2]);
+              emit(') > -1)');
+            } break;
+            case 'indexof': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').indexOf(');
+              walk(node.data[2]);
+              emit(')');
+            } break;
+            case 'reverse': {
+              emit('(Array.isArray(');
+              walk(node.data[1]);
+              emit(') ? (');
+              walk(node.data[1]);
+              emit(').reverse() : (');
+              walk(node.data[1]);
+              emit(").split('').reverse().join(''))");
+            } break;
+            case 'tojson': {
+              emit('JSON.parse(');
+              walk(node.data[1]);
+              emit(')');
+            } break;
+            case 'replace': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').replace(');
+              walk(node.data[2]);
+              emit(', ');
+              walk(node.data[3]);
+              emit(')');
+            } break;
+            case 'replaceall': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').replaceAll(');
+              walk(node.data[2]);
+              emit(', ');
+              walk(node.data[3]);
+              emit(')');
+            } break;
+            case 'tostring': {
+              emit('(typeof (');
+              walk(node.data[1]);
+              emit(") === 'object' ? stringify(");
+              walk(node.data[1]);
+              emit(') : (');
+              walk(node.data[1]);
+              emit(').toString())');
+            } break;
+            case 'join': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').join(');
+              walk(node.data[2]);
+              emit(')');
+            } break;
+            case 'keys': {
+              emit('Object.keys(');
+              walk(node.data[1]);
+              emit(')');
+            } break;
+            case 'values': {
+              emit('Object.values(');
+              walk(node.data[1]);
+              emit(')');
+            } break;
+            default:
+              break;
+          }
+        }
+        default:
+          break;
+      }
+    }
+
+    walk(ast);
+    console.log(out[0])
+  };
 
   Adom.prototype.generateRuntime = function (ast, incoming_state, mount) {
     let output = [{ transform: false, code: '' }];
@@ -2066,7 +2295,7 @@ var Adom = (function () {
       return `"${e.type}": function ($e) { ${e.handler}; ${sync} }`;
     }
 
-    function event_object2 (events) {
+    function event_object (events) {
       if (events.length) return `{${events.map(e => event2(e)).join(',')}}`;
       else return '{}';
     }
@@ -2147,9 +2376,9 @@ var Adom = (function () {
     }
 
     function render_tag (el) {
-      if (el.type === _tag) {
+      if (el.type === 'tag') {
         let attr = attribute_object(el.data);
-        let events = event_object2(el.data.events);
+        let events = event_object(el.data.events);
         let id = generate_id();
         let n = el.data.name;
         let start = tag_ctx[n] ? `$${n}(` : `$$e("${n}", `;
@@ -2160,18 +2389,18 @@ var Adom = (function () {
         } else {
           render_line(`${start}${id}, ${attr}, ${events});`);
         }
-      } else if (el.type === _textnode) {
+      } else if (el.type === 'textnode') {
         render_line(`$$e('text', '${tid()}', ${print_expression(el.data)}, {});`);
-      } else if (el.type === _yield) {
+      } else if (el.type === 'yield') {
         render_line(`$$yield();`);
-      } else if (el.type === _each) {
+      } else if (el.type === 'each') {
         loop_depth++;
         let it = el.data.iterators.concat([`__index${loop_depth-1}`]);
         render_line(`$$each(${print_expression(el.data.list)}, function (${it.filter(i => i).join(',')}) {`, 1);
         el.children.forEach(render_tag);
         loop_depth--;
         render_line(`});`, -1);
-      } else if (el.type === _if) {
+      } else if (el.type === 'if') {
         render_line(`if (${print_expression(el.data)}) {`, 1);
         el.children[0].children.forEach(render_tag);
         if (el.children[1]) {
@@ -2186,7 +2415,7 @@ var Adom = (function () {
     }
 
     function walk (node, yieldfn) {
-      if (node.type === _file) {
+      if (node.type === 'file') {
         file_stack.push({
           imports: [],
           exports: [],
@@ -2201,11 +2430,11 @@ var Adom = (function () {
           let f = file_stack[file_stack.length - 1];
           f.imports.push({ name: n });
         }
-      } else if (node.type === _export) {
+      } else if (node.type === 'export') {
         let f = file_stack[file_stack.length - 1];
         f.exports.push(node.data.name);
         node.children.forEach(walk);
-      } else if (node.type === _custom) {
+      } else if (node.type === 'custom') {
         let f = file_stack[file_stack.length - 1];
         let t = { node };
         f.tags[node.data.name] = t;
@@ -2215,13 +2444,13 @@ var Adom = (function () {
         in_tag = false;
         t.state = tag_state;
         tag_state = {};
-      } else if (node.type === _set) {
+      } else if (node.type === 'set') {
         if (in_tag) {
           tag_state[node.data.lhs.data] = node.data.rhs;
         } else {
           initial_state.push(`var ${node.data.lhs.data} = ${print_expression(node.data.rhs)};`);
         }
-      } else if (node.type === _tag) {
+      } else if (node.type === 'tag') {
         const f = file_stack[file_stack.length - 1];
         if (node.data.name === 'body') {
           f.sync = node.children;
@@ -2234,8 +2463,8 @@ var Adom = (function () {
         } else {
           node.children.forEach(walk);
         }
-      } else if (node.type === _yield) {
-        if (yieldfn) {
+      } else if (node.type === 'yield') {
+        if (yieldfn && typeof yieldfn === 'function') {
           yieldfn();
         }
       }
@@ -2370,6 +2599,7 @@ var Adom = (function () {
       } else {
         let ast = this.generateAst(file);
         let runtime = this.generateRuntime(ast, input_state || {});
+        this.generateRuntime2(ast, {});
         ast.data.runtime = await this.processJs(runtime);
         html = this.execute(ast, input_state || {});
         if (this.cache) {
