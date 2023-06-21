@@ -1805,6 +1805,10 @@ var Adom = (function () {
   }
 
   function $$e (type, id, attrs, events, children) {
+    if (type === 'head') return;
+    if (type === 'html' || type === 'body') {
+      return children();
+    }
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
     var tag = child && child.tagName ? child.tagName.toLowerCase() : null;
@@ -1915,7 +1919,7 @@ var Adom = (function () {
     let custom = false;
     let fileIdx;
     let loop_depth = 0;
-    let tag_id = 0;
+    let tagId = 0;
 
     function emit(txt) {
       out[out.length - 1].code += txt;
@@ -1943,7 +1947,7 @@ var Adom = (function () {
       if (custom) {
         indexes.push(`$$id`);
       }
-      indexes.push(`'a-${tag_id++}'`);
+      indexes.push(`'a-${tagId++}'`);
       for (let i = 0; i < loop_depth; i++) {
         indexes.push(`__index${i}`);
       }
@@ -1953,10 +1957,6 @@ var Adom = (function () {
     function walk(node) {
       switch (node.type) {
         case 'if': {
-          if (!custom && !write) {
-            node.children.forEach(walk);
-            break;
-          }
           emit('if (');
           walk(node.data);
           emit(') {\n');
@@ -1968,10 +1968,6 @@ var Adom = (function () {
           emit('}\n');
         } break;
         case 'each': {
-          if (!custom && !write) {
-            node.children.forEach(walk);
-            break;
-          }
           emit('$$each(');
           walk(node.data.list);
           emit(', function (');
@@ -1984,11 +1980,7 @@ var Adom = (function () {
           emit('});\n');
         } break;
         case 'yield':
-          if (!custom) {
-            yields[yields.length - 1]();
-          } else {
-            emit('$$yield();');
-          }
+          emit('$$yield();');
           break;
         case 'export':
           emit('$components.');
@@ -2036,38 +2028,6 @@ var Adom = (function () {
           fileList[fileIdx].tags[node.data.name] = node.children;
         } break;
         case 'tag': {
-          if (!write && !custom) {
-            const isBody = node.data.name === 'body';
-            if (isBody) {
-              emit('$sync = function () {\n');
-              emit('if ($$is_syncing === false) {\n');
-              emit('$$is_syncing = true;\n');
-              emit(`$$nodes.push({ ref: document.body, processed: 0 });\n`);
-              write = true;
-            }
-            if (fileList[fileIdx].tags[node.data.name]) {
-              yields.push(() => {
-                node.children.forEach(walk);
-              });
-              fileList[fileIdx].tags[node.data.name].forEach((child) => {
-                if (child.type !== 'set' && child.type !== 'js') {
-                  walk(child);
-                }
-              });
-              yields.pop();
-            } else {
-              node.children.forEach(walk);
-            }
-            if (isBody) {
-              emit('$$clean();\n');
-              emit('$$clean_states();\n');
-              emit('$$is_syncing = false;\n');
-              emit('}\n');
-              emit('};\n');
-              write = false;
-            }
-            break;
-          }
           const attr = node.data.attributes;
           const evts = node.data.events;
           if (fileList[fileIdx].tags[node.data.name]) {
@@ -2113,9 +2073,6 @@ var Adom = (function () {
           }
         } break;
         case 'textnode': {
-          if (!write && !custom) {
-            break;
-          }
           emit('$$e("text", ');
           emit(idGen());
           emit(', ');
@@ -2289,7 +2246,7 @@ var Adom = (function () {
             case 'tostring': {
               emit('(typeof (');
               walk(node.data[1]);
-              emit(") === 'object' ? stringify(");
+              emit(") === 'object' ? JSON.stringify(");
               walk(node.data[1]);
               emit(') : (');
               walk(node.data[1]);
@@ -2331,6 +2288,7 @@ var Adom = (function () {
     emit('var $sync = function () {};');
 
     fileList.forEach((file, i) => {
+      let written = false;
       const children = file.ast.children;
       fileIdx = i;
       emit('var $f');
@@ -2338,8 +2296,22 @@ var Adom = (function () {
       emit(' = function () {\n');
       emit('var $components = {};\n');
       children.forEach((child) => {
+        if (child.type === 'tag' && !written) {
+          emit('$sync = function () {\n');
+          emit('if ($$is_syncing === false) {\n');
+          emit('$$is_syncing = true;\n');
+          emit(`$$nodes.push({ ref: document.body, processed: 0 });\n`);
+          written = true;
+        }
         walk(child);
       });
+      if (written) {
+        emit('$$clean();\n');
+        emit('$$clean_states();\n');
+        emit('$$is_syncing = false;\n');
+        emit('}\n');
+        emit('};\n');
+      }
       emit('return { components: $components };\n');
       emit('}();\n');
     });
