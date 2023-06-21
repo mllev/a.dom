@@ -15,8 +15,24 @@ var Adom = (function () {
     this.dirname = config.root || ".";
     this.ast_cache = {};
     this.files = {};
-    this.uid = Math.floor(Math.random() * 10000);
   }
+
+  Adom.compile = async function (name, opts) {
+    const fs = require('fs');
+    if (name && typeof name === 'object') {
+      opts = name;
+    }
+    if (!opts && typeof name === 'string') {
+      opts = { input: name };
+    }
+    const compiler = new Adom(opts)
+    if (!opts.output) {
+      return compiler.render(opts.input);
+    } else {
+      const out = await compiler.render(opts.input);
+      fs.writeFileSync(opts.output, out);
+    }
+  };
 
   function ASTNode (type, data) {
     this.type = type;
@@ -922,8 +938,6 @@ var Adom = (function () {
       };
     }
 
-    const UID = this.uid;
-
     function parse_attributes() {
       let attr = {};
       let events = [];
@@ -1688,11 +1702,6 @@ var Adom = (function () {
   var $$is_syncing = false;
   var $$is_svg = false;
   var $$nodes = [];
-  var $$_id = 0;
-
-  function $$id () {
-    return 'id-' + $$_id++;
-  }
 
   function $$a (node, attrs, isSvg) {
     var old = node.__old;
@@ -1795,8 +1804,7 @@ var Adom = (function () {
     return { parent: node.ref, child: child };
   }
 
-  function $$e (type, attrs, events, children) {
-    var id = $$id();
+  function $$e (type, id, attrs, events, children) {
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
     var tag = child && child.tagName ? child.tagName.toLowerCase() : null;
@@ -1859,8 +1867,7 @@ var Adom = (function () {
   };
 
   function $$c (init) {
-    return function (props, events, yield_fn) {
-      var id = $$id();
+    return function (id, props, events, yield_fn) {
       var $state = $$states[id];
       var isNew = false;
       var newp = JSON.stringify(props);
@@ -1875,7 +1882,7 @@ var Adom = (function () {
         isNew = true;
       }
       const oldp = $state.props;
-      $state.body(props, yield_fn);
+      $state.body(id, props, yield_fn);
       $state.props = newp;
       if (isNew) {
         $$emit_event.call($state, 'mount');
@@ -1899,17 +1906,19 @@ var Adom = (function () {
   }
 `;
 
-  Adom.prototype.generateRuntime2 = function (ast, incoming_state) {
-    const out = [''];
+  Adom.prototype.generateRuntime = function (ast, incoming_state) {
+    const out = [{ code: '', transform: false }];
     const fileList = [];
     const fileIdMap = {};
     const yields = [];
     let write = false;
     let custom = false;
     let fileIdx;
+    let loop_depth = 0;
+    let tag_id = 0;
 
     function emit(txt) {
-      out[out.length - 1] += txt;
+      out[out.length - 1].code += txt;
     }
 
     function createFileList(node) {
@@ -1927,6 +1936,18 @@ var Adom = (function () {
           });
         }
       }
+    }
+
+    function idGen() {
+      const indexes = [];
+      if (custom) {
+        indexes.push(`$$id`);
+      }
+      indexes.push(`'a-${tag_id++}'`);
+      for (let i = 0; i < loop_depth; i++) {
+        indexes.push(`__index${i}`);
+      }
+      return indexes.join(" + '-' + ");
     }
 
     function walk(node) {
@@ -1954,9 +1975,12 @@ var Adom = (function () {
           emit('$$each(');
           walk(node.data.list);
           emit(', function (');
-          emit(node.data.iterators.filter(i => i).join(','));
+          let it = node.data.iterators.concat([`__index${loop_depth}`]);
+          emit(it.filter(i => i).join(','));
           emit(') {\n');
+          loop_depth++;
           node.children.forEach(walk);
+          loop_depth--;
           emit('});\n');
         } break;
         case 'yield':
@@ -1975,7 +1999,9 @@ var Adom = (function () {
           fileList[fileIdx].exports[node.data.name] = true;
           break;
         case 'js':
+          out.push({ code: '', transform: true });
           emit(node.data);
+          out.push({ code: '', transform: false });
           break;
         case 'file':
           const id = fileIdMap[node.data.file];
@@ -1999,7 +2025,7 @@ var Adom = (function () {
           custom = true;
           node.children.forEach((child) => {
             if (child.type !== 'set' && child.type !== 'js' && !written) {
-              emit('return function(props, $$yield) {\n');
+              emit('return function($$id, props, $$yield) {\n');
               written = true;
             }
             walk(child);
@@ -2047,13 +2073,22 @@ var Adom = (function () {
           if (fileList[fileIdx].tags[node.data.name]) {
             emit('$');
             emit(node.data.name);
-            emit('({');
+            emit('(');
+            emit(idGen());
+            emit(', {');
           } else {
             emit('$$e("');
             emit(node.data.name);
-            emit('", {');
+            emit('", ');
+            emit(idGen());
+            emit(', {');
           }
           for (let a in attr) {
+            if (a === 'bind:value') {
+              evts.push({ type: 'input', handler: `${attr[a].data} = $e.target.value;`, sync: true });
+              attr.value = { type: 'ident', data: attr[a].data };
+              a = 'value';
+            }
             emit('"');
             emit(a);
             emit('": ');
@@ -2082,6 +2117,8 @@ var Adom = (function () {
             break;
           }
           emit('$$e("text", ');
+          emit(idGen());
+          emit(', ');
           walk(node.data);
           emit(', {});')
         } break;
@@ -2147,9 +2184,10 @@ var Adom = (function () {
           emit('))');
         } break;
         case 'unop': {
+          emit(node.op);
           emit('(');
           walk(node.data);
-          emit('(');
+          emit(')');
         } break;
         case 'binop': {
           emit('(');
@@ -2160,7 +2198,7 @@ var Adom = (function () {
         } break;
         case 'parenthetical': {
           emit('(');
-          emit(node.data);
+          walk(node.data);
           emit(')');
         } break;
         case 'pipe': {
@@ -2310,390 +2348,7 @@ var Adom = (function () {
     emit(`})(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});\n`);
     emit('});\n');
 
-    return out[0];
-  };
-
-  Adom.prototype.generateRuntime = function (ast, incoming_state) {
-    let output = [{ transform: false, code: '' }];
-    let indents = 2;
-    let in_tag = false;
-    let tag_id = 0;
-    let loop_depth = 0;
-    let tag_ctx = {};
-    let uuid = this.uid;
-    let f_id = 0;
-    let file_stack = [];
-    let files = [];
-    let tag_state = {};
-    let initial_state = [];
-
-    function print_expression (expr) {
-      switch (expr.type) {
-        case 'null':
-          return expr.data;
-        case 'ident':
-        case 'number':
-        case 'bool':
-          return expr.data.toString();
-        case 'chunk':
-          return '"' + expr.data.replace(/"/g, '\\"').replace(/(\r\n|\n|\r)/gm, '\\n') + '"';
-        case 'string': {
-          return expr.data.map(function (c) {
-             return print_expression(c)
-          }).join(' + ');
-        } break;
-        case 'accumulator': {
-          let val = print_expression(expr.data[0]);
-          for (let i = 1; i < expr.data.length; i++) {
-            val += `[${print_expression(expr.data[i])}]`;
-          }
-          return val;
-        } break;
-        case 'array': {
-          return `[${expr.data.map(function (i) {
-            return print_expression(i);
-          }).join(', ')}]`
-        } break;
-        case 'object': {
-          let keys = Object.keys(expr.data);
-          return `{ ${keys.map(function (k) {
-            return `"${k}": ${print_expression(expr.data[k])}`;
-          }).join(', ')} }`;
-        } break;
-        case 'ternary': {
-          let v = expr.data;
-          let v1 = print_expression(v[0]);
-          let v2 = print_expression(v[1]);
-          let v3 = print_expression(v[2]);
-          return `(${v1} ? ${v2} : ${v3})`;
-        } break;
-        case 'unop': {
-          let v = print_expression(expr.data);
-          return `(${expr.op}${v})`;
-        } break;
-        case 'binop': {
-          let v1 = print_expression(expr.data[0]);
-          let v2 = print_expression(expr.data[1]);
-          return `(${v1} ${expr.op} ${v2})`;
-        } break;
-        case 'parenthetical': {
-          return `(${print_expression(expr.data)})`;
-        } break;
-        case 'pipe': {
-          switch(expr.data[0]) {
-            case 'repeat': {
-              return `$$repeat(${print_expression(expr.data[1])}, ${print_expression(expr.data[2])})`;
-            } break;
-            case 'length': {
-              return `(${print_expression(expr.data[1])}).length`;
-            } break;
-            case 'map':
-            case 'filter': {
-              const t = expr.data[0];
-              const l = expr.data[1];
-              const r = expr.data[2];
-              return `${print_expression(l)}.${t}(function (_1, _2) { return ${print_expression(r)}; })`
-            } break;
-            case 'toupper': {
-              return `(${print_expression(expr.data[1])}).toUpperCase()`;
-            } break;
-            case 'tolower': {
-              return `(${print_expression(expr.data[1])}).toLowerCase()`;
-            } break;
-            case 'split': {
-              const e2 = expr.data[2];
-              return `(${print_expression(expr.data[1])}).split(${print_expression(e2)})`;
-            } break;
-            case 'includes': {
-              const e2 = expr.data[2];
-              return `((${print_expression(expr.data[1])}).indexOf(${print_expression(e2)}) > -1)`;
-            } break;
-            case 'indexof': {
-              const e2 = expr.data[2];
-              return `(${print_expression(expr.data[1])}).indexOf(${print_expression(e2)})`;
-            } break;
-            case 'reverse': {
-              const e = expr.data[1];
-              const pe = print_expression(e);
-              return `(Array.isArray(${pe}) ? (${pe}).reverse() : (${pe}).split('').reverse().join(''))`;
-            } break;
-            case 'tojson': {
-              return `JSON.parse(${print_expression(expr.data[1])})`;
-            } break;
-            case 'replace': {
-              const l = expr.data[1];
-              const r = expr.data[2];
-              const v = expr.data[3];
-              return `(${print_expression(l)}).replace(${print_expression(r)}, ${print_expression(v)})`;
-            } break;
-            case 'replaceall': {
-              const l = expr.data[1];
-              const r = expr.data[2];
-              const v = expr.data[3];
-              return `(${print_expression(l)}).replaceAll(${print_expression(r)}, ${print_expression(v)})`;
-            } break;
-            case 'tostring': {
-              const e = expr.data[1];
-              const pe = print_expression(e);
-              return `(typeof (${pe}) === 'object' ? JSON.stringify(${pe}) : (${pe}).toString())`;
-            } break;
-            case 'join': {
-              const l = expr.data[1];
-              const r = expr.data[2];
-              return `(${print_expression(l)}).join(${print_expression(r)})`;
-            } break;
-            case 'keys': {
-              return `Object.keys(${print_expression(expr.data[1])})`;
-            } break;
-            case 'values': {
-              return `Object.values(${print_expression(expr.data[1])})`;
-            } break;
-          }
-        } break;
-      }
-    }
-
-    function fmt() {
-      return '  '.repeat(indents);
-    }
-
-    function event2 (e) {
-      let sync = e.sync ? '$sync();' : '';
-      return `"${e.type}": function ($e) { ${e.handler}; ${sync} }`;
-    }
-
-    function event_object (events) {
-      if (events.length) return `{${events.map(e => event2(e)).join(',')}}`;
-      else return '{}';
-    }
-
-    function attribute_object(data) {
-      const obj = data.attributes;
-      if (obj['bind:value']) {
-        let tval = '$e.target.value;'
-        if (obj.type && print_expression(obj.type) === '"number"') {
-          tval = 'parseInt($e.target.value);';
-        }
-        const v = obj['bind:value'];
-        obj.value = v;
-        // maybe a 'change' event here instead of 'input'
-        data.events.push({ type: 'input', handler: `${print_expression(v)} = ${tval}`, sync: true });
-        delete obj['bind:value'];
-      }
-      return `{${Object.keys(obj).map((k, i) => `"${k}": ${print_expression(obj[k])}`).join(', ')}}`
-    }
-
-    function render_line (str, indent = 0) {
-      if (indent === -1) {
-        indents--;
-        output[output.length - 1].code += `${fmt()}${str}\n`;
-      } else {
-        output[output.length - 1].code += `${fmt()}${str}\n`;
-        indents += indent; 
-      }
-    }
-
-    function render_component2 (name, t) {
-      let sk = Object.keys(t.state);
-      render_line(`var $${name} = $$c(function (props, $emit, $on) {`, 1);
-      sk.forEach((k) => {
-        render_line(`var ${k} = ${print_expression(t.state[k])};`);
-      });
-      output.push({ transform: true, code: '' });
-      if (t.node.js) {
-        t.node.js.split('\n').forEach(line => render_line(line));
-      }
-      output.push({ transform: false, code: '' });
-      render_line('return function ($$id, props, $$yield) {', 1);
-      in_tag = true;
-      t.node.children.forEach(render_tag);
-      in_tag = false;
-      render_line('}', -1);
-      render_line('});', -1);
-    }
-
-    function render_export (name) {
-      render_line(`$components.${name} = $${name};`);
-    }
-
-    function render_import (data, exp) {
-      for (let e of exp) {
-        render_line(`var $${e} = $${data.name}.components.${e};`);
-      }
-    }
-
-    function tid () {
-      return `a-${tag_id++}`;
-    }
-
-    function generate_id () {
-      const indexes = [];
-      if (in_tag) {
-        indexes.push(`$$id`);
-      }
-      if (loop_depth) {
-        indexes.push(`'${tid()}'`);
-        for (let i = 0; i < loop_depth; i++) {
-          indexes.push(`__index${i}`);
-        }
-      } else {
-        indexes.push(`'${tid()}'`);
-      }
-      return indexes.join(" + '-' + ");
-    }
-
-    function render_tag (el) {
-      if (el.type === 'tag') {
-        let attr = attribute_object(el.data);
-        let events = event_object(el.data.events);
-        let id = generate_id();
-        let n = el.data.name;
-        let start = tag_ctx[n] ? `$${n}(` : `$$e("${n}", `;
-        if (el.children.length > 0) {
-          render_line(`${start}${id}, ${attr}, ${events}, function () {`, 1);
-          el.children.forEach(render_tag);
-          render_line(`});`, -1);
-        } else {
-          render_line(`${start}${id}, ${attr}, ${events});`);
-        }
-      } else if (el.type === 'textnode') {
-        render_line(`$$e('text', '${tid()}', ${print_expression(el.data)}, {});`);
-      } else if (el.type === 'yield') {
-        render_line(`$$yield();`);
-      } else if (el.type === 'each') {
-        loop_depth++;
-        let it = el.data.iterators.concat([`__index${loop_depth-1}`]);
-        render_line(`$$each(${print_expression(el.data.list)}, function (${it.filter(i => i).join(',')}) {`, 1);
-        el.children.forEach(render_tag);
-        loop_depth--;
-        render_line(`});`, -1);
-      } else if (el.type === 'if') {
-        render_line(`if (${print_expression(el.data)}) {`, 1);
-        el.children[0].children.forEach(render_tag);
-        if (el.children[1]) {
-          render_line('} else {', -1);
-          indents++;
-          el.children[1].children.forEach(render_tag);
-        }
-        render_line(`}`, -1);
-      } else {
-        el.children.forEach(render_tag);
-      }
-    }
-
-    function walk (node, yieldfn) {
-      if (node.type === 'file') {
-        file_stack.push({
-          imports: [],
-          exports: [],
-          tags: {},
-          js: node.data.runtime,
-          filepath: node.data.file
-        });
-        node.children.forEach(walk);
-        let n = `f${f_id++}`;
-        files[n] = file_stack.pop();
-        if (file_stack.length) {
-          let f = file_stack[file_stack.length - 1];
-          f.imports.push({ name: n });
-        }
-      } else if (node.type === 'export') {
-        let f = file_stack[file_stack.length - 1];
-        f.exports.push(node.data.name);
-        node.children.forEach(walk);
-      } else if (node.type === 'custom') {
-        let f = file_stack[file_stack.length - 1];
-        let t = { node };
-        f.tags[node.data.name] = t;
-        tag_state = {};
-        in_tag = true;
-        node.children.forEach(walk);
-        in_tag = false;
-        t.state = tag_state;
-        tag_state = {};
-      } else if (node.type === 'set') {
-        if (in_tag) {
-          tag_state[node.data.lhs.data] = node.data.rhs;
-        } else {
-          initial_state.push(`var ${node.data.lhs.data} = ${print_expression(node.data.rhs)};`);
-        }
-      } else if (node.type === 'tag') {
-        const f = file_stack[file_stack.length - 1];
-        if (node.data.name === 'body') {
-          f.sync = node.children;
-        } else if (f.tags[node.data.name]) {
-          f.tags[node.data.name].node.children.forEach((child) => {
-            walk(child, () => {
-              node.children.forEach(walk);
-            });
-          });
-        } else {
-          node.children.forEach(walk);
-        }
-      } else if (node.type === 'yield') {
-        if (yieldfn && typeof yieldfn === 'function') {
-          yieldfn();
-        }
-      }
-    }
-
-    function render_files (files) {
-      render_line(`document.addEventListener('DOMContentLoaded', function () {`, 1);
-      render_line(`var $$adom_input_state = ${JSON.stringify(incoming_state)};`);
-      render_line(`${adom_runtime}`);
-      render_line(`(function (${Object.keys(incoming_state).join(', ')}) {`, 1);
-      render_line('var $sync = function () {};');
-      initial_state.forEach((line) => render_line(line));
-      for (let name in files) {
-        let file = files[name];
-        tag_ctx = {...file.tags};
-        for (let i of file.imports) {
-          f = files[i.name];
-          for (let t of f.exports) {
-            tag_ctx[t] = f.tags[t];
-          }
-        }
-        render_line(`var $${name} = (function () {`, 1);
-        render_line('var $components = {};');
-        for (let i of file.imports) {
-          render_import(i, files[i.name].exports);
-        }
-        if (file.js) {
-          output.push({ transform: true, code: '' });
-          file.js.split('\n').forEach(line => render_line(line));
-          output.push({ transform: false, code: '' });
-        }
-        for (let t in file.tags) {
-          render_component2(t, file.tags[t]);
-        }
-        for (let e of file.exports) {
-          render_export(e);
-        }
-        if (file.sync) {
-          render_line('$sync = function () {', 1);
-          render_line('if ($$is_syncing === false) {', 1);
-          render_line('$$is_syncing = true;');
-          render_line(`$$nodes.push({ ref: document.body, processed: 0 });`);
-          for (let c of file.sync) {
-            render_tag(c);
-          }
-          render_line('$$clean();');
-          render_line('$$clean_states();');
-          render_line('$$is_syncing = false;');
-          render_line('}', -1);
-          render_line('};', -1);
-        }
-        render_line('return { components: $components }');
-        render_line('})();', -1);
-      }
-      render_line(`$sync();`);
-      render_line(`})(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});`, -1);
-      render_line(`});`, -1);
-    }
-
-    walk(ast);
-    render_files(files);
-    return output;
+    return out;
   };
 
   Adom.prototype.getPath = function (p, dir) {
@@ -2755,12 +2410,6 @@ var Adom = (function () {
     return result.outputFiles[0].text;
   };
 
-  async function makePretty(js) {
-    const esbuild = require('esbuild');
-    const result = await esbuild.transform(js, { format: 'cjs', loader: 'ts' });
-    return result.code;
-  }
-
   Adom.prototype.render = async function (file, input_state) {
     let html;
     try {
@@ -2773,7 +2422,6 @@ var Adom = (function () {
         let ast = this.generateAst(file);
         let runtime = this.generateRuntime(ast, input_state || {});
         ast.data.runtime = await this.processJs(runtime);
-        ast.data.runtime = await makePretty(this.generateRuntime2(ast, {}));
         html = this.execute(ast, input_state || {});
         if (this.cache) {
           this.ast_cache[cacheKey] = ast;
