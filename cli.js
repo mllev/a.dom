@@ -146,7 +146,7 @@ if (config.starter) {
       if (fs.existsSync(p) && !config.forceWrite) {
         console.log('Error: file already exists:', p);
       } else {
-        fs.writeFileSync(path.resolve(dir, config.out), await c.renderAsync(config.file));
+        fs.writeFileSync(path.resolve(dir, config.out), await c.render(config.file));
       }
     }
     build();
@@ -158,7 +158,7 @@ if (config.starter) {
     console.log(req.method, url);
     if (routes[url]) {
       res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
-      res.end(await c.renderAsync(routes[url]));
+      res.end(await c.render(routes[url]));
       return;
     } else {
       try {

@@ -163,15 +163,34 @@ var Adom = (function () {
     'sub',
     'summary',
     'sup',
+    'table',
+    'tbody',
+    'td',
+    'template',
+    'textarea',
+    'tfoot',
+    'th',
+    'thead',
+    'time',
+    'title',
+    'tr',
+    'track',
+    'tt',
+    'u',
+    'ul',
+    'var',
+    'video',
+    'wbr',
+    'xmp',
     // svg tags
     'svg',
     'altGlyph',
     'altGlyphDef',
     'altGlyphItem',
     'animate',
-    "animateColor",
-    "animateMotion",
-    "animateTransform",
+    'animateColor',
+    'animateMotion',
+    'animateTransform',
     "circle",
     "clipPath",
     "color-profile",
@@ -245,25 +264,6 @@ var Adom = (function () {
     "view",
     "vkern",
     // end svg tags
-    'table',
-    'tbody',
-    'td',
-    'template',
-    'textarea',
-    'tfoot',
-    'th',
-    'thead',
-    'time',
-    'title',
-    'tr',
-    'track',
-    'tt',
-    'u',
-    'ul',
-    'var',
-    'video',
-    'wbr',
-    'xmp'
   ]
 
 
@@ -311,8 +311,7 @@ var Adom = (function () {
       "var",
       "const",
       "let",
-      "nosync",
-      "as"
+      "nosync"
     ];
 
     let symbols = [
@@ -610,7 +609,6 @@ var Adom = (function () {
     let in_tag = false;
     let ast = new ASTNode('file', { file: tok.file });
     let parent = ast;
-    let js_found = false;
 
     function ast_node(type, data) {
       let node = new ASTNode(type, data);
@@ -961,7 +959,6 @@ var Adom = (function () {
           expect("ident");
           expect("=");
           handler = parse_strict_string();
-          js_found = true;
           let nosync = accept('nosync');
           events.push({ type: evt, handler: handler, sync: !nosync });
         } else {
@@ -1094,7 +1091,6 @@ var Adom = (function () {
       } else if (in_tag && peek('js_context')) {
         parent.js = tok.data;
         ast_node('js', tok.data);
-        js_found = true;
         next();
         parse_tag_list();
       }
@@ -1197,6 +1193,7 @@ var Adom = (function () {
           parse_assignment();
         } else if (peek('js_context')) {
           runtime += tok.data;
+          ast_node('js', tok.data);
           js_found = true;
           next();
         } else {
@@ -1212,7 +1209,7 @@ var Adom = (function () {
     return ast;
   };
 
-  Adom.prototype.execute = function(ast, initial_state, mount) {
+  Adom.prototype.execute = function(ast, initial_state) {
     let html = "";
     let state = [initial_state];
     let custom_tags = [];
@@ -1552,7 +1549,7 @@ var Adom = (function () {
               if (n === 'script') in_script = true;
               children(r, yieldfn);
               in_script = false;
-              if (!mount && n === 'head') {
+              if (n === 'head') {
                 html += `<script>${ast.data.runtime}${end_script()}`;
               }
               html += `</${n}>`;
@@ -1622,10 +1619,7 @@ var Adom = (function () {
 
     walk(ast);
 
-    return mount ? {
-      html: html,
-      runtime: ast.data.runtime
-    } : html;
+    return html;
   };
 
   Adom.prototype.print_error = function (err, str) {
@@ -1864,7 +1858,7 @@ var Adom = (function () {
     }
   };
 
-  function $$c2 (init) {
+  function $$c (init) {
     return function (props, events, yield_fn) {
       var id = $$id();
       var $state = $$states[id];
@@ -1907,44 +1901,190 @@ var Adom = (function () {
 
   Adom.prototype.generateRuntime2 = function (ast, incoming_state) {
     const out = [''];
+    const fileList = [];
+    const fileIdMap = {};
+    const yields = [];
+    let write = false;
+    let custom = false;
+    let fileIdx;
 
     function emit(txt) {
       out[out.length - 1] += txt;
     }
 
+    function createFileList(node) {
+      if (node.type === 'file') {
+        node.children.forEach((child) => {
+          createFileList(child);
+        });
+        if (!fileIdMap[node.data.file]) {
+          fileIdMap[node.data.file] = fileList.length;
+          fileList.push({
+            name: node.data.file,
+            ast: node,
+            exports: {},
+            tags: {}
+          });
+        }
+      }
+    }
+
     function walk(node) {
       switch (node.type) {
+        case 'if': {
+          if (!custom && !write) {
+            node.children.forEach(walk);
+            break;
+          }
+          emit('if (');
+          walk(node.data);
+          emit(') {\n');
+          node.children[0].children.forEach(walk);
+          if (node.children[1]) {
+            emit('} else {\n');
+            node.children[1].children.forEach(walk);
+          }
+          emit('}\n');
+        } break;
+        case 'each': {
+          if (!custom && !write) {
+            node.children.forEach(walk);
+            break;
+          }
+          emit('$$each(');
+          walk(node.data.list);
+          emit(', function (');
+          emit(node.data.iterators.filter(i => i).join(','));
+          emit(') {\n');
+          node.children.forEach(walk);
+          emit('});\n');
+        } break;
+        case 'yield':
+          if (!custom) {
+            yields[yields.length - 1]();
+          } else {
+            emit('$$yield();');
+          }
+          break;
+        case 'export':
+          emit('$components.');
+          emit(node.data.name);
+          emit(' = $');
+          emit(node.data.name);
+          emit(';\n');
+          fileList[fileIdx].exports[node.data.name] = true;
+          break;
         case 'js':
           emit(node.data);
           break;
         case 'file':
-          node.children.forEach((child) => {
-            walk(child);
-          });
+          const id = fileIdMap[node.data.file];
+          const ex = fileList[id].exports;
+          for (let e in ex) {
+            emit('var $');
+            emit(e);
+            emit(' = $f');
+            emit(id);
+            emit('.components.');
+            emit(e);
+            emit(';\n');
+            fileList[fileIdx].tags[e] = fileList[id].tags[e];
+          }
           break;
         case 'custom': {
           let written = false;
           emit('var $');
           emit(node.data.name);
-          emit(' = $$c2(function (props, $emit, $on) {\n');
+          emit(' = $$c(function (props, $emit, $on) {\n');
+          custom = true;
           node.children.forEach((child) => {
             if (child.type !== 'set' && child.type !== 'js' && !written) {
-              emit('return function($$id, props2, $$yield2) {\n');
+              emit('return function(props, $$yield) {\n');
               written = true;
             }
             walk(child);
-          })
+          });
+          custom = false;
           emit('}\n');
           emit('});\n');
+          fileList[fileIdx].tags[node.data.name] = node.children;
         } break;
-        case 'tag':
-          emit('$$e("');
-          emit(node.data.name);
-          emit('", {}, {}, function () {\n');
-          emit('});\n');
-          // $$e("div", $$id + "-a-15", { "class": ["pad", props2["active"] ? "active" : "", props2["playing"] ? "playing" : ""] }, { "click": function($e) {
-          console.log('!!!', node);
-          break;
+        case 'tag': {
+          if (!write && !custom) {
+            const isBody = node.data.name === 'body';
+            if (isBody) {
+              emit('$sync = function () {\n');
+              emit('if ($$is_syncing === false) {\n');
+              emit('$$is_syncing = true;\n');
+              emit(`$$nodes.push({ ref: document.body, processed: 0 });\n`);
+              write = true;
+            }
+            if (fileList[fileIdx].tags[node.data.name]) {
+              yields.push(() => {
+                node.children.forEach(walk);
+              });
+              fileList[fileIdx].tags[node.data.name].forEach((child) => {
+                if (child.type !== 'set' && child.type !== 'js') {
+                  walk(child);
+                }
+              });
+              yields.pop();
+            } else {
+              node.children.forEach(walk);
+            }
+            if (isBody) {
+              emit('$$clean();\n');
+              emit('$$clean_states();\n');
+              emit('$$is_syncing = false;\n');
+              emit('}\n');
+              emit('};\n');
+              write = false;
+            }
+            break;
+          }
+          const attr = node.data.attributes;
+          const evts = node.data.events;
+          if (fileList[fileIdx].tags[node.data.name]) {
+            emit('$');
+            emit(node.data.name);
+            emit('({');
+          } else {
+            emit('$$e("');
+            emit(node.data.name);
+            emit('", {');
+          }
+          for (let a in attr) {
+            emit('"');
+            emit(a);
+            emit('": ');
+            walk(attr[a]);
+            emit(', ');
+          }
+          emit('}, {');
+          for (let e of evts) {
+            emit('"');
+            emit(e.type);
+            emit('": function($e) {');
+            emit(e.handler);
+            emit('; $sync(); }, ');
+          }
+          emit('}');
+          if (node.children.length) {
+            emit(', function () {\n');
+            node.children.forEach(walk);
+            emit('});\n');
+          } else {
+            emit(');\n')
+          }
+        } break;
+        case 'textnode': {
+          if (!write && !custom) {
+            break;
+          }
+          emit('$$e("text", ');
+          walk(node.data);
+          emit(', {});')
+        } break;
         case 'set': {
           emit('var ');
           emit(node.data.lhs.data);
@@ -2029,7 +2169,8 @@ var Adom = (function () {
               emit('$$repeat(');
               walk(node.data[1]);
               emit(', ');
-              emit(node.data[2]);
+              walk(node.data[2]);
+              emit(')');
             } break;
             case 'length': {
               walk(node.data[1]);
@@ -2142,11 +2283,37 @@ var Adom = (function () {
       }
     }
 
-    walk(ast);
-    console.log(out[0])
+
+    createFileList(ast);
+
+    emit(`document.addEventListener('DOMContentLoaded', function () {\n`);
+    emit(`var $$adom_input_state = ${JSON.stringify(incoming_state)};\n`);
+    emit(`${adom_runtime}`);
+    emit(`(function (${Object.keys(incoming_state).join(', ')}) {\n`);
+    emit('var $sync = function () {};');
+
+    fileList.forEach((file, i) => {
+      const children = file.ast.children;
+      fileIdx = i;
+      emit('var $f');
+      emit(i);
+      emit(' = function () {\n');
+      emit('var $components = {};\n');
+      children.forEach((child) => {
+        walk(child);
+      });
+      emit('return { components: $components };\n');
+      emit('}();\n');
+    });
+
+    emit('$sync();\n');
+    emit(`})(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});\n`);
+    emit('});\n');
+
+    return out[0];
   };
 
-  Adom.prototype.generateRuntime = function (ast, incoming_state, mount) {
+  Adom.prototype.generateRuntime = function (ast, incoming_state) {
     let output = [{ transform: false, code: '' }];
     let indents = 2;
     let in_tag = false;
@@ -2328,7 +2495,7 @@ var Adom = (function () {
 
     function render_component2 (name, t) {
       let sk = Object.keys(t.state);
-      render_line(`var $${name} = $$c2(function (props, $emit, $on) {`, 1);
+      render_line(`var $${name} = $$c(function (props, $emit, $on) {`, 1);
       sk.forEach((k) => {
         render_line(`var ${k} = ${print_expression(t.state[k])};`);
       });
@@ -2471,7 +2638,7 @@ var Adom = (function () {
     }
 
     function render_files (files) {
-      render_line(!mount ? `document.addEventListener('DOMContentLoaded', function () {` : `(function () {`, 1);
+      render_line(`document.addEventListener('DOMContentLoaded', function () {`, 1);
       render_line(`var $$adom_input_state = ${JSON.stringify(incoming_state)};`);
       render_line(`${adom_runtime}`);
       render_line(`(function (${Object.keys(incoming_state).join(', ')}) {`, 1);
@@ -2521,7 +2688,7 @@ var Adom = (function () {
       }
       render_line(`$sync();`);
       render_line(`})(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});`, -1);
-      render_line(!mount ? `});` : `})();`, -1);
+      render_line(`});`, -1);
     }
 
     walk(ast);
@@ -2588,6 +2755,12 @@ var Adom = (function () {
     return result.outputFiles[0].text;
   };
 
+  async function makePretty(js) {
+    const esbuild = require('esbuild');
+    const result = await esbuild.transform(js, { format: 'cjs', loader: 'ts' });
+    return result.code;
+  }
+
   Adom.prototype.render = async function (file, input_state) {
     let html;
     try {
@@ -2599,8 +2772,8 @@ var Adom = (function () {
       } else {
         let ast = this.generateAst(file);
         let runtime = this.generateRuntime(ast, input_state || {});
-        this.generateRuntime2(ast, {});
         ast.data.runtime = await this.processJs(runtime);
+        ast.data.runtime = await makePretty(this.generateRuntime2(ast, {}));
         html = this.execute(ast, input_state || {});
         if (this.cache) {
           this.ast_cache[cacheKey] = ast;
@@ -2618,30 +2791,6 @@ var Adom = (function () {
       return html;
     }
   };
-
-  Adom.prototype.renderAsync = async function (file, input_state) {
-    return await this.render(file, input_state);
-  };
-
-  Adom.prototype.mount = function (sel, str) {
-    try {
-      let tokens = this.tokenize(str, 'main');
-      let ast = this.parse(tokens);
-      let runtime = this.generateRuntime(ast, {}, true);
-      ast.data.runtime = runtime.map((chunk) => chunk.code).join('\n');
-      let out = this.execute(ast, {}, true);
-      document.querySelector(sel).innerHTML = out.html;
-      window.eval(out.runtime);
-    } catch (e) {
-      let html
-      if (e.origin === 'adom') {
-        html = `<pre>${this.print_error(e, str)}</pre>`;
-      } else {
-        html = `<pre>${e.toString()}</pre>`;
-      }
-      document.querySelector(sel).innerHTML = html;
-    }
-  }
 
   return Adom;
 })();
