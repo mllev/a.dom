@@ -22,14 +22,15 @@ var Adom = (function () {
     if (name && typeof name === 'object') {
       opts = name;
     }
-    if (!opts && typeof name === 'string') {
-      opts = { input: name };
+    if (!opts) opts = {};
+    if (typeof name === 'string') {
+      opts.input = name;
     }
     const compiler = new Adom(opts)
     if (!opts.output) {
-      return compiler.render(opts.input);
+      return compiler.render(opts.input, { data: opts.data });
     } else {
-      const out = await compiler.render(opts.input);
+      const out = await compiler.render(opts.input, { data: opts.data });
       fs.writeFileSync(opts.output, out);
     }
   };
