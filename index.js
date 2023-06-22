@@ -848,13 +848,14 @@ var Adom = (function () {
       'includes': 1,
       'indexof': 1,
       'reverse': 0,
-      'tojson': 0,
+      'json': 0,
       'replace': 2,
       'replaceall': 2,
       'tostring': 0,
       'join': 1,
       'keys': 0,
-      'values': 0
+      'values': 0,
+      'trim': 0
     };
 
     function parse_expr (min_prec) {
@@ -1424,7 +1425,7 @@ var Adom = (function () {
                 return e.split('').reverse().join('')
               }
             } break;
-            case 'tojson': {
+            case 'json': {
               const e = evaluate(expr.data[1]);
               return JSON.parse(e);
             } break;
@@ -1452,6 +1453,10 @@ var Adom = (function () {
               const e = evaluate(expr.data[1]);
               const del = evaluate(expr.data[2]);
               return e.join(del);
+            } break;
+            case 'trim': {
+              const e = evaluate(expr.data[1]);
+              return e.trim();
             } break;
             case 'keys': {
               const e = evaluate(expr.data[1]);
@@ -2221,7 +2226,7 @@ var Adom = (function () {
               walk(node.data[1]);
               emit(").split('').reverse().join(''))");
             } break;
-            case 'tojson': {
+            case 'json': {
               emit('JSON.parse(');
               walk(node.data[1]);
               emit(')');
@@ -2259,6 +2264,11 @@ var Adom = (function () {
               emit(').join(');
               walk(node.data[2]);
               emit(')');
+            } break;
+            case 'trim': {
+              emit('(');
+              walk(node.data[1]);
+              emit(').trim()');
             } break;
             case 'keys': {
               emit('Object.keys(');
