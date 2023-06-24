@@ -7,18 +7,19 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
+const fs = require('fs');
+const esbuild = require('esbuild');
+const path = require("path");
 
 var Adom = (function () {
   function Adom (config = {}) {
     this.cache = config.cache || false;
     this.minify = config.minify || false;
-    this.dirname = config.root || ".";
     this.ast_cache = {};
     this.files = {};
   }
 
   Adom.compile = async function (name, opts) {
-    const fs = require('fs');
     if (name && typeof name === 'object') {
       opts = name;
     }
@@ -1144,9 +1145,19 @@ var Adom = (function () {
     const parse_rhs = () => {
       let val;
       if (accept("file")) {
-        let path = parse_strict_string();
-        let dir = get_dir(tok.file);
-        let file = this.openFile(path, dir);
+        const t = tok;
+        const curr = this.getPathInfo(tok.file);
+        const pathInfo = this.getPathInfo(parse_strict_string(), curr.parent);
+        let file;
+        try {
+          file = this.openFile(pathInfo.full);
+        } catch (e) {
+          throw_adom_error({
+            msg: e.message,
+            pos: t.pos,
+            file: t.file
+          });
+        }
         val = {
           pos: tok.pos,
           file: tok.file,
@@ -1180,11 +1191,21 @@ var Adom = (function () {
             break;
           }
         } else if (accept('import')) {
-          let path = parse_strict_string();
-          let dir = get_dir(tok.file);
-          let file = this.openFile(path, dir);
+          const t = tok;
+          const curr = this.getPathInfo(tok.file);
+          const pathInfo = this.getPathInfo(parse_strict_string(), curr.parent);
+          let file;
+          try {
+            file = this.openFile(pathInfo.full);
+          } catch (e) {
+            throw_adom_error({
+              msg: e.message,
+              pos: t.pos,
+              file: t.file
+            });
+          }
           let toks = this.tokenize(file.text, file.name);
-          let _ast = this.parse(toks, file.name);
+          let _ast = this.parse(toks);
           let node = ast_node('file', _ast.data);
           node.children = _ast.children;
         } else if (accept("export")) {
@@ -1923,15 +1944,19 @@ var Adom = (function () {
     const yields = [];
     let write = false;
     let custom = false;
-    let fileIdx;
+    let fileIdx = -1;
     let loop_depth = 0;
     let tagId = 0;
 
-    function emit(txt) {
+    const emit = (txt) => {
       out[out.length - 1].code += txt;
-    }
+      if (fileIdx > -1) {
+        const n = fileList[fileIdx].name;
+        out[out.length - 1].parent_dir = this.getPathInfo(n).parent;
+      }
+    };
 
-    function createFileList(node) {
+    const createFileList = (node) => {
       if (node.type === 'file') {
         node.children.forEach((child) => {
           createFileList(child);
@@ -1946,7 +1971,7 @@ var Adom = (function () {
           });
         }
       }
-    }
+    };
 
     function idGen() {
       const indexes = [];
@@ -2334,33 +2359,19 @@ var Adom = (function () {
     return out;
   };
 
-  Adom.prototype.getPath = function (p, dir) {
-    try {
-      let path = require("path");
-      return path.resolve(dir || this.dirname, p);
-    } catch (e) {
-      return p;
-    }
+  Adom.prototype.getPathInfo = function (p, base) {
+    const full = base ? path.resolve(base, p) : path.resolve(p);
+    const parent = path.dirname(full);
+    return {
+      full,
+      parent
+    };
   };
 
-  Adom.prototype.openFile = function(p, dir) {
-    let fs;
-
-    try {
-      fs = require("fs");
-    } catch (e) {
-      return { name: '', text: '' }
-    }
-
-    let f = this.getPath(p, dir);
-    let t = fs.readFileSync(f).toString();
-
-    this.files[f] = t;
-
-    return {
-      name: f,
-      text: t
-    };
+  Adom.prototype.openFile = function(name) {
+    const text = fs.readFileSync(name).toString();
+    this.files[name] = text;
+    return { name, text };
   };
 
   Adom.prototype.generateAst = function (file) {
@@ -2370,21 +2381,36 @@ var Adom = (function () {
     return ast;
   };
 
-  Adom.prototype.processJs = async function (js) {
-    const esbuild = require('esbuild');
+  const addParentPathsToRequires = (code, par) => {
+    const len = code.length;
+    let out = '';
+    for (let i = 0; i < len; i++) {
+      if (code.slice(i, i+10) === 'require(".') {
+        let f = '';
+        i += 9; // right at the period
+        while (code[i] !== '"') f += code[i++];
+        out += `require("${path.resolve(par, f)}"`;
+      } else {
+        out += code[i];
+      }
+    }
+    return out;
+  };
 
+  Adom.prototype.processJs = async function (js) {
     await Promise.all(js.map(async (chunk, index) => {
       if (chunk.transform) {
         const opts = { format: 'cjs', loader: 'ts' };
         const result = await esbuild.transform(chunk.code, opts);
-        js[index].code = result.code;
+        const code = addParentPathsToRequires(result.code, chunk.parent_dir);
+        js[index].code = code;
       }
     }));
     const content = js.map((chunk) => chunk.code);
     const result = await esbuild.build({
       stdin: {
         contents: content.join('\n'),
-        resolveDir: this.dirname
+        resolveDir: this.parent_dir
       },
       bundle: true,
       minify: this.minify,
@@ -2396,9 +2422,9 @@ var Adom = (function () {
   Adom.prototype.render = async function (file, input_state) {
     let html;
     try {
-      let cacheKey = this.getPath(file);
-      let html;
-
+      const pathInfo = this.getPathInfo(file);
+      const cacheKey = pathInfo.full;
+      this.parent_dir = pathInfo.parent;
       if (this.cache && this.ast_cache[cacheKey]) {
         html = this.execute(this.ast_cache[cacheKey], input_state || {});
       } else {
