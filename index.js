@@ -209,78 +209,78 @@ var Adom = (function () {
     'animateColor',
     'animateMotion',
     'animateTransform',
-    "circle",
-    "clipPath",
-    "color-profile",
-    "cursor",
-    "defs",
-    "desc",
-    "ellipse",
-    "feBlend",
-    "feColorMatrix",
-    "feComponentTransfer",
-    "feComposite",
-    "feConvolveMatrix",
-    "feDiffuseLighting",
-    "feDisplacementMap",
-    "feDistantLight",
-    "feFlood",
-    "feFuncA",
-    "feFuncB",
-    "feFuncG",
-    "feFuncR",
-    "feGaussianBlur",
-    "feImage",
-    "feMerge",
-    "feMergeNode",
-    "feMorphology",
-    "feOffset",
-    "fePointLight",
-    "feSpecularLighting",
-    "feSpotLight",
-    "feTile",
-    "feTurbulence",
-    "filter",
-    "font",
-    "font-face",
-    "font-face-format",
-    "font-face-name",
-    "font-face-src",
-    "font-face-uri",
-    "foreignObject",
-    "g",
-    "glyph",
-    "glyphRef",
-    "hkern",
-    "image",
-    "line",
-    "linearGradient",
-    "marker",
-    "mask",
-    "metadata",
-    "missing-glyph",
-    "mpath",
-    "path",
-    "pattern",
-    "polygon",
-    "polyline",
-    "radialGradient",
-    "rect",
-    "script",
-    "set",
-    "stop",
-    "style",
-    "svg",
-    "switch",
-    "symbol",
-    "text",
-    "textPath",
-    "title",
-    "tref",
-    "tspan",
-    "use",
-    "view",
-    "vkern",
+    'circle',
+    'clipPath',
+    'color-profile',
+    'cursor',
+    'defs',
+    'desc',
+    'ellipse',
+    'feBlend',
+    'feColorMatrix',
+    'feComponentTransfer',
+    'feComposite',
+    'feConvolveMatrix',
+    'feDiffuseLighting',
+    'feDisplacementMap',
+    'feDistantLight',
+    'feFlood',
+    'feFuncA',
+    'feFuncB',
+    'feFuncG',
+    'feFuncR',
+    'feGaussianBlur',
+    'feImage',
+    'feMerge',
+    'feMergeNode',
+    'feMorphology',
+    'feOffset',
+    'fePointLight',
+    'feSpecularLighting',
+    'feSpotLight',
+    'feTile',
+    'feTurbulence',
+    'filter',
+    'font',
+    'font-face',
+    'font-face-format',
+    'font-face-name',
+    'font-face-src',
+    'font-face-uri',
+    'foreignObject',
+    'g',
+    'glyph',
+    'glyphRef',
+    'hkern',
+    'image',
+    'line',
+    'linearGradient',
+    'marker',
+    'mask',
+    'metadata',
+    'missing-glyph',
+    'mpath',
+    'path',
+    'pattern',
+    'polygon',
+    'polyline',
+    'radialGradient',
+    'rect',
+    'script',
+    'set',
+    'stop',
+    'style',
+    'svg',
+    'switch',
+    'symbol',
+    'text',
+    'textPath',
+    'title',
+    'tref',
+    'tspan',
+    'use',
+    'view',
+    'vkern',
     // end svg tags
   ]
 
@@ -1246,6 +1246,34 @@ var Adom = (function () {
     return ast;
   };
 
+  const getType = (v) => {
+    if (Array.isArray(v)) return 'array';
+    if (v === null) return null;
+    if (typeof v === 'object') return 'object';
+    if (typeof v === 'string') return 'string';
+    if (typeof v === 'number') return 'number';
+    if (typeof v === 'boolean') return 'boolean';
+    return 'undefined';
+  };
+
+  Adom.prototype.execute2 = function(ast, initial_state) {
+    // todo
+    // single ast pass
+    // error if first printed tag is not 'html'
+    function walk(node) {
+      switch (node.type) {
+        case 'if': {
+          if (node.children[1]) {
+            emit('} else {\n');
+            node.children[1].children.forEach(walk);
+          }
+        }
+      }
+    }
+  
+    walk();
+  };
+
   Adom.prototype.execute = function(ast, initial_state) {
     let html = "";
     let state = [initial_state];
@@ -1407,8 +1435,8 @@ var Adom = (function () {
               const r = expr.data[2];
               state.push(s);
               l = l[t]((_1, _2) => {
-                s._1 = _1;
-                s._2 = _2;
+                s._a = _1;
+                s._b = _2;
                 return evaluate(r);
               });
               state.pop();
@@ -2398,15 +2426,14 @@ var Adom = (function () {
   };
 
   Adom.prototype.processJs = async function (js) {
-    await Promise.all(js.map(async (chunk, index) => {
+    const content = await Promise.all(js.map(async (chunk) => {
       if (chunk.transform) {
         const opts = { format: 'cjs', loader: 'ts' };
         const result = await esbuild.transform(chunk.code, opts);
-        const code = addParentPathsToRequires(result.code, chunk.parent_dir);
-        js[index].code = code;
+        return addParentPathsToRequires(result.code, chunk.parent_dir);
       }
+      return chunk.code;
     }));
-    const content = js.map((chunk) => chunk.code);
     const result = await esbuild.build({
       stdin: {
         contents: content.join('\n'),
