@@ -1406,9 +1406,9 @@ var Adom = (function () {
               let l = evaluate(expr.data[1]);
               const r = expr.data[2];
               state.push(s);
-              l = l[t]((_1, _2) => {
-                s._1 = _1;
-                s._2 = _2;
+              l = l[t]((_a, _b) => {
+                s._a = _a;
+                s._b = _b;
                 return evaluate(r);
               });
               state.pop();
