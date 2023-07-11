@@ -1485,9 +1485,9 @@ var Adom = (function () {
               const val = evaluate(node.data[1]);
               const t = getType(val);
               if (t === 'array') {
-                return val.reverse();
+                stack.push(val.reverse());
               } else if (t === 'string') {
-                return val.split('').reverse().join('');
+                stack.push(val.split('').reverse().join(''));
               } else {
                 // type error
               }
