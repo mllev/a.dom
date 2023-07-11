@@ -1,6 +1,6 @@
 #! /usr/bin/env node
 
-let Adom = require('./index')
+let adom = require('./index')
 let fs = require('fs')
 let path = require('path')
 let config = {}
@@ -100,12 +100,6 @@ let mimeTypes = {
   zip: 'application/zip'
 };
 
-let c = new Adom({
-  root: path.resolve(dir, config.root || ''),
-  cache: false,
-  minify: config.minify
-});
-
 if (config.starter) {
   if (!config.app) {
     console.log(help);
@@ -146,7 +140,11 @@ if (config.starter) {
       if (fs.existsSync(p) && !config.forceWrite) {
         console.log('Error: file already exists:', p);
       } else {
-        fs.writeFileSync(path.resolve(dir, config.out), await c.render(config.file));
+        fs.writeFileSync(path.resolve(dir, config.out), await adom.compile({
+          input: config.file,
+          cache: false,
+          minify: config.minify
+        }));
       }
     }
     build();
@@ -158,7 +156,7 @@ if (config.starter) {
     console.log(req.method, url);
     if (routes[url]) {
       res.writeHead(200, { 'Content-type': 'text/html; charset=utf-8' });
-      res.end(await c.render(routes[url]));
+      res.end(await adom.compile({ input: routes[url], cache: false, minify: config.minify }));
       return;
     } else {
       try {

@@ -12,39 +12,9 @@ const esbuild = require('esbuild');
 const path = require("path");
 
 var Adom = (function () {
-  function Adom (config = {}) {
-    this.cache = config.cache || false;
-    this.minify = config.minify || false;
-    this.ast_cache = {};
-    this.files = {};
-  }
-
-  Adom.compile = async function (name, opts) {
-    if (name && typeof name === 'object') {
-      opts = name;
-    }
-    if (!opts) opts = {};
-    if (typeof name === 'string') {
-      opts.input = name;
-    }
-    const compiler = new Adom(opts)
-    if (!opts.output) {
-      return compiler.render(opts.input, { data: opts.data });
-    } else {
-      const out = await compiler.render(opts.input, { data: opts.data });
-      fs.writeFileSync(opts.output, out);
-    }
-  };
-
-  function ASTNode (type, data) {
-    this.type = type;
-    this.data = data;
-    this.children = [];
-  }
-
-  ASTNode.prototype.addChild = function (node) {
-    this.children.push(node);
-  };
+  const _files = {};
+  const _ast_cache = {};
+  const Adom = {};
 
   function throw_adom_error (err) {
     err.origin = 'adom';
@@ -286,32 +256,47 @@ var Adom = (function () {
 
 
   const void_tags = [
-    "area",
-    "base",
-    "basefont",
-    "bgsound",
-    "br",
-    "col",
-    "command",
-    "embed",
-    "frame",
-    "hr",
-    "image",
-    "img",
-    "input",
-    "isindex",
-    "keygen",
-    "link",
-    "menuitem",
-    "meta",
-    "nextid",
-    "param",
-    "source",
-    "track",
-    "wbr"
+    'area',
+    'base',
+    'basefont',
+    'bgsound',
+    'br',
+    'col',
+    'command',
+    'embed',
+    'frame',
+    'hr',
+    'image',
+    'img',
+    'input',
+    'isindex',
+    'keygen',
+    'link',
+    'menuitem',
+    'meta',
+    'nextid',
+    'param',
+    'source',
+    'track',
+    'wbr'
   ];
 
-  Adom.prototype.tokenize = function(prog, file, offset) {
+  const getPathInfo = (p, base) => {
+    const full = base ? path.resolve(base, p) : path.resolve(p);
+    const parent = path.dirname(full);
+    return {
+      full,
+      parent
+    };
+  };
+
+  const openFile = (name) => {
+    const text = fs.readFileSync(name).toString();
+    _files[name] = text;
+    return text;
+  };
+
+  const tokenize = (prog, file, offset) => {
     let cursor = 0, end_pos = prog.length - 1;
     let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
     let keywords = [
@@ -386,7 +371,7 @@ var Adom = (function () {
         } else if (text[i] === "}" && text[i+1] === "}" && in_expr === true) {
           in_expr = false;
           chunk += "}}";
-          let toks = this.tokenize(chunk, file, pos);
+          let toks = tokenize(chunk, file, pos);
           toks.shift(); //file_begin
           toks.pop(); //eof
           toks.forEach(function(t) {
@@ -423,13 +408,21 @@ var Adom = (function () {
         }
         cursor = i;
         continue;
-      } else if (c === '-' && prog[cursor + 1] === '>') {
-        cursor+=2;
-        tok.type = '->';
-        tok.data = '->';
       } else if (c === "/" && prog[cursor + 1] === "/") {
         let i = cursor;
         while (c !== "\n" && i <= end_pos) c = prog[++i];
+        cursor = i;
+        continue;
+      } else if (c === "/" && prog[cursor + 1] === "*") {
+        let i = cursor + 2;
+        while (true) {
+          if (i >= end_pos) break;
+          if (prog[i] === '*' && prog[i+1] === '/') {
+            i += 2;
+            break;
+          }
+          i++;
+        }
         cursor = i;
         continue;
       } else if (c >= "0" && c <= "9") {
@@ -575,7 +568,7 @@ var Adom = (function () {
           }
           text += prog[i++];
         }
-        let chunks = break_into_chunks.call(this, text, cursor);
+        let chunks = break_into_chunks(text, cursor);
         tokens.push({ type: 'string', pos: offs + cursor, file: file });
         if (chunks.length > 1) {
           chunks.forEach(function(c) {
@@ -620,17 +613,16 @@ var Adom = (function () {
     return tokens;
   };
 
-  Adom.prototype.parse = function(tokens) {
+  const parse = (tokens) => {
     let tok = tokens[0];
     let cursor = 0;
-    let runtime = '';
     let in_tag = false;
-    let ast = new ASTNode('file', { file: tok.file });
+    let ast = { type: 'file', data: { file: tok.file }, children: [] };
     let parent = ast;
 
     function ast_node(type, data) {
-      let node = new ASTNode(type, data);
-      parent.addChild(node);
+      let node = { type, data, children: [] };
+      parent.children.push(node);
       return node;
     }
 
@@ -1146,11 +1138,11 @@ var Adom = (function () {
       let val;
       if (accept("file")) {
         const t = tok;
-        const curr = this.getPathInfo(tok.file);
-        const pathInfo = this.getPathInfo(parse_strict_string(), curr.parent);
+        const curr = getPathInfo(tok.file);
+        const pathInfo = getPathInfo(parse_strict_string(), curr.parent);
         let file;
         try {
-          file = this.openFile(pathInfo.full);
+          file = openFile(pathInfo.full);
         } catch (e) {
           throw_adom_error({
             msg: e.message,
@@ -1162,7 +1154,7 @@ var Adom = (function () {
           pos: tok.pos,
           file: tok.file,
           type: 'string',
-          data: [{ type: 'chunk', data: file.text }]
+          data: [{ type: 'chunk', data: file }]
         };
       } else {
         val = parse_expr();
@@ -1182,7 +1174,7 @@ var Adom = (function () {
       });
     }
 
-    const parse_file = () => {
+    function parse_file () {
       while (true) {
         if (tok.type === "file_begin") {
           next();
@@ -1192,11 +1184,11 @@ var Adom = (function () {
           }
         } else if (accept('import')) {
           const t = tok;
-          const curr = this.getPathInfo(tok.file);
-          const pathInfo = this.getPathInfo(parse_strict_string(), curr.parent);
+          const curr = getPathInfo(tok.file);
+          const pathInfo = getPathInfo(parse_strict_string(), curr.parent);
           let file;
           try {
-            file = this.openFile(pathInfo.full);
+            file = openFile(pathInfo.full);
           } catch (e) {
             throw_adom_error({
               msg: e.message,
@@ -1204,8 +1196,8 @@ var Adom = (function () {
               file: t.file
             });
           }
-          let toks = this.tokenize(file.text, file.name);
-          let _ast = this.parse(toks);
+          let toks = tokenize(file, pathInfo.full);
+          let _ast = parse(toks);
           let node = ast_node('file', _ast.data);
           node.children = _ast.children;
         } else if (accept("export")) {
@@ -1229,7 +1221,6 @@ var Adom = (function () {
         } else if (peek('var') || peek('const') || peek('let')) {
           parse_assignment();
         } else if (peek('js_context')) {
-          runtime += tok.data;
           ast_node('js', tok.data);
           js_found = true;
           next();
@@ -1241,40 +1232,328 @@ var Adom = (function () {
 
     parse_file();
 
-    ast.data.runtime = runtime;
-
     return ast;
   };
 
-  const getType = (v) => {
-    if (Array.isArray(v)) return 'array';
-    if (v === null) return null;
-    if (typeof v === 'object') return 'object';
-    if (typeof v === 'string') return 'string';
-    if (typeof v === 'number') return 'number';
-    if (typeof v === 'boolean') return 'boolean';
-    return 'undefined';
-  };
+  const execute2 = (ast, initial_state) => {
+    let html = '';
 
-  Adom.prototype.execute2 = function(ast, initial_state) {
-    // todo
-    // single ast pass
-    // error if first printed tag is not 'html'
-    function walk(node) {
-      switch (node.type) {
-        case 'if': {
-          if (node.children[1]) {
-            emit('} else {\n');
-            node.children[1].children.forEach(walk);
-          }
-        }
-      }
+    const stack = [];
+    const scopes = [{}];
+
+    const emit = (txt) => {
+      html += txt; 
+    };
+
+    const getType = (v) => {
+      if (Array.isArray(v)) return 'array';
+      if (v === null) return null;
+      if (typeof v === 'object') return 'object';
+      if (typeof v === 'string') return 'string';
+      if (typeof v === 'number') return 'number';
+      if (typeof v === 'boolean') return 'boolean';
+      return 'undefined';
+    };
+
+    const evaluate = (n) => {
+      walk(n);
+      return stack.pop();
+    };
+
+    const err = (msg, node) => {
+      throw_adom_error({ msg, file: node.file, pos: node.pos });
+    };
+
+    const escapeHTML = (txt) => {
+      return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+
+    const assertType = (v, t, n) => {
+      const type = getType(v);
+      if (typeof t === 'string') t = [t];
+      if (t.indexOf(type) === -1) {
+        err(`Expected ${t}, got ${type}`, n);
+      }
+    };
+
+    const walk = (node) => {
+      switch (node.type) {
+        case 'custom': {
+          // ...
+        } break;
+        case 'file': {
+          node.children.forEach(walk);
+        } break;
+        case 'export': {
+          // ...
+        } break;
+        case 'tag': {
+          const attr = node.data.attributes;
+          if (node.data.name === 'html') {
+            // make sure html is the first tag written and the only parent tag in the file scope
+          }
+          emit('<');
+          emit(node.data.name);
+          for (let a in attr) {
+            const val = evaluate(attr[a]);
+            emit(' ');
+            emit(a);
+            emit('="');
+            emit(val.replace(/"/g, '&quot;'));
+            emit('"');
+          }
+          emit('>');
+          if (void_tags.indexOf(node.data.name) === -1) {
+            node.children.forEach(walk);
+            emit('</');
+            emit(node.data.name);
+            emit('>');
+          }
+        } break;
+        case 'set': {
+          const k = node.data.lhs.data;
+          scopes[scopes.length - 1][k] = evaluate(node.data.rhs);
+        } break;
+        case 'textnode': {
+          // if in script tag, do not escape html
+          emit(escapeHTML(evaluate(node.data)));
+        } break;
+        case 'null':
+        case 'number':
+        case 'bool':
+        case 'chunk':
+          stack.push(node.data);
+          break;
+        case 'string': {
+          let str = '';
+          node.data.forEach((c) => {
+            // make sure the top of the stack contains a scalar value
+            str += evaluate(c);
+          });
+          stack.push(str);
+        } break;
+        case 'object': {
+          const keys = Object.keys(node.data);
+          const obj = {};
+          keys.forEach((k) => {
+            obj[k] = evaluate(node.data[k]);
+          });
+          stack.push(obj);
+        } break;
+        case 'array': {
+          const data = [];
+          node.data.forEach((d) => {
+            data.push(evaluate(d));
+          });
+          stack.push(data);
+        } break;
+        case 'ident': {
+          const v = node.data;
+          let found = false;
+          for (let i = scopes.length - 1; i >= 0; i--) {
+            if (scopes[i][v] !== undefined) {
+              stack.push(scopes[i][v]);
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            err(v + ' is undefined', node.data);
+          }
+        } break;
+        case 'accumulator': {
+          const v = node.data[0];
+          const prev = v.data;
+          const ptr = evaluate(v);
+          for (let i = 1; i < node.data.length; i++) {
+            v = node.data[i];
+            const str = evaluate(v);
+            assertType(str, ['string', 'number'], node.data);
+            if (ptr[str] !== undefined) {
+              prev = str;
+              ptr = ptr[str];
+            } else {
+              err(str + ' is not a property of ' + prev, node);
+            }
+          }
+          stack.push(ptr);
+        } break;
+        case 'ternary': {
+          const v0 = evaluate(node.data[0]);
+          const v1 = evaluate(node.data[1]);
+          const v2 = evaluate(node.data[2]);
+          stack.push(v0 ? v1 : v2);
+        } break;
+        case 'unop': {
+          const v = evaluate(node.data);
+          console.log(node.data);
+          assertType(v, 'number', node.data);
+          if (node.op === '-') {
+            stack.push(-v);
+          } else if (node.op === '!') {
+            stack.push(!v);
+          }
+        } break;
+        case 'binop': {
+          const op = node.op;
+          const v1 = evaluate(node.data[0]);
+          const v2 = evaluate(node.data[1]);
+          if (op === '==') {
+            stack.push(v1 === v2);
+          } else if (op === '!=') {
+            stack.push(v1 !== v2);
+          } else if (op === '<=') {
+            stack.push(v1 <= v2);
+          } else if (op === '>=') {
+            stack.push(v1 >= v2);
+          } else if (op === '&&') {
+            stack.push(v1 && v2);
+          } else if (op === '||') {
+            stack.push(v1 || v2);
+          } else if (op === '>') {
+            stack.push(v1 > v2);
+          } else if (op === '<') {
+            stack.push(v1 < v2);
+          } else if (op === '+') {
+            stack.push(v1 + v2);
+          } else if (op === '-') {
+            stack.push(v1 - v2);
+          } else if (op === '*') {
+            stack.push(v1 * v2);
+          } else if (op === '/') {
+            stack.push(v1 / v2);
+          } else if (op === '%') {
+            stack.push(v1 % v2);
+          }
+        } break;
+        case 'parenthetical': {
+          walk(node.data);
+        } break;
+        case 'pipe': {
+          const op = node.data[0];
+          switch (op) {
+            case 'repeat': {
+              const arr = [];
+              const count = evaluate(node.data[2]);
+              for (let i = 0; i < count; i++) {
+                arr.push(evaluate(node.data[1]));
+              }
+              stack.push(arr);
+            } break;
+            case 'length': {
+              const data = evaluate(node.data[1]);
+              stack.push(data.length);
+            } break;
+            case 'filter':
+            case 'map': {
+              const t = node.data[0]; // map or filter
+              const s = {};
+              const l = evaluate(node.data[1]);
+              const r = expr.data[2];
+              scopes.push(s);
+              const res = l[t]((_a, _b) => {
+                s._a = _a;
+                s._b = _b;
+                return evaluate(r);
+              });
+              stack.push(res);
+            } break;
+            case 'toupper': {
+              const val = evaluate(node.data[1]);
+              stack.push(val.toUpperCase());
+            } break;
+            case 'tolower': {
+              const val = evaluate(node.data[1]);
+              stack.push(val.toLowerCase());
+            } break;
+            case 'split': {
+              const val = evaluate(node.data[1]);
+              const del = evaluate(node.data[2]);
+              stack.push(e.split(del));
+            } break;
+            case 'includes': {
+              const val = evaluate(node.data[1]);
+              const del = evaluate(node.data[2]);
+              stack.push(e.indexOf(del) > -1);
+            } break;
+            case 'indexof': {
+              const val = evaluate(node.data[1]);
+              const del = evaluate(node.data[2]);
+              stack.push(e.indexOf(del));
+            } break;
+            case 'reverse': {
+              const val = evaluate(node.data[1]);
+              const t = getType(val);
+              if (t === 'array') {
+                return val.reverse();
+              } else if (t === 'string') {
+                return val.split('').reverse().join('');
+              } else {
+                // type error
+              }
+            } break;
+            case 'json': {
+              const val = evaluate(node.data[1]);
+              stack.push(JSON.parse(val));
+            } break;
+            case 'replace': {
+              const e = evaluate(node.data[1]);
+              const r = evaluate(node.data[2]);
+              const n = evaluate(node.data[3]);
+              const t = getType(e);
+              stack.push(e.replace(r, n));
+            } break;
+            case 'replaceall': {
+              const e = evaluate(node.data[1]);
+              const r = evaluate(node.data[2]);
+              const n = evaluate(node.data[3]);
+              const t = getType(e);
+              stack.push(e.replaceAll(r, n));
+            } break;
+            case 'tostring': {
+              const val = evaluate(node.data[1]);
+              const t = getType(val);
+              if (t === 'object' || t === 'null' || t === 'array') {
+                return JSON.stringify(e);
+              } else {
+                return e.toString();
+              }
+            } break;
+            case 'join': {
+              const val = evaluate(node.data[1]);
+              const del = evaluate(node.data[2]);
+              stack.push(val.join(del));
+            } break;
+            case 'trim': {
+              const val = evaluate(node.data[1]);
+              stack.push(val.trim());
+            } break;
+            case 'keys': {
+              const val = evaluate(node.data[1]);
+              stack.push(Object.keys(val));
+            } break;
+            case 'values': {
+              const val = evaluate(node.data[1]);
+              stack.push(Object.values(val));
+            } break;
+            default:
+              break;
+          }
+        } break;
+        default: {
+          if (node.children) {
+            node.children.forEach(walk);
+          }
+        } break;
+      }
+    };
   
-    walk();
+    walk(ast);
+
+    return html;
   };
 
-  Adom.prototype.execute = function(ast, initial_state) {
+  const execute = (ast, initial_state) => {
     let html = "";
     let state = [initial_state];
     let custom_tags = [];
@@ -1434,9 +1713,9 @@ var Adom = (function () {
               let l = evaluate(expr.data[1]);
               const r = expr.data[2];
               state.push(s);
-              l = l[t]((_1, _2) => {
-                s._a = _1;
-                s._b = _2;
+              l = l[t]((_a, _b) => {
+                s._a = _a;
+                s._b = _b;
                 return evaluate(r);
               });
               state.pop();
@@ -1691,8 +1970,8 @@ var Adom = (function () {
     return html;
   };
 
-  Adom.prototype.print_error = function (err, str) {
-    let prog = str || this.files[err.file];
+  const print_error = (err, str) => {
+    let prog = str || _files[err.file];
     let index = err.pos;
 
     function get_line_info (index) {
@@ -1965,7 +2244,7 @@ var Adom = (function () {
   }
 `;
 
-  Adom.prototype.generateRuntime = function (ast, incoming_state) {
+  const generateRuntime = (ast, incoming_state) => {
     const out = [{ code: '', transform: false }];
     const fileList = [];
     const fileIdMap = {};
@@ -1980,7 +2259,7 @@ var Adom = (function () {
       out[out.length - 1].code += txt;
       if (fileIdx > -1) {
         const n = fileList[fileIdx].name;
-        out[out.length - 1].parent_dir = this.getPathInfo(n).parent;
+        out[out.length - 1].parent_dir = getPathInfo(n).parent;
       }
     };
 
@@ -2387,45 +2666,23 @@ var Adom = (function () {
     return out;
   };
 
-  Adom.prototype.getPathInfo = function (p, base) {
-    const full = base ? path.resolve(base, p) : path.resolve(p);
-    const parent = path.dirname(full);
-    return {
-      full,
-      parent
-    };
-  };
-
-  Adom.prototype.openFile = function(name) {
-    const text = fs.readFileSync(name).toString();
-    this.files[name] = text;
-    return { name, text };
-  };
-
-  Adom.prototype.generateAst = function (file) {
-    let f = this.openFile(file);
-    let tokens = this.tokenize(f.text, f.name);
-    let ast = this.parse(tokens);
-    return ast;
-  };
-
-  const addParentPathsToRequires = (code, par) => {
-    const len = code.length;
-    let out = '';
-    for (let i = 0; i < len; i++) {
-      if (code.slice(i, i+10) === 'require(".') {
-        let f = '';
-        i += 9; // right at the period
-        while (code[i] !== '"') f += code[i++];
-        out += `require("${path.resolve(par, f)}"`;
-      } else {
-        out += code[i];
+  const processJs = async (js, config) => {
+    const addParentPathsToRequires = (code, par) => {
+      const len = code.length;
+      let out = '';
+      for (let i = 0; i < len; i++) {
+        if (code.slice(i, i+10) === 'require(".') {
+          let f = '';
+          i += 9; // right at the period
+          while (code[i] !== '"') f += code[i++];
+          out += `require("${path.resolve(par, f)}"`;
+        } else {
+          out += code[i];
+        }
       }
-    }
-    return out;
-  };
+      return out;
+    };
 
-  Adom.prototype.processJs = async function (js) {
     const content = await Promise.all(js.map(async (chunk) => {
       if (chunk.transform) {
         const opts = { format: 'cjs', loader: 'ts' };
@@ -2437,42 +2694,54 @@ var Adom = (function () {
     const result = await esbuild.build({
       stdin: {
         contents: content.join('\n'),
-        resolveDir: this.parent_dir
+        resolveDir: config.parentDir
       },
       bundle: true,
-      minify: this.minify,
+      minify: config.minify,
       write: false
     });
     return result.outputFiles[0].text;
   };
 
-  Adom.prototype.render = async function (file, input_state) {
+  const render = async (file, input_state, config) => {
     let html;
     try {
-      const pathInfo = this.getPathInfo(file);
+      const pathInfo = getPathInfo(file);
       const cacheKey = pathInfo.full;
-      this.parent_dir = pathInfo.parent;
-      if (this.cache && this.ast_cache[cacheKey]) {
-        html = this.execute(this.ast_cache[cacheKey], input_state || {});
-      } else {
-        let ast = this.generateAst(file);
-        let runtime = this.generateRuntime(ast, input_state || {});
-        ast.data.runtime = await this.processJs(runtime);
-        html = this.execute(ast, input_state || {});
-        if (this.cache) {
-          this.ast_cache[cacheKey] = ast;
-        }
-      }
-
+      const parentDir = pathInfo.parent;
+      const fileText = openFile(file);
+      const tokens = tokenize(fileText, file);
+      const ast = parse(tokens);
+      const runtime = generateRuntime(ast, input_state || {});
+      ast.data.runtime = await processJs(runtime, { parentDir, minify: config.minify });
+      html = execute2(ast, input_state || {});
+      console.log(html);
+      // console.log(execute2(ast, input_state));
       return html;
     } catch (e) {
       if (e.origin === 'adom') {
-        html = `<pre>${this.print_error(e)}</pre>`;
+        html = `<pre>${print_error(e)}</pre>`;
       } else {
         console.log(e);
         html = `<pre>${e.toString()}</pre>`;
       }
       return html;
+    }
+  };
+
+  Adom.compile = async (name, opts) => {
+    if (name && typeof name === 'object') {
+      opts = name;
+    }
+    if (!opts) opts = {};
+    if (typeof name === 'string') {
+      opts.input = name;
+    }
+    if (!opts.output) {
+      return render(opts.input, { data: opts.data }, opts);
+    } else {
+      const out = await compiler.render(opts.input, { data: opts.data }, opts);
+      fs.writeFileSync(opts.output, out);
     }
   };
 
