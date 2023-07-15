@@ -1356,8 +1356,10 @@ var Adom = (function () {
                 }).join(' ');
               } else if (t === 'object') {
                 val = Object.keys(val).filter((k) => v[k]).join(' ');
+              } else if (t === 'string') {
+                val = val.replace(/"/g, '&quot;');
               }
-              emit(val.replace(/"/g, '&quot;'));
+              emit(val);
               emit('"');
             }
           }
@@ -1578,7 +1580,7 @@ var Adom = (function () {
               const t = node.data[0]; // map or filter
               const s = {};
               const l = evaluate(node.data[1]);
-              const r = expr.data[2];
+              const r = node.data[2];
               const c = ctx[ctx.length - 1];
               c.state.push(s);
               const res = l[t]((_a, _b) => {
@@ -2233,7 +2235,7 @@ var Adom = (function () {
             case 'filter': {
               walk(node.data[1]);
               emit('.');
-              walk(node.data[0]);
+              emit(node.data[0]);
               emit('(function (_a, _b) { return ');
               walk(node.data[2]);
               emit('; })');
