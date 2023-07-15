@@ -1341,7 +1341,7 @@ var Adom = (function () {
           emit('<');
           emit(node.data.name);
           for (let a in attr) {
-            const val = evaluate(attr[a]);
+            let val = evaluate(attr[a]);
             const t = getType(val);
             if (val !== false || a === 'innerHTML') {
               emit(' ');
@@ -1371,13 +1371,10 @@ var Adom = (function () {
             } else if (node.data.name === 'head') {
               if (found.head) err('head tag may only be used once', node.data);
               found.head = true;
-            } else if (!found.head) {
-              err('Expected head tag', node.data);
             } else if (node.data.name === 'body') {
+              if (!found.head) err('Expected head tag', node.data);
               if (found.body) err('body tag may only be used once', node.data);
               found.body = true;
-            } else if (!found.body) {
-              err('Expected body tag', node.data);
             }
             node.children.forEach(walk);
             if (node.data.name === 'head') {
@@ -1485,9 +1482,9 @@ var Adom = (function () {
           }
         } break;
         case 'accumulator': {
-          const v = node.data[0];
-          const prev = v.data;
-          const ptr = evaluate(v);
+          let v = node.data[0];
+          let prev = v.data;
+          let ptr = evaluate(v);
           for (let i = 1; i < node.data.length; i++) {
             v = node.data[i];
             const str = evaluate(v);
@@ -1608,7 +1605,7 @@ var Adom = (function () {
             case 'includes': {
               const val = evaluate(node.data[1]);
               const del = evaluate(node.data[2]);
-              stack.push(e.indexOf(del) > -1);
+              stack.push(val.indexOf(del) > -1);
             } break;
             case 'indexof': {
               const val = evaluate(node.data[1]);
@@ -1856,10 +1853,6 @@ var Adom = (function () {
   }
 
   function $$e (type, id, attrs, events, children) {
-    if (type === 'head') return;
-    if (type === 'html' || type === 'body') {
-      return children();
-    }
     var node, _ = $$parent();
     var child = _.child, parent = _.parent;
     var tag = child && child.tagName ? child.tagName.toLowerCase() : null;
@@ -2092,6 +2085,15 @@ var Adom = (function () {
             emit(idGen());
             emit(', {');
           } else {
+            if (node.data.name === 'head') {
+              break;
+            }
+            if (node.data.name === 'html' || node.data.name === 'body') {
+              emit('(function () {');
+              node.children.forEach(walk);
+              emit('})();\n');
+              break;
+            }
             emit('$$e("');
             emit(node.data.name);
             emit('", ');
@@ -2099,6 +2101,7 @@ var Adom = (function () {
             emit(', {');
           }
           for (let a in attr) {
+            // todo: handle other values
             if (a === 'bind:value') {
               evts.push({ type: 'input', handler: `${attr[a].data} = $e.target.value;`, sync: true });
               attr.value = { type: 'ident', data: attr[a].data };
