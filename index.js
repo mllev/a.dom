@@ -366,8 +366,8 @@ var Adom = (function () {
           in_expr = true;
           chunks.push({ type: "chunk", data: chunk, pos: pos, file: file });
           chunk = "{{";
-          i+=2;
-          pos = cursor + i;
+          i += 2;
+          pos = cursor + i - 1;
         } else if (text[i] === "}" && text[i+1] === "}" && in_expr === true) {
           in_expr = false;
           chunk += "}}";
@@ -378,7 +378,7 @@ var Adom = (function () {
             chunks.push(t);
           });
           chunk = "";
-          i+=2;
+          i += 2;
           pos = cursor + i + 1;
         } else {
           chunk += text[i++];
@@ -1165,7 +1165,7 @@ var Adom = (function () {
     function parse_assignment () {
       next();
       let dst = { data: tok.data, pos: tok.pos, file: tok.file };
-      next();
+      expect('ident');
       accept("=");
       let val = parse_rhs();
       ast_node('set', {
@@ -1235,11 +1235,15 @@ var Adom = (function () {
     return ast;
   };
 
-  const execute2 = (ast, initial_state) => {
+  const execute = (ast, initial_state) => {
     let html = '';
 
     const stack = [];
-    const scopes = [{}];
+    const ctx = [];
+
+    let inScript = false;
+
+    const found = { head: false, head: false, body: false };
 
     const emit = (txt) => {
       html += txt; 
@@ -1272,51 +1276,169 @@ var Adom = (function () {
       const type = getType(v);
       if (typeof t === 'string') t = [t];
       if (t.indexOf(type) === -1) {
-        err(`Expected ${t}, got ${type}`, n);
+        err(`Expected ${t.join('|')}, got ${type}`, n);
       }
     };
 
     const walk = (node) => {
       switch (node.type) {
         case 'custom': {
-          // ...
+          ctx[ctx.length - 1].tags[node.data.name] = {
+            ctx: ctx[ctx.length - 1],
+            children: node.children
+          };
         } break;
         case 'file': {
+          ctx.push({
+            state: [{}],
+            yield: null,
+            tags: {},
+            children: node.children,
+            exports: []
+          });
           node.children.forEach(walk);
+          const c = ctx.pop();
+          c.exports.forEach((e) => {
+            ctx[ctx.length - 1].tags[e] = c.tags[e];
+          });
         } break;
         case 'export': {
-          // ...
+          if (!ctx[ctx.length - 1].tags[node.data.name]) {
+            err(`Undefined tag: ${node.data.name}`, node.data);
+          }
+          ctx[ctx.length - 1].exports.push(node.data.name);
         } break;
         case 'tag': {
+          const c = ctx[ctx.length - 1];
           const attr = node.data.attributes;
-          if (node.data.name === 'html') {
-            // make sure html is the first tag written and the only parent tag in the file scope
+          const custom = c.tags[node.data.name];
+          if (custom) {
+            const props = {};
+            for (let a in attr) {
+              props[a] = evaluate(attr[a]);
+            }
+            ctx.push({
+              state: [custom.ctx.state[0], { props }],
+              yield: () => {
+                const ref = ctx.pop();
+                node.children.forEach(walk);
+                ctx.push(ref);
+              },
+              tags: custom.ctx.tags,
+              children: node.children
+            });
+            custom.children.forEach(walk);
+            ctx.pop();
+            break;
+          }
+          // todo: html -> head, body enforcement
+          if (valid_tags.indexOf(node.data.name) === -1) {
+            err(`Invalid tag: ${node.data.name}`, node.data);
+          }
+          if (node.data.name === 'script') {
+            inScript = true;
           }
           emit('<');
           emit(node.data.name);
           for (let a in attr) {
             const val = evaluate(attr[a]);
-            emit(' ');
-            emit(a);
-            emit('="');
-            emit(val.replace(/"/g, '&quot;'));
-            emit('"');
+            const t = getType(val);
+            if (val !== false || a === 'innerHTML') {
+              emit(' ');
+              emit(a.replace('bind:', ''));
+              emit('="');
+              if (t === 'array') {
+                val = val.map((c) => {
+                  if (getType(c) === 'object') {
+                    return Object.keys(c).filter((k) => c[k]).join(' ');
+                  }
+                  return c;
+                }).join(' ');
+              } else if (t === 'object') {
+                val = Object.keys(val).filter((k) => v[k]).join(' ');
+              }
+              emit(val.replace(/"/g, '&quot;'));
+              emit('"');
+            }
           }
           emit('>');
           if (void_tags.indexOf(node.data.name) === -1) {
+            if (node.data.name === 'html') {
+              if (found.html) err('html tag may only be used once', node.data);
+              found.html = true;
+            } else if (!found.html) {
+              err('html tag must be the first tag printed', node.data);
+            } else if (node.data.name === 'head') {
+              if (found.head) err('head tag may only be used once', node.data);
+              found.head = true;
+            } else if (!found.head) {
+              err('Expected head tag', node.data);
+            } else if (node.data.name === 'body') {
+              if (found.body) err('body tag may only be used once', node.data);
+              found.body = true;
+            } else if (!found.body) {
+              err('Expected body tag', node.data);
+            }
             node.children.forEach(walk);
+            if (node.data.name === 'head') {
+              emit('<!-- ADOM_RUNTIME -->');
+            }
             emit('</');
             emit(node.data.name);
             emit('>');
+            inScript = false;
+          }
+        } break;
+        case 'if': {
+          if (evaluate(node.data)) {
+            walk(node.children[0]);
+          } else if (node.children[1]) {
+            walk(node.children[1]);
+          }
+        } break;
+        case 'each': {
+          const it = node.data.iterators;
+          const val = evaluate(node.data.list);
+          const t = getType(val);
+          const s = {};
+          ctx[ctx.length - 1].state.push(s);
+          if (t === 'array' || t === 'string') {
+            for (let i = 0; i < val.length; i++) {
+              s[it[0]] = val[i];
+              s[it[1]] = i;
+              node.children.forEach(walk);
+            }
+          } else if (t === 'object') {
+            const keys = Object.keys(val);
+            for (let i = 0; i < keys.length; i++) {
+              s[it[0]] = keys[i];
+              s[it[1]] = val[keys[i]];
+              node.children.forEach(walk);
+            }
+          } else {
+            err('Value is not iterable', node);
+          }
+          ctx[ctx.length - 1].state.pop();
+        } break;
+        case 'yield': {
+          const c = ctx[ctx.length - 1];
+          if (c.yield) {
+            c.yield();
+          } else {
+            err('Cannot yield outside of a custom tag', node);
           }
         } break;
         case 'set': {
           const k = node.data.lhs.data;
-          scopes[scopes.length - 1][k] = evaluate(node.data.rhs);
+          const c = ctx[ctx.length - 1];
+          c.state[c.state.length - 1][k] = evaluate(node.data.rhs);
         } break;
         case 'textnode': {
-          // if in script tag, do not escape html
-          emit(escapeHTML(evaluate(node.data)));
+          if (inScript) {
+            emit(evaluate(node.data));
+          } else {
+            emit(escapeHTML(evaluate(node.data)));
+          }
         } break;
         case 'null':
         case 'number':
@@ -1327,7 +1449,7 @@ var Adom = (function () {
         case 'string': {
           let str = '';
           node.data.forEach((c) => {
-            // make sure the top of the stack contains a scalar value
+            // todo: make sure the top of the stack contains a scalar value
             str += evaluate(c);
           });
           stack.push(str);
@@ -1349,16 +1471,17 @@ var Adom = (function () {
         } break;
         case 'ident': {
           const v = node.data;
+          const c = ctx[ctx.length - 1];
           let found = false;
-          for (let i = scopes.length - 1; i >= 0; i--) {
-            if (scopes[i][v] !== undefined) {
-              stack.push(scopes[i][v]);
+          for (let i = c.state.length - 1; i >= 0; i--) {
+            if (c.state[i][v] !== undefined) {
+              stack.push(c.state[i][v]);
               found = true;
               break;
             }
           }
           if (!found) {
-            err(v + ' is undefined', node.data);
+            err(v + ' is undefined', node);
           }
         } break;
         case 'accumulator': {
@@ -1386,7 +1509,6 @@ var Adom = (function () {
         } break;
         case 'unop': {
           const v = evaluate(node.data);
-          console.log(node.data);
           assertType(v, 'number', node.data);
           if (node.op === '-') {
             stack.push(-v);
@@ -1415,14 +1537,24 @@ var Adom = (function () {
           } else if (op === '<') {
             stack.push(v1 < v2);
           } else if (op === '+') {
+            assertType(v1, ['number','string'], node.data);
+            assertType(v2, ['number', 'string'], node.data);
             stack.push(v1 + v2);
           } else if (op === '-') {
+            assertType(v1, 'number', node.data);
+            assertType(v2, 'number', node.data);
             stack.push(v1 - v2);
           } else if (op === '*') {
+            assertType(v1, 'number', node.data);
+            assertType(v2, 'number', node.data);
             stack.push(v1 * v2);
           } else if (op === '/') {
+            assertType(v1, 'number', node.data);
+            assertType(v2, 'number', node.data);
             stack.push(v1 / v2);
           } else if (op === '%') {
+            assertType(v1, 'number', node.data);
+            assertType(v2, 'number', node.data);
             stack.push(v1 % v2);
           }
         } break;
@@ -1450,13 +1582,15 @@ var Adom = (function () {
               const s = {};
               const l = evaluate(node.data[1]);
               const r = expr.data[2];
-              scopes.push(s);
+              const c = ctx[ctx.length - 1];
+              c.state.push(s);
               const res = l[t]((_a, _b) => {
                 s._a = _a;
                 s._b = _b;
                 return evaluate(r);
               });
               stack.push(res);
+              c.state.pop();
             } break;
             case 'toupper': {
               const val = evaluate(node.data[1]);
@@ -1489,7 +1623,7 @@ var Adom = (function () {
               } else if (t === 'string') {
                 stack.push(val.split('').reverse().join(''));
               } else {
-                // type error
+                err(`Expected string or array`, node);
               }
             } break;
             case 'json': {
@@ -1548,423 +1682,6 @@ var Adom = (function () {
       }
     };
   
-    walk(ast);
-
-    return html;
-  };
-
-  const execute = (ast, initial_state) => {
-    let html = "";
-    let state = [initial_state];
-    let custom_tags = [];
-    let file_ctx = [];
-
-    function push_ctx () {
-      file_ctx.push({
-        exports: [],
-        custom_tags: {}
-      });
-    }
-
-    function pop_ctx () {
-      let ctx = file_ctx.pop();
-      if (!file_ctx.length) return;
-      ctx.exports.forEach(e => {
-        if (ctx.custom_tags[e.name]) {
-          add_custom_tag(e, ctx.custom_tags[e.name].tag, ctx.custom_tags);
-        }
-      })
-    }
-
-    function add_export (e) {
-      let ctx = file_ctx[file_ctx.length - 1];
-      if (!ctx.custom_tags[e.name]) {
-        throw_adom_error({ msg: 'undefined tag: ' + e.name, pos: e.pos, file: e.file });
-      } else {
-        ctx.exports.push({ name: e.name, pos: e.pos, file: e.file });
-      }
-    }
-
-    function add_custom_tag (e, tag, file_tags) {
-      let ctx = file_ctx[file_ctx.length - 1];
-      if (ctx.custom_tags[e.name]) {
-        throw_adom_error({ msg: 'duplicate tag: ' + e.name, pos: e.pos, file: e.file });
-      }
-      ctx.custom_tags[e.name] = { tag, file_tags };
-    }
-
-    function escapeHTML (txt) {
-      return txt.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    function assemble_attributes(attr) {
-      return Object.keys(attr).map(function (k) {
-        if (k === 'innerHTML') return '';
-        let v = evaluate(attr[k]);
-        if (v === false || v == null) return '';
-        if (typeof v === 'string' && v.indexOf('"') > -1) v = v.replace(/"/g, '&quot;');
-        if (k.indexOf('bind:') !== -1) k = k.replace('bind:', '');
-        if (Array.isArray(v)) v = v.map((c) => {
-          if (typeof c === 'object') {
-            return Object.keys(c).filter((k) => c[k]).join(' ');
-          }
-          return c;
-        }).join(' ');
-        if (typeof v === 'object') v = Object.keys(v).filter((k) => v[k]).join(' ');
-        return ` ${k}="${v}"`
-      }).join('');
-    }
-
-    function evaluate(expr){
-      switch (expr.type) {
-        case 'null':
-        case 'number':
-        case 'bool':
-        case 'chunk':
-          return expr.data
-        case 'string': {
-          return expr.data.map(function (c) {
-            return evaluate(c)
-          }).join('');
-        } break;
-        case 'accumulator': {
-          let v = expr.data[0];
-          let prev = v.data;
-          let ptr = evaluate(v);
-          for (let i = 1; i < expr.data.length; i++) {
-            v = expr.data[i];
-            let str = evaluate(v);
-            if (ptr[str] !== undefined) {
-              prev = str;
-              ptr = ptr[str];
-            } else {
-              throw_adom_error({ msg: str + ' is not a property of ' + prev, pos: v.pos, file: v.file });
-            }
-          }
-          return ptr;
-        } break;
-        case 'ident': {
-          let v = expr.data;
-          let max = state.length - 1;
-          for (let i = max; i >= 0; i--) {
-            if (state[i][v] !== undefined) return state[i][v];
-          }
-          throw_adom_error({ msg: v + ' is undefined.', pos: expr.pos, file: expr.file });
-        } break;
-        case 'array': {
-          return expr.data.map(evaluate);
-        } break;
-        case 'object': {
-          let keys = Object.keys(expr.data);
-          let obj = {};
-          keys.forEach(function (k) {
-            obj[k] = evaluate(expr.data[k]);
-          });
-          return obj;
-        } break;
-        case 'ternary': {
-          let v = expr.data;
-          return evaluate(v[0]) ? evaluate(v[1]) : evaluate(v[2]);
-        } break;
-        case 'unop': {
-          let v = evaluate(expr.data);
-          if (expr.op === '-') return -v;
-          if (expr.op === '!') return !v;
-        } break;
-        case 'binop': {
-          let v1 = evaluate(expr.data[0]);
-          let v2 = evaluate(expr.data[1]);
-          if (expr.op === '==') return v1 === v2;
-          if (expr.op === '!=') return v1 !== v2;
-          if (expr.op === '<=') return v1 <=  v2;
-          if (expr.op === '>=') return v1 >=  v2;
-          if (expr.op === '&&') return v1 &&  v2;
-          if (expr.op === '||') return v1 ||  v2;
-          if (expr.op === '>' ) return v1 >   v2;
-          if (expr.op === '<' ) return v1 <   v2;
-          if (expr.op === '+') return v1 + v2;
-          if (expr.op === '-') return v1 - v2;
-          if (expr.op === '*') return v1 * v2;
-          if (expr.op === '/') return v1 / v2;
-          if (expr.op === '%') return v1 % v2;
-        } break;
-        case 'parenthetical': {
-          return evaluate(expr.data);
-        } break;
-        case 'pipe': {
-          const op = expr.data[0];
-          switch (op) {
-            case 'repeat': {
-              const arr = [];
-              const count = evaluate(expr.data[2]);
-              for (let i = 0; i < count; i++) {
-                arr.push(evaluate(expr.data[1]));
-              }
-              return arr;
-            } break;
-            case 'length': {
-              const data = evaluate(expr.data[1]);
-              return data.length;
-            } break;
-            case 'filter':
-            case 'map': {
-              const t = expr.data[0]; // map or filter
-              const s = {};
-              let l = evaluate(expr.data[1]);
-              const r = expr.data[2];
-              state.push(s);
-              l = l[t]((_a, _b) => {
-                s._a = _a;
-                s._b = _b;
-                return evaluate(r);
-              });
-              state.pop();
-              return l;
-            } break;
-            case 'toupper': {
-              const e = evaluate(expr.data[1]);
-              return e.toUpperCase();
-            } break;
-            case 'tolower': {
-              const e = evaluate(expr.data[1]);
-              return e.toLowerCase();
-              return;
-            } break;
-            case 'split': {
-              const e = evaluate(expr.data[1]);
-              const del = evaluate(expr.data[2]);
-              return e.split(del);
-            } break;
-            case 'includes': {
-              const e = evaluate(expr.data[1]);
-              const i = evaluate(expr.data[2]);
-              return e.indexOf(i) > -1;
-            } break;
-            case 'indexof': {
-              const e = evaluate(expr.data[1]);
-              const i = evaluate(expr.data[2]);
-              return e.indexOf(i);
-            } break;
-            case 'reverse': {
-              const e = evaluate(expr.data[1]);
-              if (Array.isArray(e)) {
-                return e.reverse();
-              } else {
-                return e.split('').reverse().join('')
-              }
-            } break;
-            case 'json': {
-              const e = evaluate(expr.data[1]);
-              return JSON.parse(e);
-            } break;
-            case 'replace': {
-              const e = evaluate(expr.data[1]);
-              const r = evaluate(expr.data[2]);
-              const n = evaluate(expr.data[3]);
-              return e.replace(r, n);
-            } break;
-            case 'replaceall': {
-              const e = evaluate(expr.data[1]);
-              const r = evaluate(expr.data[2]);
-              const n = evaluate(expr.data[3]);
-              return e.replaceAll(r, n);
-            } break;
-            case 'tostring': {
-              const e = evaluate(expr.data[1]);
-              if (typeof e === 'object') {
-                return JSON.stringify(e);
-              } else {
-                return e.toString();
-              }
-            } break;
-            case 'join': {
-              const e = evaluate(expr.data[1]);
-              const del = evaluate(expr.data[2]);
-              return e.join(del);
-            } break;
-            case 'trim': {
-              const e = evaluate(expr.data[1]);
-              return e.trim();
-            } break;
-            case 'keys': {
-              const e = evaluate(expr.data[1]);
-              return Object.keys(e);
-            } break;
-            case 'values': {
-              const e = evaluate(expr.data[1]);
-              return Object.values(e);
-            } break;
-            default:
-              break; 
-          }
-          break;
-        }
-        case 'filter':
-        case 'map': {
-          let s = {};
-          let a = evaluate(expr.data[0]);
-          let l = expr.data[1];
-          l.args.forEach(a => s[a] = true);
-          state.push(s);
-          a = a[expr.type]((...args) => {
-            l.args.forEach((a, i) => s[a] = args[i]);
-            return evaluate(l.expr);
-          });
-          state.pop();
-          return a;
-        } break;
-      }
-    }
-
-    function end_script () {
-      return ['<', '/', 'script', '>'].join('')
-    }
-
-    function children (r, y) {
-      r.children.forEach(c => {
-        walk(c, y);
-      });
-    }
-
-    function eval_object (obj) {
-      let ctx = {};
-      Object.keys(obj).forEach(function(k) {
-        ctx[k] = evaluate(obj[k]);
-      });
-      return ctx;
-    }
-
-    function set_state (dst, v) {
-      let k = dst.data;
-      let last = state[state.length - 1];
-      if (last[k] === undefined) {
-        last[k] = evaluate(v);
-      } else {
-        throw_adom_error({ msg: k + ' is already defined', pos: dst.pos, file: dst.file });
-      }
-    }
-
-    function loop (data, fn) {
-      let list = evaluate(data);
-      if (Array.isArray(list)) {
-        list.forEach((it, i) => {
-          fn(it, i);
-        });
-      } else if (typeof list === 'object') {
-        Object.keys(list).forEach(k => {
-          fn(k, list[k]);
-        });
-      } else {
-        throw_adom_error({ msg: data.data + ' is not iterable', pos: data.pos, file: data.file });
-      }
-    }
-
-    function custom_tag (name) {
-      const ctx = file_ctx[file_ctx.length - 1];
-      const local_tags = custom_tags.length > 0 ? custom_tags[custom_tags.length - 1] : {};
-      return local_tags[name] || ctx.custom_tags[name] || undefined;
-    }
-
-    let in_script = false;
-
-    function walk (r, yieldfn) {
-      switch (r.type) {
-        case 'tag': {
-          let n = r.data.name;
-          let t = custom_tag(n);
-          if (t) {
-            custom_tags.push(t.file_tags);
-            state.push({ props: eval_object(r.data.attributes) });
-            children(t.tag, function () {
-              children(r, yieldfn);
-            });
-            state.pop();
-            custom_tags.pop();
-            break;
-          }
-          if (n === 'html') {
-            html += '<!DOCTYPE html>';
-          }
-          if (r.data.attributes.innerHTML) {
-            let a = r.data.attributes;
-            html += `<${n}${assemble_attributes(a)}>${evaluate(a.innerHTML)}</${n}>`;
-          } else {
-            html += `<${n}${assemble_attributes(r.data.attributes)}>`;
-            if (valid_tags.indexOf(n) === -1) {
-              throw_adom_error({ msg: 'Invalid tag: ' + n, pos: r.data.pos, file: r.data.file });
-            }
-            if (void_tags.indexOf(n) === -1) {
-              if (n === 'script') in_script = true;
-              children(r, yieldfn);
-              in_script = false;
-              if (n === 'head') {
-                html += `<script>${ast.data.runtime}${end_script()}`;
-              }
-              html += `</${n}>`;
-            }
-          }
-          break;
-        }
-        case 'custom': {
-          add_custom_tag(r.data, r, file_ctx[file_ctx.length - 1].custom_tags);
-          break;
-        }
-        case 'textnode': {
-          if (in_script) {
-            html += evaluate(r.data);
-          } else {
-            html += escapeHTML(evaluate(r.data));
-          }
-          break;
-        }
-        case 'set': {
-          set_state(r.data.lhs, r.data.rhs);
-          break;
-        }
-        case 'if': {
-          let pass = r.children[0];
-          let fail = r.children[1];
-          if (evaluate(r.data)) {
-            children(pass, yieldfn);
-          } else if (fail) {
-            children(fail, yieldfn);
-          }
-          break;
-        }
-        case 'each': {
-          let i0 = r.data.iterators[0];
-          let i1 = r.data.iterators[1];
-          let scope = {};
-          state.push(scope);
-          loop(r.data.list, function (v0, v1) {
-            scope[i0] = v0;
-            if (i1) scope[i1] = v1;
-            children(r, yieldfn);
-          });
-          state.pop();
-          break;
-        }
-        case 'yield': {
-          if (yieldfn) yieldfn();
-          break;
-        }
-        case 'export': {
-          add_export(r.data);
-          break;
-        }
-        case 'file': {
-          push_ctx();
-          children(r, yieldfn);
-          pop_ctx();
-          break;
-        }
-        default: {
-          children(r, yieldfn);
-          break;
-        }
-      }
-    }
-
     walk(ast);
 
     return html;
@@ -2053,7 +1770,7 @@ var Adom = (function () {
           return v[k];
         }).join(' ') : v
       }).join(' ')
-        : typeof a === 'object' ? Object.keys(a).filter(function (k) {
+        : a != null && typeof a === 'object' ? Object.keys(a).filter(function (k) {
           return a[k];
         }).join(' ') : a;
       if (!$$is_svg && p in node) {
@@ -2097,11 +1814,11 @@ var Adom = (function () {
   }
 
   function $$each (list, fn) {
-    if (Array.isArray(list)) {
+    if (Array.isArray(list) || typeof list === 'string') {
       for (var i = 0; i < list.length; i++) {
         fn(list[i], i, i);
       }
-    } else if (typeof list === 'object') {
+    } else if (typeof list === 'object' && list != null) {
       var keys = Object.keys(list);
       for (var i = 0; i < keys.length; i++) {
         fn(keys[i], list[keys[i]]);
@@ -2713,10 +2430,9 @@ var Adom = (function () {
       const tokens = tokenize(fileText, file);
       const ast = parse(tokens);
       const runtime = generateRuntime(ast, input_state || {});
-      ast.data.runtime = await processJs(runtime, { parentDir, minify: config.minify });
-      html = execute2(ast, input_state || {});
-      console.log(html);
-      // console.log(execute2(ast, input_state));
+      const js = await processJs(runtime, { parentDir, minify: config.minify });
+      html = execute(ast, input_state || {});
+      html = html.replace('<!-- ADOM_RUNTIME -->', `<script>${js}</script>`);
       return html;
     } catch (e) {
       if (e.origin === 'adom') {
