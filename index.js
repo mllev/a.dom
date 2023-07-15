@@ -11,7 +11,7 @@ const fs = require('fs');
 const esbuild = require('esbuild');
 const path = require("path");
 
-var Adom = (function () {
+const Adom = (function () {
   const _files = {};
   const _ast_cache = {};
   const Adom = {};
@@ -1099,7 +1099,7 @@ var Adom = (function () {
         parse_tag_list();
       } else if (in_tag && peek('js_context')) {
         parent.js = tok.data;
-        ast_node('js', tok.data);
+        ast_node('js', { js: tok.data, pos: tok.pos, file: tok.file });
         next();
         parse_tag_list();
       }
@@ -1221,7 +1221,7 @@ var Adom = (function () {
         } else if (peek('var') || peek('const') || peek('let')) {
           parse_assignment();
         } else if (peek('js_context')) {
-          ast_node('js', tok.data);
+          ast_node('js', { js: tok.data, pos: tok.pos, file: tok.file });
           js_found = true;
           next();
         } else {
@@ -1235,11 +1235,12 @@ var Adom = (function () {
     return ast;
   };
 
-  const execute = (ast, initial_state) => {
+  const execute = (ast, initial_state, js) => {
     let html = '';
 
     const stack = [];
     const ctx = [];
+    const globals = { data: initial_state };
 
     let inScript = false;
 
@@ -1380,7 +1381,13 @@ var Adom = (function () {
             }
             node.children.forEach(walk);
             if (node.data.name === 'head') {
-              emit('<!-- ADOM_RUNTIME -->');
+              if (js) {
+                emit('<script>(function (data) {');
+                emit(js);
+                emit('})(');
+                emit(JSON.stringify(initial_state));
+                emit(');</script>')
+              }
             }
             emit('</');
             emit(node.data.name);
@@ -1472,6 +1479,10 @@ var Adom = (function () {
           const v = node.data;
           const c = ctx[ctx.length - 1];
           let found = false;
+          if (globals[v] !== undefined) {
+            stack.push(globals[v]);
+            break;
+          }
           for (let i = c.state.length - 1; i >= 0; i--) {
             if (c.state[i][v] !== undefined) {
               stack.push(c.state[i][v]);
@@ -1956,7 +1967,7 @@ var Adom = (function () {
   }
 `;
 
-  const generateRuntime = (ast, incoming_state) => {
+  const generateRuntime = (ast) => {
     const out = [{ code: '', transform: false }];
     const fileList = [];
     const fileIdMap = {};
@@ -2041,8 +2052,13 @@ var Adom = (function () {
           fileList[fileIdx].exports[node.data.name] = true;
           break;
         case 'js':
-          out.push({ code: '', transform: true });
-          emit(node.data);
+          out.push({
+            code: '',
+            transform: true,
+            pos: node.data.pos,
+            file: node.data.file
+          });
+          emit(node.data.js);
           out.push({ code: '', transform: false });
           break;
         case 'file':
@@ -2347,9 +2363,7 @@ var Adom = (function () {
     createFileList(ast);
 
     emit(`document.addEventListener('DOMContentLoaded', function () {\n`);
-    emit(`var $$adom_input_state = ${JSON.stringify(incoming_state)};\n`);
     emit(`${adom_runtime}`);
-    emit(`(function (${Object.keys(incoming_state).join(', ')}) {\n`);
     emit('var $sync = function () {};');
 
     fileList.forEach((file, i) => {
@@ -2382,7 +2396,6 @@ var Adom = (function () {
     });
 
     emit('$sync();\n');
-    emit(`})(${Object.keys(incoming_state).map(k => `$$adom_input_state.${k}`).join(', ')});\n`);
     emit('});\n');
 
     return out;
@@ -2407,9 +2420,31 @@ var Adom = (function () {
 
     const content = await Promise.all(js.map(async (chunk) => {
       if (chunk.transform) {
-        const opts = { format: 'cjs', loader: 'ts' };
-        const result = await esbuild.transform(chunk.code, opts);
-        return addParentPathsToRequires(result.code, chunk.parent_dir);
+        const code = chunk.code;
+        try {
+          const opts = { format: 'cjs', loader: 'ts' };
+          const result = await esbuild.transform(code, opts);
+          return addParentPathsToRequires(result.code, chunk.parent_dir);
+        } catch (e) {
+          let row = e.errors[0].location.line - 1;
+          let col = e.errors[0].location.column;
+          let pos;
+
+          for (pos = 0; pos < code.length; pos++) {
+            if (code[pos] === '\n') row--;
+            if (row == 0) {
+              if (col > 0) col--;
+              else break;
+            }
+          }
+
+          throw_adom_error({
+            msg: e.errors[0].text,
+            pos: chunk.pos + pos,
+            file: chunk.file
+          })
+          throw e;
+        }
       }
       return chunk.code;
     }));
@@ -2425,28 +2460,27 @@ var Adom = (function () {
     return result.outputFiles[0].text;
   };
 
-  const render = async (file, input_state, config) => {
+  const render = async (file, config) => {
     let html;
     try {
       const pathInfo = getPathInfo(file);
       const cacheKey = pathInfo.full;
       const parentDir = pathInfo.parent;
+
       const fileText = openFile(file);
       const tokens = tokenize(fileText, file);
       const ast = parse(tokens);
-      const runtime = generateRuntime(ast, input_state || {});
+      const runtime = generateRuntime(ast);
       const js = await processJs(runtime, { parentDir, minify: config.minify });
-      html = execute(ast, input_state || {});
-      html = html.replace('<!-- ADOM_RUNTIME -->', `<script>${js}</script>`);
-      return html;
+
+      return execute(ast, config.data || {}, js);
     } catch (e) {
       if (e.origin === 'adom') {
-        html = `<pre>${print_error(e)}</pre>`;
+        return `<pre>${print_error(e)}</pre>`;
       } else {
         console.log(e);
-        html = `<pre>${e.toString()}</pre>`;
+        return `<pre>${e.toString()}</pre>`;
       }
-      return html;
     }
   };
 
@@ -2459,9 +2493,9 @@ var Adom = (function () {
       opts.input = name;
     }
     if (!opts.output) {
-      return render(opts.input, { data: opts.data }, opts);
+      return render(opts.input, opts);
     } else {
-      const out = await compiler.render(opts.input, { data: opts.data }, opts);
+      const out = await render(opts.input, opts);
       fs.writeFileSync(opts.output, out);
     }
   };
