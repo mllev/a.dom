@@ -1339,6 +1339,9 @@ const Adom = (function () {
           if (node.data.name === 'script') {
             inScript = true;
           }
+          if (node.data.name === 'html') {
+            emit('<!DOCTYPE html>');
+          }
           emit('<');
           emit(node.data.name);
           for (let a in attr) {
@@ -1547,24 +1550,24 @@ const Adom = (function () {
           } else if (op === '<') {
             stack.push(v1 < v2);
           } else if (op === '+') {
-            assertType(v1, ['number','string'], node.data);
-            assertType(v2, ['number', 'string'], node.data);
+            assertType(v1, ['number','string'], node.data[0]);
+            assertType(v2, ['number', 'string'], node.data[1]);
             stack.push(v1 + v2);
           } else if (op === '-') {
-            assertType(v1, 'number', node.data);
-            assertType(v2, 'number', node.data);
+            assertType(v1, 'number', node.data[0]);
+            assertType(v2, 'number', node.data[1]);
             stack.push(v1 - v2);
           } else if (op === '*') {
-            assertType(v1, 'number', node.data);
-            assertType(v2, 'number', node.data);
+            assertType(v1, 'number', node.data[0]);
+            assertType(v2, 'number', node.data[1]);
             stack.push(v1 * v2);
           } else if (op === '/') {
-            assertType(v1, 'number', node.data);
-            assertType(v2, 'number', node.data);
+            assertType(v1, 'number', node.data[0]);
+            assertType(v2, 'number', node.data[1]);
             stack.push(v1 / v2);
           } else if (op === '%') {
-            assertType(v1, 'number', node.data);
-            assertType(v2, 'number', node.data);
+            assertType(v1, 'number', node.data[0]);
+            assertType(v2, 'number', node.data[1]);
             stack.push(v1 % v2);
           }
         } break;
@@ -1991,7 +1994,7 @@ const Adom = (function () {
         node.children.forEach((child) => {
           createFileList(child);
         });
-        if (!fileIdMap[node.data.file]) {
+        if (fileIdMap[node.data.file] == null) {
           fileIdMap[node.data.file] = fileList.length;
           fileList.push({
             name: node.data.file,
@@ -2111,6 +2114,9 @@ const Adom = (function () {
               node.children.forEach(walk);
               emit('})();\n');
               break;
+            }
+            if (valid_tags.indexOf(node.data.name) === -1) {
+              throw_adom_error({ msg: 'Invalid tag', pos: node.data.pos, file: node.data.file });
             }
             emit('$$e("');
             emit(node.data.name);
@@ -2359,12 +2365,11 @@ const Adom = (function () {
       }
     }
 
-
     createFileList(ast);
 
     emit(`document.addEventListener('DOMContentLoaded', function () {\n`);
     emit(`${adom_runtime}`);
-    emit('var $sync = function () {};');
+    emit('var $sync = function () {};\n');
 
     fileList.forEach((file, i) => {
       let written = false;
@@ -2498,6 +2503,64 @@ const Adom = (function () {
       const out = await render(opts.input, opts);
       fs.writeFileSync(opts.output, out);
     }
+  };
+
+  Adom.serve = (opts) => {
+    const http = require('http');
+    const mimedb = require('./mime.json');
+    const port = opts.port || 5000;
+    const dir = opts.dir || '.';
+    const routes = opts.routes || {};
+    const minify = opts.minify || false;
+    const mimetypes = {};
+
+    Object.keys(mimedb).forEach((type) => {
+      if (mimedb[type].extensions) {
+        mimedb[type].extensions.forEach((ext) => {
+          mimetypes['.' + ext] = type;
+        });
+      }
+    });
+
+    return http.createServer(async (req, res) => {
+      if (req.method === 'GET') {
+        const p = req.url;
+        if (routes[p]) {
+          res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
+          res.end(await Adom.compile({
+            input: routes[p].path,
+            data: routes[p].data,
+            cache: false,
+            minify
+          }));
+        } else {
+          let p = path.resolve(dir, '.' + req.url);
+          let ext = path.extname(p);
+          if (!ext) {
+            p += '.html';
+            ext = 'html';
+          }
+          try {
+            if (p.indexOf('..') !== -1) {
+              throw new Error('Invalid path');
+            }
+            const data = fs.readFileSync(p);
+            const mime = mimetypes[ext] || 'text/plain';
+            res.writeHead(200, { 'Content-type': `${mime}; charset=utf-8` });
+            res.end(data);
+          } catch (e) {
+            console.log(e);
+            res.writeHead(404, { 'Content-type': 'text/plain' });
+            res.end('Not found');
+          }
+        }
+      } else {
+        res.statusCode = 200;
+        res.end();
+      }
+    }).listen(port, () => {
+      console.log(`Dev server listening on port ${port}`);
+    });
   };
 
   return Adom;
