@@ -2419,10 +2419,6 @@ module.exports = () => {
   };
 
   const render = async (file, data, complete) => {
-    const pathInfo = getPathInfo(file);
-    const cacheKey = pathInfo.full;
-    const parentDir = pathInfo.parent;
-
     const fileText = openFile(file);
     const tokens = tokenize(fileText, file);
     const ast = parse(tokens);
@@ -2430,7 +2426,7 @@ module.exports = () => {
 
     if (complete) {
       const js = runtime.map((chunk) => chunk.code).join('');
-      return execute(ast, data || {}, );
+      return execute(ast, data || {}, js);
     } else {
       return {
         html: execute(ast, data || {}),
