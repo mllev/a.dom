@@ -73,12 +73,12 @@ const processJs = async (js, config) => {
             }
           }
 
-          throw new Error({
+          throw {
             origin: 'adom',
             msg: e.errors[0].text,
-            pos: chunk.pos + pos,
+            pos: chunk.pos + 3 + pos + 1,
             file: chunk.file
-          });
+          };
         } else {
           throw e;
         }
