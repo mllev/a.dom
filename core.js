@@ -306,6 +306,34 @@ module.exports = () => {
     return text;
   };
 
+  const getMatches = (istr, mstr) => {
+    const p0 = istr.split('/').filter(p => p);
+    const p1 = mstr.split('/').filter(p => p);
+    const out = {};
+    if (p0.length > p1.length) {
+      const last = p1[p1.length - 1];
+      if (last[last.length - 1] !== '*') {
+        return null;
+      }
+    } else if (p0.length !== p1.length) return null;
+    for (let i = 0; i < p1.length; i++) {
+      const p = p1[i];
+      if (p[0] !== ':') {
+        if(p !== p0[i]) return null;
+      } else {
+        if (i === p1.length - 1 && p[p.length - 1] === '*') {
+          out[p.slice(1, -1)] = p0[i];
+          for (let j = i + 1; j < p0.length; j++) {
+            out[p.slice(1, -1)] += `/${p0[j]}`;
+          }
+        } else {
+          out[p.slice(1)] = p0[i];
+        }
+      }
+    }
+    return out;
+  };
+
   const tokenize = (prog, file, offset) => {
     let cursor = 0, end_pos = prog.length - 1;
     let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
@@ -853,12 +881,19 @@ module.exports = () => {
       'reverse': 0,
       'json': 0,
       'replace': 2,
-      'replaceall': 2,
       'tostring': 0,
       'join': 1,
       'keys': 0,
       'values': 0,
-      'trim': 0
+      'trim': 0,
+      'sin': 0,
+      'cos': 0,
+      'tan': 0,
+      'sqrt': 0,
+      'ceil': 0,
+      'floor': 0,
+      'rand': 0,
+      'slice': 2
     };
 
     function parse_expr (min_prec) {
@@ -1660,14 +1695,14 @@ module.exports = () => {
               const r = evaluate(node.data[2]);
               const n = evaluate(node.data[3]);
               const t = getType(e);
-              stack.push(e.replace(r, n));
-            } break;
-            case 'replaceall': {
-              const e = evaluate(node.data[1]);
-              const r = evaluate(node.data[2]);
-              const n = evaluate(node.data[3]);
-              const t = getType(e);
               stack.push(e.replaceAll(r, n));
+            } break;
+            case 'slice': {
+              const v = evaluate(node.data[1]);
+              const s = evaluate(node.data[2]);
+              const e = evaluate(node.data[3]);
+              const t = getType(e);
+              stack.push(v.slice(s, e));
             } break;
             case 'tostring': {
               const val = evaluate(node.data[1]);
@@ -1694,6 +1729,19 @@ module.exports = () => {
             case 'values': {
               const val = evaluate(node.data[1]);
               stack.push(Object.values(val));
+            } break;
+            case 'sin':
+            case 'cos':
+            case 'tan':
+            case 'sqrt':
+            case 'ceil':
+            case 'floor': {
+              const val = evaluate(node.data[1]);
+              stack.push(Math[op](val));
+            } break;
+            case 'rand': {
+              const val = evaluate(node.data[1]);
+              stack.push(Math.random() * val);
             } break;
             default:
               break;
@@ -1986,8 +2034,6 @@ module.exports = () => {
     const out = [{ code: '', transform: false }];
     const fileList = [];
     const fileIdMap = {};
-    const yields = [];
-    let write = false;
     let custom = false;
     let fileIdx = -1;
     let loop_depth = 0;
@@ -2322,16 +2368,16 @@ module.exports = () => {
             case 'replace': {
               emit('(');
               walk(node.data[1]);
-              emit(').replace(');
+              emit(').replaceAll(');
               walk(node.data[2]);
               emit(', ');
               walk(node.data[3]);
               emit(')');
             } break;
-            case 'replaceall': {
+            case 'slice': {
               emit('(');
               walk(node.data[1]);
-              emit(').replaceAll(');
+              emit(').slice(');
               walk(node.data[2]);
               emit(', ');
               walk(node.data[3]);
@@ -2365,6 +2411,23 @@ module.exports = () => {
             } break;
             case 'values': {
               emit('Object.values(');
+              walk(node.data[1]);
+              emit(')');
+            } break;
+            case 'sin':
+            case 'cos':
+            case 'tan':
+            case 'sqrt':
+            case 'ceil':
+            case 'floor': {
+              emit('Math.');
+              emit(node.data[0]);
+              emit('(');
+              walk(node.data[1]);
+              emit(')');
+            } break;
+            case 'rand': {
+              emit('(Math.random() * ');
               walk(node.data[1]);
               emit(')');
             } break;
