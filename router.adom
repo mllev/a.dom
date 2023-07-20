@@ -1,0 +1,30 @@
+let page = data.path || ''
+
+---
+// on page load, get path and update page
+page = window.location.path;
+
+window.onpopstate = function (event) {
+  page = event.state;
+  $sync();
+};
+---
+
+export tag Route [
+  if (page == props.path) [
+    yield
+  ]
+]
+
+export tag Link [
+  ---
+  function route (e) {
+    e.preventDefault();
+    window.history.pushState(null, null, props.href);
+    page = props.href;
+  }
+  ---
+  a on:click='route($e)' href={props.href} [
+    yield
+  ]
+]

@@ -306,6 +306,29 @@ module.exports = () => {
     return text;
   };
 
+  const resolveNodeModule = (name) => {
+    let filepath = null;
+    for (const p of module.paths) {
+      const dir = path.join(p, name, 'index.adom');
+      if (fs.existsSync(dir)) {
+        filepath = dir;
+        break;
+      }
+      const package = path.join(p, name, 'package.json');
+      if (fs.existsSync(package)) {
+        const packageJson = JSON.parse(fs.readFileSync(package, 'utf8'));
+        if (packageJson.main) {
+          const mainFilePath = path.join(p, name, packageJson.main);
+          if (fs.existsSync(mainFilePath)) {
+            filepath = mainFilePath;
+            break;
+          }
+        }
+      }
+    }
+    return filepath;
+  }
+
   const getMatches = (istr, mstr) => {
     const p0 = istr.split('/').filter(p => p);
     const p1 = mstr.split('/').filter(p => p);
@@ -1230,7 +1253,14 @@ module.exports = () => {
         } else if (accept('import')) {
           const t = tok;
           const curr = getPathInfo(tok.file);
-          const pathInfo = getPathInfo(parse_strict_string(), curr.parent);
+          const pathStr = parse_strict_string();
+          let pathInfo = { full: null };
+          if (pathStr[0] !== '.' && pathStr.indexOf('.adom') === -1) {
+            pathInfo.full = resolveNodeModule(pathStr);
+          }
+          if (!pathInfo.full) {
+            pathInfo = getPathInfo(pathStr, curr.parent);
+          }
           let file;
           try {
             file = openFile(pathInfo.full);
@@ -1552,12 +1582,11 @@ module.exports = () => {
             v = node.data[i];
             const str = evaluate(v);
             assertType(str, ['string', 'number'], node.data);
-            if (ptr[str] !== undefined) {
-              prev = str;
-              ptr = ptr[str];
-            } else {
-              err(str + ' is not a property of ' + prev, node);
+            if (ptr == null) {
+              err(str + ' is not defined');
             }
+            prev = str;
+            ptr = ptr[str];
           }
           stack.push(ptr);
         } break;
