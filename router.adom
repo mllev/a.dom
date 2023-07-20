@@ -2,12 +2,13 @@ let page = data.path || ''
 
 ---
 // on page load, get path and update page
-page = window.location.path;
+page = window.location.pathname;
 
 window.onpopstate = function (event) {
   page = event.state;
   $sync();
 };
+
 ---
 
 export tag Route [

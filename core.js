@@ -24,7 +24,7 @@ const path = require("path");
 
 module.exports = () => {
   const _files = {};
-  const _ast_cache = {};
+  const ast_cache = {};
 
   function throw_adom_error (err) {
     err.origin = 'adom';
@@ -292,7 +292,7 @@ module.exports = () => {
   ];
 
   const getPathInfo = (p, base) => {
-    const full = base ? path.resolve(base, p) : path.resolve(p);
+    const full = base ? path.resolve(base, p) : path.resolve(__dirname, p);
     const parent = path.dirname(full);
     return {
       full,
@@ -309,6 +309,11 @@ module.exports = () => {
   const resolveNodeModule = (name) => {
     let filepath = null;
     for (const p of module.paths) {
+      const f = path.join(p, name) + '.adom';
+      if (fs.existsSync(f)) {
+        filepath = f;
+        break;
+      }
       const dir = path.join(p, name, 'index.adom');
       if (fs.existsSync(dir)) {
         filepath = dir;
@@ -329,34 +334,6 @@ module.exports = () => {
     return filepath;
   }
 
-  const getMatches = (istr, mstr) => {
-    const p0 = istr.split('/').filter(p => p);
-    const p1 = mstr.split('/').filter(p => p);
-    const out = {};
-    if (p0.length > p1.length) {
-      const last = p1[p1.length - 1];
-      if (last[last.length - 1] !== '*') {
-        return null;
-      }
-    } else if (p0.length !== p1.length) return null;
-    for (let i = 0; i < p1.length; i++) {
-      const p = p1[i];
-      if (p[0] !== ':') {
-        if(p !== p0[i]) return null;
-      } else {
-        if (i === p1.length - 1 && p[p.length - 1] === '*') {
-          out[p.slice(1, -1)] = p0[i];
-          for (let j = i + 1; j < p0.length; j++) {
-            out[p.slice(1, -1)] += `/${p0[j]}`;
-          }
-        } else {
-          out[p.slice(1)] = p0[i];
-        }
-      }
-    }
-    return out;
-  };
-
   const tokenize = (prog, file, offset) => {
     let cursor = 0, end_pos = prog.length - 1;
     let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
@@ -375,7 +352,8 @@ module.exports = () => {
       "var",
       "const",
       "let",
-      "nosync"
+      "nosync",
+      "as"
     ];
 
     let symbols = [
@@ -531,6 +509,10 @@ module.exports = () => {
           tok.type = "null";
           tok.data = null;
         }
+      } else if (c === ":" && prog[cursor + 1] === ":") {
+        tok.type = "::";
+        tok.data = "::";
+        cursor += 2;
       } else if (c === "<" && prog[cursor + 1] === "=") {
         tok.type = "<=";
         tok.data = "<=";
@@ -1054,7 +1036,13 @@ module.exports = () => {
     function parse_tag() {
       let name = tok.data;
       let { pos, file } = tok;
+      let ns = null;
       expect("ident");
+      if (accept('::')) {
+        ns = name;
+        name = tok.data;
+        expect('ident');
+      }
       let classlist = parse_class_list();
       let attr_data = parse_attributes();
       let events = attr_data[1];
@@ -1073,6 +1061,7 @@ module.exports = () => {
       }
       let node = ast_node('tag', {
         name: name,
+        namespace: ns,
         attributes: attr,
         events: events,
         pos,
@@ -1254,6 +1243,11 @@ module.exports = () => {
           const t = tok;
           const curr = getPathInfo(tok.file);
           const pathStr = parse_strict_string();
+          let ns;
+          if (accept('as')) {
+            ns = tok.data;
+            expect('ident');
+          }
           let pathInfo = { full: null };
           if (pathStr[0] !== '.' && pathStr.indexOf('.adom') === -1) {
             pathInfo.full = resolveNodeModule(pathStr);
@@ -1273,6 +1267,7 @@ module.exports = () => {
           }
           let toks = tokenize(file, pathInfo.full);
           let _ast = parse(toks);
+          if (ns) _ast.data.namespace = ns;
           let node = ast_node('file', _ast.data);
           node.children = _ast.children;
         } else if (accept("export")) {

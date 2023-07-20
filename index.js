@@ -20,14 +20,17 @@
 */
 const fs = require('fs');
 const path = require('path');
+const qs = require('querystring');
+const url = require('url');
 const esbuild = require('esbuild');
-const http = require('http');
 const core = require('./core.js');
+const mimedb = require('./mime.json');
 
 const ADOM = {};
+const mimetypes = {};
 
 const getPathInfo = (p, base) => {
-  const full = base ? path.resolve(base, p) : path.resolve(p);
+  const full = base ? path.resolve(base, p) : path.resolve(process.cwd(), p);
   const parent = path.dirname(full);
   return {
     full,
@@ -35,14 +38,44 @@ const getPathInfo = (p, base) => {
   };
 };
 
+const getMatches = (istr, mstr) => {
+  if (mstr === '*') return {};
+  const p0 = istr.split('/').filter(p => p);
+  const p1 = mstr.split('/').filter(p => p);
+  const out = {};
+  if (p0.length > p1.length) {
+    const last = p1[p1.length - 1];
+    if (last[last.length - 1] !== '*') {
+      return null;
+    }
+  } else if (p0.length !== p1.length) return null;
+  for (let i = 0; i < p1.length; i++) {
+    const p = p1[i];
+    if (p[0] !== ':') {
+      if(p !== p0[i]) return null;
+      // else keep moving
+    } else {
+      if (i === p1.length - 1 && p[p.length - 1] === '*') {
+        out[p.slice(1, -1)] = p0[i];
+        for (let j = i + 1; j < p0.length; j++) {
+          out[p.slice(1, -1)] += `/${p0[j]}`;
+        }
+      } else {
+        out[p.slice(1)] = p0[i];
+      }
+    }
+  }
+  return out;
+};
+
 const processJs = async (js, config) => {
-  const addParentPathsToRequires = (code, par) => {
+  const addParentPaths = (code, par) => {
     const len = code.length;
     let out = '';
     for (let i = 0; i < len; i++) {
       if (code.slice(i, i+10) === 'require(".') {
         let f = '';
-        i += 9; // right at the period
+        i += 9;
         while (code[i] !== '"') f += code[i++];
         out += `require("${path.resolve(par, f)}"`;
       } else {
@@ -58,7 +91,7 @@ const processJs = async (js, config) => {
       try {
         const opts = { format: 'cjs', loader: 'ts' };
         const result = await esbuild.transform(code, opts);
-        return addParentPathsToRequires(result.code, chunk.parent_dir);
+        return addParentPaths(result.code, chunk.parent_dir);
       } catch (e) {
         if (e.errors && e.errors[0]) {
           let row = e.errors[0].location.line - 1;
@@ -133,62 +166,130 @@ ADOM.compile = async (name, opts) => {
   }
 };
 
-ADOM.serve = (opts) => {
-  const mimedb = require('./mime.json');
-  const adom = core();
-  const port = opts.port || 5000;
-  const dir = opts.publicDir || '.';
-  const routes = opts.routes || {};
+const serveStaticFile = (p, res) => {
+  let ext = path.extname(p);
+  if (!ext) {
+    p += '.html';
+    ext = 'html';
+  } else {
+    ext = ext.slice(1);
+  }
+  try {
+    console.log(p, ext, mimetypes[ext]);
+    if (p.indexOf('..') !== -1) {
+      res.statusCode = 403;
+      res.end();
+      return true;
+    }
+    const data = fs.readFileSync(p, 'utf-8');
+    const mime = mimetypes[ext] || 'text/plain';
+    res.writeHead(200, { 'Content-type': `${mime}; charset=utf-8` });
+    res.end(data);
+    return true;
+  } catch (e) {
+    console.log(e)
+    return false;
+  }
+};
+
+const parseBody = (req, max) => {
+  return new Promise((resolve, reject) => {
+    if (req.method === 'POST' || req.method === 'PUT') {
+      let buf = '';
+      let data;
+      req.on('data', (chunk) => {
+        if (buf.length > max) {
+          reject('Maximum body size exceeeded');
+        } else {
+          buf += chunk;
+        }
+      });
+      req.on('end', () => {
+        try {
+          data = JSON.parse(buf);
+        } catch (e) {
+          try {
+            data = qs.parse(buf);
+          } catch (e) {
+            reject('Invalid request body format');
+          }
+        }
+        resolve(data);
+      })
+    } else {
+      resolve(null);
+    }
+  });
+};
+
+const parseQuery = (p) => {
+  const purl = url.parse(p);
+  if (purl.query) {
+    return qs.parse(purl.query);
+  }
+  return null;
+};
+
+ADOM.app = (opts) => {
+  const publicDir = opts.publicDir || '.';
   const minify = opts.minify || false;
-  const mimetypes = {};
+  const cache = opts.cache || false;
+  let routes = opts.routes || {};
 
   Object.keys(mimedb).forEach((type) => {
     if (mimedb[type].extensions) {
       mimedb[type].extensions.forEach((ext) => {
-        mimetypes['.' + ext] = type;
+        mimetypes[ext] = type;
       });
     }
   });
 
-  return http.createServer(async (req, res) => {
+  return async (req, res) => {
+    const p = req.url;
+    let found = false;
     if (req.method === 'GET') {
-      const p = req.url;
-      if (routes[p]) {
-        res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
-        res.end(await ADOM.compile({
-          input: routes[p].path,
-          data: routes[p].data,
-          cache: false,
-          minify
-        }));
-      } else {
-        let p = path.resolve(dir, '.' + req.url);
-        let ext = path.extname(p);
-        if (!ext) {
-          p += '.html';
-          ext = 'html';
-        }
-        try {
-          if (p.indexOf('..') !== -1) {
-            throw new Error('Invalid path');
-          }
-          const data = fs.readFileSync(p);
-          const mime = mimetypes[ext] || 'text/plain';
-          res.writeHead(200, { 'Content-type': `${mime}; charset=utf-8` });
-          res.end(data);
-        } catch (e) {
-          console.log(e);
-          res.writeHead(404, { 'Content-type': 'text/plain' });
-          res.end('Not found');
-        }
+      const f = path.resolve(process.cwd(), publicDir, p.slice(1));
+      if (serveStaticFile(f, res)) {
+        found = true;
       }
-    } else {
-      res.statusCode = 200;
-      res.end();
     }
-  }).listen(port, () => {
-    console.log(`Dev server listening on port ${port}`);
-  });
+    if (routes['*']) {
+      routes = { '*': routes['*'] };
+    }
+    for (let r in routes) {
+      const params = getMatches(p, r);
+      if (params) {
+        let data;
+        if (routes[r].data) {
+          if (typeof routes[r].data === 'object') {
+            data = routes[r].data;
+          } else {
+            req.params = params;
+            req.query = parseQuery(p);
+            req.body = await parseBody(req)
+            data = await routes[r].data(req);
+          }
+        }
+        if (routes[r].path) {
+          const html = await ADOM.compile(routes[r].path, { data, minify, cache });
+          res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
+          res.end(html);
+        } else if (data) {
+          if (typeof data !== 'object') {
+            throw new Error('Data function must return an object or array');
+          }
+          res.writeHead(200, {'Content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(data));
+        }
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      res.writeHead(404, { 'Content-type': 'text/plain' });
+      res.end('Not found');
+    }
+  };
 };
 
 module.exports = ADOM;
