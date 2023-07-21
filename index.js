@@ -175,7 +175,6 @@ const serveStaticFile = (p, res) => {
     ext = ext.slice(1);
   }
   try {
-    console.log(p, ext, mimetypes[ext]);
     if (p.indexOf('..') !== -1) {
       res.statusCode = 403;
       res.end();
@@ -187,7 +186,6 @@ const serveStaticFile = (p, res) => {
     res.end(data);
     return true;
   } catch (e) {
-    console.log(e)
     return false;
   }
 };
