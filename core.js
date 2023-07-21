@@ -292,7 +292,7 @@ module.exports = () => {
   ];
 
   const getPathInfo = (p, base) => {
-    const full = base ? path.resolve(base, p) : path.resolve(__dirname, p);
+    const full = base ? path.resolve(base, p) : path.resolve(p);
     const parent = path.dirname(full);
     return {
       full,

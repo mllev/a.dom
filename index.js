@@ -43,7 +43,7 @@ const getMatches = (istr, mstr) => {
   const p0 = istr.split('/').filter(p => p);
   const p1 = mstr.split('/').filter(p => p);
   const out = {};
-  if (p0.length > p1.length) {
+  if (p0.length > p1.length && p1.length > 0) {
     const last = p1[p1.length - 1];
     if (last[last.length - 1] !== '*') {
       return null;
@@ -180,9 +180,9 @@ const serveStaticFile = (p, res) => {
       res.end();
       return true;
     }
-    const data = fs.readFileSync(p, 'utf-8');
+    const data = fs.readFileSync(p);
     const mime = mimetypes[ext] || 'text/plain';
-    res.writeHead(200, { 'Content-type': `${mime}; charset=utf-8` });
+    res.writeHead(200, { 'Content-type': `${mime}` });
     res.end(data);
     return true;
   } catch (e) {
