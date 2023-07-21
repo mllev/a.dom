@@ -1360,18 +1360,28 @@ module.exports = () => {
           };
         } break;
         case 'file': {
+          const namespace = node.data.namespace;
           ctx.push({
             state: [{}],
             yield: null,
             tags: {},
+            namespaces: {},
             children: node.children,
             exports: []
           });
           node.children.forEach(walk);
           const c = ctx.pop();
-          c.exports.forEach((e) => {
-            ctx[ctx.length - 1].tags[e] = c.tags[e];
-          });
+          if (namespace) {
+            const ns = {};
+            ctx[ctx.length - 1].namespaces[namespace] = ns;
+            c.exports.forEach((e) => {
+              ns[e] = c.tags[e];
+            });
+          } else {
+            c.exports.forEach((e) => {
+              ctx[ctx.length - 1].tags[e] = c.tags[e];
+            });
+          }
         } break;
         case 'export': {
           if (!ctx[ctx.length - 1].tags[node.data.name]) {
@@ -1382,7 +1392,14 @@ module.exports = () => {
         case 'tag': {
           const c = ctx[ctx.length - 1];
           const attr = node.data.attributes;
-          const custom = c.tags[node.data.name];
+          const namespace = node.data.namespace;
+          let custom = c.tags[node.data.name];
+          if (namespace) {
+            const ns = c.namespaces[namespace];
+            if (ns[node.data.name]) {
+              custom = ns[node.data.name];
+            }
+          }
           if (custom) {
             const props = {};
             for (let a in attr) {
@@ -2082,7 +2099,8 @@ module.exports = () => {
             name: node.data.file,
             ast: node,
             exports: {},
-            tags: {}
+            tags: {},
+            namespaces: {}
           });
         }
       }
@@ -2147,17 +2165,29 @@ module.exports = () => {
           out.push({ code: '', transform: false });
           break;
         case 'file':
+          const namespace = node.data.namespace;
           const id = fileIdMap[node.data.file];
           const ex = fileList[id].exports;
-          for (let e in ex) {
+          if (namespace) {
             emit('var $');
-            emit(e);
-            emit(' = $f');
-            emit(id);
-            emit('.components.');
-            emit(e);
-            emit(';\n');
-            fileList[fileIdx].tags[e] = fileList[id].tags[e];
+            emit(namespace);
+            emit(' = $f.components;');
+            const ns = {};
+            fileList[fileIdx].namespaces[namespace] = ns;
+            for (let e in ex) {
+              ns[e] = fileList[id].tags[e];
+            }
+          } else {
+            for (let e in ex) {
+              emit('var $');
+              emit(e);
+              emit(' = $f');
+              emit(id);
+              emit('.components.');
+              emit(e);
+              emit(';\n');
+              fileList[fileIdx].tags[e] = fileList[id].tags[e];
+            }
           }
           break;
         case 'custom': {
@@ -2179,9 +2209,27 @@ module.exports = () => {
           fileList[fileIdx].tags[node.data.name] = node.children;
         } break;
         case 'tag': {
+          const namespace = node.data.namespace;
           const attr = node.data.attributes;
           const evts = node.data.events;
-          if (fileList[fileIdx].tags[node.data.name]) {
+          if (namespace) {
+            const ns = fileList[fileIdx].namespaces[namespace];
+            if (ns) {
+              if (ns[node.data.name]) {
+                emit('$');
+                emit(namespace);
+                emit('.')
+                emit(node.data.name);
+                emit('(');
+                emit(idGen());
+                emit(', {');
+              } else {
+                throw_adom_error({ msg: 'Invalid tag', pos: node.data.pos, file: node.data.file });
+              }
+            } else {
+              throw_adom_error({ msg: 'Invalid namespace', pos: node.data.pos, file: node.data.file });
+            }
+          } else if (fileList[fileIdx].tags[node.data.name]) {
             emit('$');
             emit(node.data.name);
             emit('(');
