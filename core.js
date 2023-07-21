@@ -339,7 +339,6 @@ module.exports = () => {
     let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
     let keywords = [
       "tag",
-      "doctype",
       "each",
       "if",
       "in",
@@ -349,11 +348,11 @@ module.exports = () => {
       "on",
       "export",
       "file",
-      "var",
       "const",
       "let",
       "nosync",
-      "as"
+      "as",
+      "global"
     ];
 
     let symbols = [
@@ -1151,7 +1150,7 @@ module.exports = () => {
       } else if (accept("yield")) {
         ast_node('yield');
         parse_tag_list();
-      } else if (in_tag && (peek('var') || peek('const') || peek('let'))) {
+      } else if (in_tag && (peek('global') || peek('const') || peek('let'))) {
         parse_assignment();
         parse_tag_list();
       } else if (in_tag && peek('js_context')) {
@@ -1220,12 +1219,14 @@ module.exports = () => {
     }
 
     function parse_assignment () {
+      const global = tok.data === 'global';
       next();
       let dst = { data: tok.data, pos: tok.pos, file: tok.file };
       expect('ident');
       accept("=");
       let val = parse_rhs();
       ast_node('set', {
+        global,
         lhs: dst,
         rhs: val
       });
@@ -1284,11 +1285,11 @@ module.exports = () => {
             pos: pos,
             file: file
           });
-        } else if (tok.type === "ident" || tok.type === "doctype") {
+        } else if (tok.type === "ident") {
           parse_tag_list();
         } else if (peek("tag")) {
           parse_custom_tag();
-        } else if (peek('var') || peek('const') || peek('let')) {
+        } else if (peek('const') || peek('let') || peek('global')) {
           parse_assignment();
         } else if (peek('js_context')) {
           ast_node('js', { js: tok.data, pos: tok.pos, file: tok.file });
@@ -1529,7 +1530,11 @@ module.exports = () => {
         case 'set': {
           const k = node.data.lhs.data;
           const c = ctx[ctx.length - 1];
-          c.state[c.state.length - 1][k] = evaluate(node.data.rhs);
+          if (node.data.global) {
+            globals[k] = evaluate(node.data.rhs);
+          } else {
+            c.state[c.state.length - 1][k] = evaluate(node.data.rhs);
+          }
         } break;
         case 'textnode': {
           if (inScript) {
@@ -2075,6 +2080,7 @@ module.exports = () => {
     const out = [{ code: '', transform: false }];
     const fileList = [];
     const fileIdMap = {};
+    const globals = {};
     let custom = false;
     let fileIdx = -1;
     let loop_depth = 0;
@@ -2091,6 +2097,18 @@ module.exports = () => {
     const createFileList = (node) => {
       if (node.type === 'file') {
         node.children.forEach((child) => {
+          if (child.type === 'set' && child.data.global) {
+            const g = globals[child.data.lhs.data];
+            if (g && g === node.data.file) {
+              throw_adom_error({
+                msg: 'Global already declared',
+                pos: node.data.pos,
+                file: node.data.file
+              });
+            } else {
+              globals[child.data.lhs.data] = node.data.file;
+            }
+          }
           createFileList(child);
         });
         if (fileIdMap[node.data.file] == null) {
@@ -2292,7 +2310,9 @@ module.exports = () => {
           emit(', {});')
         } break;
         case 'set': {
-          emit('var ');
+          if (!node.data.global) {
+            emit('var ');
+          }
           emit(node.data.lhs.data);
           emit(' = ');
           walk(node.data.rhs);
@@ -2517,7 +2537,11 @@ module.exports = () => {
     emit(`document.addEventListener('DOMContentLoaded', function () {\n`);
     emit(`${adom_runtime}`);
     emit('var $sync = function () {};\n');
-
+    for (let g in globals) {
+      emit('var ');
+      emit(g);
+      emit(';\n')
+    }
     fileList.forEach((file, i) => {
       let written = false;
       const children = file.ast.children;
