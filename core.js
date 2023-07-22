@@ -22,7 +22,7 @@
 const fs = require('fs');
 const path = require("path");
 
-module.exports = () => {
+module.exports = (config) => {
   const _files = {};
   const ast_cache = {};
 
@@ -2558,6 +2558,7 @@ module.exports = () => {
           emit(`$$nodes.push({ ref: document.body, processed: 0 });\n`);
           written = true;
         }
+
         walk(child);
       });
       if (written) {
@@ -2577,21 +2578,45 @@ module.exports = () => {
     return out;
   };
 
-  const render = async (file, data, complete) => {
+  const renderAst = async (file) => {
     const fileText = openFile(file);
     const tokens = tokenize(fileText, file);
     const ast = parse(tokens);
     const runtime = generateRuntime(ast);
+    let js;
 
-    if (complete) {
-      const js = runtime.map((chunk) => chunk.code).join('');
-      return execute(ast, data || {}, js);
+    if (config.jsTransform) {
+      js = (await Promise.all(runtime.map(async (chunk) => {
+        if (chunk.transform) {
+          return await config.jsTransform(chunk.code, chunk.parent_dir);
+        }
+        return chunk.code;
+      }))).join('\n');
     } else {
-      return {
-        html: execute(ast, data || {}),
-        js: runtime
-      };
+      js = runtime.map((chunk) => chunk.code).join('\n');
     }
+
+    if (config.jsPostProcess) {
+      js = await config.jsPostProcess(js);
+    }
+
+    return { ast, js };
+  };
+
+  const renderToCache = async (file) => {
+    const result = await renderAst(file);
+    return JSON.stringify(result);
+  };
+
+  const render = async (file, data) => {
+    const result = await renderAst(file);
+
+    const html = execute(result.ast, data || {});
+    const printed = `(function (data){${result.js}})(${JSON.stringify(data || {})})`;
+    const parts = html.split('/***ADOM_RUNTIME***/');
+    const out = parts[0] + printed + parts[1];
+
+    return out;
   };
 
   return { render, error: format_error };

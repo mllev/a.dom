@@ -68,71 +68,44 @@ const getMatches = (istr, mstr) => {
   return out;
 };
 
-const processJs = async (js, config) => {
-  const addParentPaths = (code, par) => {
-    const len = code.length;
-    let out = '';
-    for (let i = 0; i < len; i++) {
-      if (code.slice(i, i+10) === 'require(".') {
-        let f = '';
-        i += 9;
-        while (code[i] !== '"') f += code[i++];
-        out += `require("${path.resolve(par, f)}"`;
-      } else {
-        out += code[i];
-      }
+const addParentPaths = (code, p) => {
+  const len = code.length;
+  let out = '';
+  for (let i = 0; i < len; i++) {
+    if (code.slice(i, i+10) === 'require(".') {
+      let f = '';
+      i += 9;
+      while (code[i] !== '"') f += code[i++];
+      out += `require("${path.resolve(p, f)}"`;
+    } else {
+      out += code[i];
     }
-    return out;
+  }
+  return out;
+};
+
+const esbuild_to_adom_error = (e) => {
+  let row = e.location.line - 1;
+  let col = e.location.column;
+  let pos;
+
+  for (pos = 0; pos < code.length; pos++) {
+    if (code[pos] === '\n') row--;
+    if (row == 0) {
+      if (col > 0) col--;
+      else break;
+    }
+  }
+
+  return {
+    origin: 'adom',
+    msg: e.errors[0].text,
+    pos: chunk.pos + 3 + pos + 1,
+    file: chunk.file
   };
-
-  const content = await Promise.all(js.map(async (chunk) => {
-    if (chunk.transform) {
-      const code = chunk.code;
-      try {
-        const opts = { format: 'cjs', loader: 'ts' };
-        const result = await esbuild.transform(code, opts);
-        return addParentPaths(result.code, chunk.parent_dir);
-      } catch (e) {
-        if (e.errors && e.errors[0]) {
-          let row = e.errors[0].location.line - 1;
-          let col = e.errors[0].location.column;
-          let pos;
-
-          for (pos = 0; pos < code.length; pos++) {
-            if (code[pos] === '\n') row--;
-            if (row == 0) {
-              if (col > 0) col--;
-              else break;
-            }
-          }
-
-          throw {
-            origin: 'adom',
-            msg: e.errors[0].text,
-            pos: chunk.pos + 3 + pos + 1,
-            file: chunk.file
-          };
-        } else {
-          throw e;
-        }
-      }
-    }
-    return chunk.code;
-  }));
-  const result = await esbuild.build({
-    stdin: {
-      contents: content.join('\n'),
-      resolveDir: config.parentDir
-    },
-    bundle: true,
-    minify: config.minify,
-    write: false
-  });
-  return result.outputFiles[0].text;
 };
 
 ADOM.compile = async (name, opts) => {
-  const adom = core();
   if (name && typeof name === 'object') {
     opts = name;
   }
@@ -141,21 +114,38 @@ ADOM.compile = async (name, opts) => {
     opts.input = name;
   }
   const parentDir = getPathInfo(opts.input).parent;
+  const adom = core({
+    jsTransform: async (js, p) => {
+      const opts = { format: 'cjs', loader: 'ts' };
+      const result = await esbuild.transform(js, opts);
+      return addParentPaths(result.code, p);
+    },
+    jsPostProcess: async (js) => {
+      const result = await esbuild.build({
+        stdin: {
+          contents: js,
+          resolveDir: parentDir
+        },
+        bundle: true,
+        minify: opts.minify,
+        write: false
+      });
+      return result.outputFiles[0].text;
+    }
+  });
   try {
-    const out = await adom.render(opts.input, opts.data);
-    const js = await processJs(out.js, { parentDir, minify: opts.minify });
-    const printed = `(function (data){${js}})(${JSON.stringify(opts.data || {})})`;
-    const parts = out.html.split('/***ADOM_RUNTIME***/');
-    const html = parts[0] + printed + parts[1];
-
+    const html = await adom.render(opts.input, opts.data);
     if (!opts.output) {
       return html;
     } else {
       fs.writeFileSync(opts.output, html);
     }
   } catch (e) {
-    let msg;
     console.log(e);
+    let msg;
+    if (e.errors && e.errors[0]) {
+      e = esbuild_to_adom_error(e.errors[0]);
+    }
     if (e.origin === 'adom') {
       msg = `<pre>${adom.error(e)}</pre>`;
     } else msg = `<pre>${e.message}</pre>`;
