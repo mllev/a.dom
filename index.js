@@ -28,14 +28,13 @@ const mimedb = require('./mime.json');
 
 const ADOM = {};
 const mimetypes = {};
+const ssrCache = {};
 
 const getPathInfo = (p, base) => {
   const full = base ? path.resolve(base, p) : path.resolve(process.cwd(), p);
   const parent = path.dirname(full);
-  return {
-    full,
-    parent
-  };
+  const file = path.basename(full);
+  return { full, parent, file };
 };
 
 const getMatches = (istr, mstr) => {
@@ -113,7 +112,8 @@ ADOM.compile = async (name, opts) => {
   if (typeof name === 'string') {
     opts.input = name;
   }
-  const parentDir = getPathInfo(opts.input).parent;
+  const pathInfo = getPathInfo(opts.input);
+  const parentDir = pathInfo.parent;
   const adom = core({
     jsTransform: async (js, p) => {
       const opts = { format: 'cjs', loader: 'ts' };
@@ -134,7 +134,26 @@ ADOM.compile = async (name, opts) => {
     }
   });
   try {
-    const html = await adom.render(opts.input, opts.data);
+    let html;
+    if (opts.cache) {
+      const cacheDir = opts.cacheDir || parentDir;
+      const cachePath = path.resolve(cacheDir, pathInfo.file + '.json');
+      if (ssrCache[cachePath]) {
+        html = await adom.renderToHTML(ssrCache[cachePath], opts.data);
+      /*
+      } else if (fs.existsSync(cachePath)) {
+        const cache = fs.readFileSync(cachePath, 'utf-8');
+        html = await adom.renderToHTML(cache, opts.data);
+      */
+      } else {
+        const cache = await adom.renderToCache(opts.input, opts.data);
+        // fs.writeFileSync(cachePath, cache);
+        ssrCache[cachePath] = cache;
+        html = await adom.renderToHTML(cache, opts.data);
+      }
+    } else {
+      html = await adom.render(opts.input, opts.data);
+    }
     if (!opts.output) {
       return html;
     } else {

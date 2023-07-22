@@ -2578,7 +2578,7 @@ module.exports = (config) => {
     return out;
   };
 
-  const renderAst = async (file) => {
+  const renderToAst = async (file) => {
     const fileText = openFile(file);
     const tokens = tokenize(fileText, file);
     const ast = parse(tokens);
@@ -2603,22 +2603,29 @@ module.exports = (config) => {
     return { ast, js };
   };
 
-  const renderToCache = async (file) => {
-    const result = await renderAst(file);
-    return JSON.stringify(result);
-  };
-
-  const render = async (file, data) => {
-    const result = await renderAst(file);
-
-    const html = execute(result.ast, data || {});
-    const printed = `(function (data){${result.js}})(${JSON.stringify(data || {})})`;
+  const renderToHTML = async (ir, data) => {
+    if (typeof ir === 'string') {
+      ir = JSON.parse(ir);
+    }
+    const html = execute(ir.ast, data || {});
+    const printed = `(function (data){${ir.js}})(${JSON.stringify(data || {})})`;
     const parts = html.split('/***ADOM_RUNTIME***/');
     const out = parts[0] + printed + parts[1];
-
     return out;
   };
 
-  return { render, error: format_error };
+  const render = async (file, data) => {
+    const result = await renderToAst(file);
+    const html = await renderToHTML(result, data);
+
+    return html;
+  };
+
+  const renderToCache = async (file) => {
+    const result = await renderToAst(file);
+    return JSON.stringify(result);
+  };
+
+  return { render, renderToCache, renderToHTML, error: format_error };
 };
 
