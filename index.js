@@ -83,13 +83,13 @@ const addParentPaths = (code, p) => {
   return out;
 };
 
-const esbuild_to_adom_error = (e) => {
+const esbuild_to_adom_error = (e, chunk) => {
   let row = e.location.line - 1;
   let col = e.location.column;
   let pos;
 
-  for (pos = 0; pos < code.length; pos++) {
-    if (code[pos] === '\n') row--;
+  for (pos = 0; pos < chunk.code.length; pos++) {
+    if (chunk.code[pos] === '\n') row--;
     if (row == 0) {
       if (col > 0) col--;
       else break;
@@ -98,7 +98,7 @@ const esbuild_to_adom_error = (e) => {
 
   return {
     origin: 'adom',
-    msg: e.errors[0].text,
+    msg: e.text,
     pos: chunk.pos + 3 + pos + 1,
     file: chunk.file
   };
@@ -115,10 +115,16 @@ ADOM.compile = async (name, opts) => {
   const pathInfo = getPathInfo(opts.input);
   const parentDir = pathInfo.parent;
   const adom = core({
-    jsTransform: async (js, p) => {
-      const opts = { format: 'cjs', loader: 'ts' };
-      const result = await esbuild.transform(js, opts);
-      return addParentPaths(result.code, p);
+    jsTransform: async (chunk) => {
+      try {
+        const opts = { format: 'cjs', loader: 'ts' };
+        const result = await esbuild.transform(chunk.code, opts);
+        return addParentPaths(result.code, chunk.parent_dir);
+      } catch (e) {
+        e.origin = 'esbuild';
+        e.chunk = chunk;
+        throw e;
+      }
     },
     jsPostProcess: async (js) => {
       const result = await esbuild.build({
@@ -160,13 +166,14 @@ ADOM.compile = async (name, opts) => {
       fs.writeFileSync(opts.output, html);
     }
   } catch (e) {
-    console.log(e);
     let msg;
-    if (e.errors && e.errors[0]) {
-      e = esbuild_to_adom_error(e.errors[0]);
+    if (e.origin === 'esbuild') {
+      if (e.chunk) {
+        e = esbuild_to_adom_error(e.errors[0], e.chunk);
+      }
     }
     if (e.origin === 'adom') {
-      msg = `<pre>${adom.error(e)}</pre>`;
+      msg = `<pre>${adom.printError(e)}</pre>`;
     } else msg = `<pre>${e.message}</pre>`;
     if (!opts.output) return msg;
     else {
@@ -201,31 +208,30 @@ const serveStaticFile = (p, res) => {
 
 const parseBody = (req, max) => {
   return new Promise((resolve, reject) => {
-    if (req.method === 'POST' || req.method === 'PUT') {
-      let buf = '';
-      let data;
-      req.on('data', (chunk) => {
-        if (buf.length > max) {
-          reject('Maximum body size exceeeded');
-        } else {
-          buf += chunk;
-        }
-      });
-      req.on('end', () => {
+    let buf = '';
+    let data;
+    req.on('data', (chunk) => {
+      if (buf.length > max) {
+        reject('Maximum body size exceeeded');
+      } else {
+        buf += chunk;
+      }
+    });
+    req.on('end', () => {
+      try {
+        data = JSON.parse(buf);
+      } catch (e) {
         try {
-          data = JSON.parse(buf);
+          data = qs.parse(buf);
         } catch (e) {
-          try {
-            data = qs.parse(buf);
-          } catch (e) {
-            reject('Invalid request body format');
-          }
+          reject('Invalid request body format');
         }
-        resolve(data);
-      })
-    } else {
-      resolve(null);
-    }
+      }
+      resolve(data);
+    })
+    req.on('error', (e) => {
+      reject(e);
+    });
   });
 };
 
@@ -234,7 +240,66 @@ const parseQuery = (p) => {
   if (purl.query) {
     return qs.parse(purl.query);
   }
-  return null;
+  return {};
+};
+
+ADOM.request = (opts) => {
+  const http = require('http');
+  const https = require('https');
+
+  if (typeof opts === 'string') {
+    opts = {
+      method: 'GET',
+      url: opts
+    };
+  }
+
+  const get = (opts, fn) => {
+    const proto = opts.url.indexOf('https') === 0 ? https : http;
+    proto.get(opts.url, async (res) => {
+      try {
+        const data = await parseBody(res, 1e9);
+        fn(null, data);
+      } catch (e) {
+        fn(e);
+      }
+    });
+  };
+
+  const post = (opts, fn) => {
+    const proto = opts.port === 443 ? https : http;
+    const data = opts.data;
+
+    opts.data = undefined;
+    opts.method = opts.method.toUpperCase() || 'POST';
+
+    const request = proto.request(opts, async (res) => {
+      try {
+        const data = await parseBody(res, 1e9);
+        fn(null, data);
+      } catch (e) {
+        fn(e);
+      }
+    });
+
+    request.on('error', fn);
+    request.write(data);
+    request.end();
+  };
+
+  return new Promise((resolve, reject) => {
+    let func = post;
+    if (opts.method.toLowerCase() === 'get') {
+      func = get;
+    }
+    func(opts, (err, data) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(data);
+      }
+    });
+  });
 };
 
 ADOM.app = (opts) => {
@@ -252,50 +317,50 @@ ADOM.app = (opts) => {
   });
 
   return async (req, res) => {
-    const p = req.url;
-    let found = false;
+    const p = url.parse(req.url).pathname;
     if (req.method === 'GET') {
       const f = path.resolve(process.cwd(), publicDir, p.slice(1));
-      if (serveStaticFile(f, res)) {
-        found = true;
-      }
+      if (serveStaticFile(f, res)) return;
     }
     if (routes['*']) {
       routes = { '*': routes['*'] };
     }
     for (let r in routes) {
+      let data;
       const params = getMatches(p, r);
-      if (params) {
-        let data;
-        if (routes[r].data) {
-          if (typeof routes[r].data === 'object') {
-            data = routes[r].data;
+      if (!params) continue;
+      if (routes[r].data) {
+        if (typeof routes[r].data === 'object') {
+          data = routes[r].data;
+        } else {
+          req.params = params;
+          req.query = parseQuery(req.url);
+          if (req.method === 'POST' || req.method === 'PUT') {
+            req.body = await parseBody(req, 1e9);
           } else {
-            req.params = params;
-            req.query = parseQuery(p);
-            req.body = await parseBody(req)
-            data = await routes[r].data(req);
+            req.body = {};
           }
+          data = await routes[r].data(req);
         }
-        if (routes[r].path) {
-          const html = await ADOM.compile(routes[r].path, { data, minify, cache });
-          res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
-          res.end(html);
-        } else if (data) {
-          if (typeof data !== 'object') {
-            throw new Error('Data function must return an object or array');
-          }
-          res.writeHead(200, {'Content-type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify(data));
-        }
-        found = true;
-        break;
       }
+      if (routes[r].path) {
+        const html = await ADOM.compile(routes[r].path, { data, minify, cache });
+        res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } else if (data) {
+        if (typeof data !== 'object') {
+          throw new Error('Data function must return an object or array');
+        }
+        res.writeHead(200, {'Content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(data));
+      } else {
+        res.statusCode = 200;
+        res.end();
+      }
+      return;
     }
-    if (!found) {
-      res.writeHead(404, { 'Content-type': 'text/plain' });
-      res.end('Not found');
-    }
+    res.writeHead(404, { 'Content-type': 'text/plain' });
+    res.end('not found');
   };
 };
 

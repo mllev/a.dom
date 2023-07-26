@@ -1754,7 +1754,7 @@ module.exports = (config) => {
               const val = evaluate(node.data[1]);
               const t = getType(val);
               if (t === 'object' || t === 'null' || t === 'array') {
-                return JSON.stringify(e);
+                return JSON.stringify(val);
               } else {
                 return e.toString();
               }
@@ -1806,7 +1806,7 @@ module.exports = (config) => {
     return html;
   };
 
-  const format_error = (err) => {
+  const printError = (err) => {
     let prog = _files[err.file];
     let index = err.pos;
 
@@ -2213,16 +2213,18 @@ module.exports = (config) => {
           emit('var $');
           emit(node.data.name);
           emit(' = $$c(function (props, $emit, $on) {\n');
-          custom = true;
-          node.children.forEach((child) => {
-            if (child.type !== 'set' && child.type !== 'js' && !written) {
-              emit('return function($$id, props, $$yield) {\n');
-              written = true;
-            }
-            walk(child);
-          });
-          custom = false;
-          emit('}\n');
+          if (node.children.length) {
+            custom = true;
+            node.children.forEach((child) => {
+              if (child.type !== 'set' && child.type !== 'js' && !written) {
+                emit('return function($$id, props, $$yield) {\n');
+                written = true;
+              }
+              walk(child);
+            });
+            custom = false;
+            emit('}\n');
+          }
           emit('});\n');
           fileList[fileIdx].tags[node.data.name] = node.children;
         } break;
@@ -2578,6 +2580,17 @@ module.exports = (config) => {
     return out;
   };
 
+  const renderToHTML = (ir, data) => {
+    if (typeof ir === 'string') {
+      ir = JSON.parse(ir);
+    }
+    const html = execute(ir.ast, data || {});
+    const printed = `(function (data){${ir.js}})(${JSON.stringify(data || {})})`;
+    const parts = html.split('/***ADOM_RUNTIME***/');
+    const out = parts[0] + printed + parts[1];
+    return out;
+  };
+
   const renderToAst = async (file) => {
     const fileText = openFile(file);
     const tokens = tokenize(fileText, file);
@@ -2588,7 +2601,7 @@ module.exports = (config) => {
     if (config.jsTransform) {
       js = (await Promise.all(runtime.map(async (chunk) => {
         if (chunk.transform) {
-          return await config.jsTransform(chunk.code, chunk.parent_dir);
+          return await config.jsTransform(chunk);
         }
         return chunk.code;
       }))).join('\n');
@@ -2603,20 +2616,9 @@ module.exports = (config) => {
     return { ast, js };
   };
 
-  const renderToHTML = async (ir, data) => {
-    if (typeof ir === 'string') {
-      ir = JSON.parse(ir);
-    }
-    const html = execute(ir.ast, data || {});
-    const printed = `(function (data){${ir.js}})(${JSON.stringify(data || {})})`;
-    const parts = html.split('/***ADOM_RUNTIME***/');
-    const out = parts[0] + printed + parts[1];
-    return out;
-  };
-
   const render = async (file, data) => {
     const result = await renderToAst(file);
-    const html = await renderToHTML(result, data);
+    const html = renderToHTML(result, data);
 
     return html;
   };
@@ -2626,6 +2628,6 @@ module.exports = (config) => {
     return JSON.stringify(result);
   };
 
-  return { render, renderToCache, renderToHTML, error: format_error };
+  return { render, renderToCache, renderToHTML, printError };
 };
 
