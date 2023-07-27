@@ -22,6 +22,8 @@ const fs = require('fs');
 const path = require('path');
 const qs = require('querystring');
 const url = require('url');
+const http = require('http');
+const https = require('https');
 const esbuild = require('esbuild');
 const core = require('./core.js');
 const mimedb = require('./mime.json');
@@ -145,7 +147,7 @@ ADOM.compile = async (name, opts) => {
       const cacheDir = opts.cacheDir || parentDir;
       const cachePath = path.resolve(cacheDir, pathInfo.file + '.json');
       if (ssrCache[cachePath]) {
-        html = await adom.renderToHTML(ssrCache[cachePath], opts.data);
+        html = adom.renderToHTML(ssrCache[cachePath], opts.data);
       /*
       } else if (fs.existsSync(cachePath)) {
         const cache = fs.readFileSync(cachePath, 'utf-8');
@@ -155,7 +157,7 @@ ADOM.compile = async (name, opts) => {
         const cache = await adom.renderToCache(opts.input, opts.data);
         // fs.writeFileSync(cachePath, cache);
         ssrCache[cachePath] = cache;
-        html = await adom.renderToHTML(cache, opts.data);
+        html = adom.renderToHTML(cache, opts.data);
       }
     } else {
       html = await adom.render(opts.input, opts.data);
@@ -244,9 +246,6 @@ const parseQuery = (p) => {
 };
 
 ADOM.request = (opts) => {
-  const http = require('http');
-  const https = require('https');
-
   if (typeof opts === 'string') {
     opts = {
       method: 'GET',
@@ -362,6 +361,14 @@ ADOM.app = (opts) => {
     res.writeHead(404, { 'Content-type': 'text/plain' });
     res.end('not found');
   };
+};
+
+ADOM.serve = (opts) => {
+  const port = opts.port || 3838;
+  const app = ADOM.app(opts);
+  http.createServer(app).listen(port, () => {
+    console.log(`Listening on port ${port}...`);
+  })
 };
 
 module.exports = ADOM;

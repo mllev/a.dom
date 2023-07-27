@@ -24,7 +24,6 @@ const path = require("path");
 
 module.exports = (config) => {
   const _files = {};
-  const ast_cache = {};
 
   function throw_adom_error (err) {
     err.origin = 'adom';
@@ -2189,7 +2188,9 @@ module.exports = (config) => {
           if (namespace) {
             emit('var $');
             emit(namespace);
-            emit(' = $f.components;');
+            emit(' = $f');
+            emit(id);
+            emit('.components;');
             const ns = {};
             fileList[fileIdx].namespaces[namespace] = ns;
             for (let e in ex) {
@@ -2213,6 +2214,7 @@ module.exports = (config) => {
           emit('var $');
           emit(node.data.name);
           emit(' = $$c(function (props, $emit, $on) {\n');
+          fileList[fileIdx].tags[node.data.name] = node.children;
           if (node.children.length) {
             custom = true;
             node.children.forEach((child) => {
@@ -2226,7 +2228,6 @@ module.exports = (config) => {
             emit('}\n');
           }
           emit('});\n');
-          fileList[fileIdx].tags[node.data.name] = node.children;
         } break;
         case 'tag': {
           const namespace = node.data.namespace;
