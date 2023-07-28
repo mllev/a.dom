@@ -22,7 +22,7 @@ const posts = [
 const build = async () => {
   adom.compile({
     input: 'src/index.adom',
-    output: 'public/index.html,
+    output: 'public/index.html',
     minify: true,
   });
 
@@ -38,7 +38,7 @@ const build = async () => {
   console.log('Completed build');
 };
 
-function exec() {
+async function exec() {
   if (process.argv.includes('dev')) {
     await build()
     adom.serve({ publicDir: './public' });
@@ -83,7 +83,7 @@ const ssgPackageFile = (name) => `{
   "description": "",
   "main": "buidl.js",
   "scripts": {
-    "prod": "node build",
+    "build": "node build",
     "dev": "node build dev"
   },
   "keywords": [],
@@ -149,6 +149,37 @@ Layout [
 ]
 `;
 
+const quickIndex = `
+tag Counter [
+  let count = 0
+  button on:click='count++' 'count: {{count}}'
+]
+
+html [
+  head [
+    title 'A-DOM'
+  ]
+  h1 'Welcome'
+  Counter []
+]
+`;
+
+const quickServer = `const adom = require('adom-js');
+
+const prod = !process.argv.includes('dev');
+
+adom.serve({
+  publicDir: './public',
+  cache: prod,
+  minify: prod,
+  routes: {
+    '/': {
+      path: 'index.adom'
+    }
+  }
+});
+`;
+
 for (let i = 0; i < process.argv.length; i++) {
   switch (process.argv[i]) {
     case 'create':
@@ -165,27 +196,27 @@ for (let i = 0; i < process.argv.length; i++) {
   }
 }
 
-if (
-  (config.ssr && config.ssg) ||
-  (!config.ssr && !config.ssg) ||
-  !config.name
-) {
+if ((config.ssr && config.ssg) || !config.name) {
   console.log(help);
 } else {
   const p = path.resolve(dir, config.name);
-
   fs.mkdirSync(p);
-  fs.mkdirSync(path.join(p, 'public'));
-  fs.mkdirSync(path.join(p, 'src'));
-  fs.writeFileSync(path.join(p, 'src/index.adom'), indexFile);
-  fs.writeFileSync(path.join(p, 'src/blog.adom'), blogFile);
-  fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
-
-  if (config.ssg) {
-    fs.writeFileSync(path.join(p, 'build.js'), ssgBuild);
-    fs.writeFileSync(path.join(p, 'package.json'), ssgPackageFile(config.name));
+  if (config.ssg || config.ssr) {
+    fs.mkdirSync(path.join(p, 'public'));
+    fs.mkdirSync(path.join(p, 'src'));
+    fs.writeFileSync(path.join(p, 'src/index.adom'), indexFile);
+    fs.writeFileSync(path.join(p, 'src/blog.adom'), blogFile);
+    fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
+    if (config.ssg) {
+      fs.writeFileSync(path.join(p, 'build.js'), ssgBuild);
+      fs.writeFileSync(path.join(p, 'package.json'), ssgPackageFile(config.name));
+    } else if (config.ssr) {
+      fs.writeFileSync(path.join(p, 'server.js'), ssrBuild);
+      fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name));
+    }
   } else {
-    fs.writeFileSync(path.join(p, 'server.js'), ssrBuild);
+    fs.writeFileSync(path.join(p, 'index.adom'), quickIndex);
+    fs.writeFileSync(path.join(p, 'server.js'), quickServer);
     fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name));
   }
 }
