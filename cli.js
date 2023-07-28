@@ -78,7 +78,7 @@ adom.serve({
 });
 `;
 
-const ssgPackageFile = (name) => `{
+const ssgPackageFile = (name, version) => `{
   "name": "${name}",
   "version": "0.0.1",
   "description": "",
@@ -91,12 +91,12 @@ const ssgPackageFile = (name) => `{
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "adom-js": "^0.19.13"
+    "adom-js": "^${version}"
   }
 }
 `;
 
-const ssrPackageFile = (name) => `{
+const ssrPackageFile = (name, version) => `{
   "name": "${name}",
   "version": "0.0.1",
   "description": "",
@@ -109,7 +109,7 @@ const ssrPackageFile = (name) => `{
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "adom-js": "^0.19.13"
+    "adom-js": "^${version}"
   }
 }
 `;
@@ -221,6 +221,7 @@ if (config.dev) {
   console.log(help);
 } else {
   const p = path.resolve(dir, config.name);
+  const pf = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
   fs.mkdirSync(p);
   if (config.ssg || config.ssr) {
     fs.mkdirSync(path.join(p, 'public'));
@@ -230,14 +231,14 @@ if (config.dev) {
     fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
     if (config.ssg) {
       fs.writeFileSync(path.join(p, 'build.js'), ssgBuild);
-      fs.writeFileSync(path.join(p, 'package.json'), ssgPackageFile(config.name));
+      fs.writeFileSync(path.join(p, 'package.json'), ssgPackageFile(config.name, pf.version));
     } else if (config.ssr) {
       fs.writeFileSync(path.join(p, 'server.js'), ssrBuild);
-      fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name));
+      fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name, pf.version));
     }
   } else {
     fs.writeFileSync(path.join(p, 'index.adom'), quickIndex);
     fs.writeFileSync(path.join(p, 'server.js'), quickServer);
-    fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name));
+    fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name, pf.version));
   }
 }
