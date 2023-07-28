@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const adom = require('./index.js');
 const dir = process.cwd();
 const config = {};
 
@@ -191,12 +192,32 @@ for (let i = 0; i < process.argv.length; i++) {
     case '--ssr':
       config.ssr = true;
       break
+    case 'dev':
+      config.dev = true;
+      break;
+    case '-p':
+      config.publicDir = process.argv[++i];
+      break;
+    case '-r':
+      const r = process.argv[++i];
+      if (r) {
+        const parts = r.split('=');
+        if (parts.length === 2) {
+          if (!config.routes) config.routes = {};
+          config.routes[parts[0]] = { path: parts[1] };
+        }
+      }
+      break;
     default:
       break
   }
 }
-
-if ((config.ssr && config.ssg) || !config.name) {
+if (config.dev) {
+  adom.serve({
+    publicDir: config.publicDir || '.',
+    routes: config.routes
+  });
+} else if ((config.ssr && config.ssg) || !config.name) {
   console.log(help);
 } else {
   const p = path.resolve(dir, config.name);

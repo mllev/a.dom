@@ -1646,8 +1646,12 @@ module.exports = (config) => {
           } else if (op === '||') {
             stack.push(v1 || v2);
           } else if (op === '>') {
+            assertType(v1, 'number', node.data[0]);
+            assertType(v2, 'number', node.data[1]);
             stack.push(v1 > v2);
           } else if (op === '<') {
+            assertType(v1, 'number', node.data[0]);
+            assertType(v2, 'number', node.data[1]);
             stack.push(v1 < v2);
           } else if (op === '+') {
             assertType(v1, ['number','string'], node.data[0]);
@@ -1687,6 +1691,7 @@ module.exports = (config) => {
             } break;
             case 'length': {
               const data = evaluate(node.data[1]);
+              assertType(data, ['string', 'array'], node.data[1]);
               stack.push(data.length);
             } break;
             case 'filter':
@@ -1707,15 +1712,19 @@ module.exports = (config) => {
             } break;
             case 'toupper': {
               const val = evaluate(node.data[1]);
+              assertType(val, 'string', node.data[1]);
               stack.push(val.toUpperCase());
             } break;
             case 'tolower': {
               const val = evaluate(node.data[1]);
+              assertType(val, 'string', node.data[1]);
               stack.push(val.toLowerCase());
             } break;
             case 'split': {
               const val = evaluate(node.data[1]);
               const del = evaluate(node.data[2]);
+              assertType(val, 'string', node.data[1]);
+              assertType(del, 'string', node.data[2]);
               stack.push(e.split(del));
             } break;
             case 'includes': {
@@ -1726,6 +1735,8 @@ module.exports = (config) => {
             case 'indexof': {
               const val = evaluate(node.data[1]);
               const del = evaluate(node.data[2]);
+              assertType(val, ['string', 'array'], node.data[1]);
+              assertType(del, ['string', 'number'], node.data[2]);
               stack.push(e.indexOf(del));
             } break;
             case 'reverse': {
@@ -1736,25 +1747,36 @@ module.exports = (config) => {
               } else if (t === 'string') {
                 stack.push(val.split('').reverse().join(''));
               } else {
-                err(`Expected string or array`, node);
+                err(`Expected string or array`, node.data[1]);
               }
             } break;
-            case 'json': {
+            case 'todata': {
               const val = evaluate(node.data[1]);
-              stack.push(JSON.parse(val));
+              const t = getType(val);
+              if (t === 'array' || t === 'object') {
+                stack.push(JSON.parse(val));
+              } else if (t === 'number') {
+                stack.push(parseFloat(val));
+              } else {
+                stack.push(val);
+              }
             } break;
             case 'replace': {
               const e = evaluate(node.data[1]);
               const r = evaluate(node.data[2]);
               const n = evaluate(node.data[3]);
-              const t = getType(e);
+              assertType(e, 'string', node.data[1]);
+              assertType(r, 'string', node.data[2]);
+              assertType(n, 'string', node.data[3]);
               stack.push(e.replaceAll(r, n));
             } break;
             case 'slice': {
               const v = evaluate(node.data[1]);
               const s = evaluate(node.data[2]);
               const e = evaluate(node.data[3]);
-              const t = getType(e);
+              assertType(v, ['string', 'array'], node.data[1]);
+              assertType(s, 'number', node.data[2]);
+              assertType(e, 'number', node.data[3]);
               stack.push(v.slice(s, e));
             } break;
             case 'tostring': {
@@ -1769,18 +1791,23 @@ module.exports = (config) => {
             case 'join': {
               const val = evaluate(node.data[1]);
               const del = evaluate(node.data[2]);
+              assertType(val, 'array', node.data[1]);
+              assertType(del, 'string', node.data[2]);
               stack.push(val.join(del));
             } break;
             case 'trim': {
               const val = evaluate(node.data[1]);
+              assertType(val, 'string', node.data[1]);
               stack.push(val.trim());
             } break;
             case 'keys': {
               const val = evaluate(node.data[1]);
+              assertType(val, 'object', node.data[1]);
               stack.push(Object.keys(val));
             } break;
             case 'values': {
               const val = evaluate(node.data[1]);
+              assertType(val, 'object', node.data[1]);
               stack.push(Object.values(val));
             } break;
             case 'sin':
@@ -1790,10 +1817,12 @@ module.exports = (config) => {
             case 'ceil':
             case 'floor': {
               const val = evaluate(node.data[1]);
+              assertType(val, 'number', node.data[1]);
               stack.push(Math[op](val));
             } break;
             case 'rand': {
               const val = evaluate(node.data[1]);
+              assertType(val, 'number', node.data[1]);
               stack.push(Math.random() * val);
             } break;
             default:
@@ -2028,6 +2057,12 @@ module.exports = (config) => {
       }
     }
     return vals;
+  }
+
+  function $$todata(val) {
+    if (typeof val === 'object') return JSON.parse(val);
+    else if (typeof val === 'number') return parseFloat(val);
+    else return val;
   }
 
   function $$set_event (events, event, fn) {
@@ -2467,8 +2502,8 @@ module.exports = (config) => {
               walk(node.data[1]);
               emit(").split('').reverse().join(''))");
             } break;
-            case 'json': {
-              emit('JSON.parse(');
+            case 'todata': {
+              emit('$$todata(');
               walk(node.data[1]);
               emit(')');
             } break;

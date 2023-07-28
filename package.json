@@ -1,10 +1,10 @@
 {
   "name": "adom-js",
-  "version": "0.19.13",
+  "version": "0.20.0",
   "description": "Advanced Data Oriented Markup",
   "main": "index.js",
   "scripts": {
-    "dev": "node cli --dev -r /=test.adom"
+    "dev": "node cli dev -r *=test.adom"
   },
   "repository": {
     "type": "git",
