@@ -147,7 +147,7 @@ ADOM.compile = async (name, opts) => {
       const cacheDir = opts.cacheDir || parentDir;
       const cachePath = path.resolve(cacheDir, pathInfo.file + '.json');
       if (ssrCache[cachePath]) {
-        html = adom.renderToHTML(ssrCache[cachePath], opts.data);
+        html = adom.renderToHTML(ssrCache[cachePath], opts.data, opts.flush);
       /*
       } else if (fs.existsSync(cachePath)) {
         const cache = fs.readFileSync(cachePath, 'utf-8');
@@ -157,10 +157,10 @@ ADOM.compile = async (name, opts) => {
         const cache = await adom.renderToCache(opts.input, opts.data);
         // fs.writeFileSync(cachePath, cache);
         ssrCache[cachePath] = cache;
-        html = adom.renderToHTML(cache, opts.data);
+        html = adom.renderToHTML(cache, opts.data, opts.flush);
       }
     } else {
-      html = await adom.render(opts.input, opts.data);
+      html = await adom.render(opts.input, opts.data, opts.flush);
     }
     if (!opts.output) {
       return html;
@@ -305,6 +305,7 @@ ADOM.app = (opts) => {
   const publicDir = opts.publicDir || '.';
   const minify = opts.minify || false;
   const cache = opts.cache || false;
+  const stream = opts.stream || false;
   let routes = opts.routes || {};
 
   Object.keys(mimedb).forEach((type) => {
@@ -343,9 +344,20 @@ ADOM.app = (opts) => {
         }
       }
       if (routes[r].path) {
-        const html = await ADOM.compile(routes[r].path, { data, minify, cache });
-        res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
-        res.end(html);
+        if (stream) {
+          res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
+          await ADOM.compile(routes[r].path, {
+            flush: res.write.bind(res),
+            data,
+            minify,
+            cache,
+          });
+          res.end();
+        } else {
+          const html = await ADOM.compile(routes[r].path, { data, minify, cache });
+          res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
+          res.end(html);
+        }
       } else if (data) {
         if (typeof data !== 'object') {
           throw new Error('Data function must return an object or array');

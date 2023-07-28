@@ -1305,7 +1305,7 @@ module.exports = (config) => {
     return ast;
   };
 
-  const execute = (ast, initial_state, js) => {
+  const execute = (ast, initial_state, js, flush) => {
     let html = '';
 
     const stack = [];
@@ -1316,8 +1316,15 @@ module.exports = (config) => {
 
     const found = { head: false, head: false, body: false };
 
-    const emit = (txt) => {
-      html += txt; 
+    const emit = flush ? (txt) => {
+      if (html.length > 100) {
+        flush(html);
+        html = txt;
+      } else {
+        html += txt; 
+      }
+    } : (txt) => {
+      html += txt;
     };
 
     const getType = (v) => {
@@ -1478,7 +1485,8 @@ module.exports = (config) => {
                 emit(JSON.stringify(initial_state));
                 emit(');<' + '/' + 'script>');
               } else {
-                emit('<script>/***ADOM_RUNTIME***/<' + '/' + 'script>');
+                const rt = `(function (data){${js}})(${JSON.stringify(initial_state)})`;
+                emit('<script>' + rt + '<' + '/script>');
               }
             }
             emit('</');
@@ -1801,6 +1809,10 @@ module.exports = (config) => {
     };
   
     walk(ast);
+
+    if (flush && html.length > 0) {
+      flush(html);
+    }
 
     return html;
   };
@@ -2581,17 +2593,6 @@ module.exports = (config) => {
     return out;
   };
 
-  const renderToHTML = (ir, data) => {
-    if (typeof ir === 'string') {
-      ir = JSON.parse(ir);
-    }
-    const html = execute(ir.ast, data || {});
-    const printed = `(function (data){${ir.js}})(${JSON.stringify(data || {})})`;
-    const parts = html.split('/***ADOM_RUNTIME***/');
-    const out = parts[0] + printed + parts[1];
-    return out;
-  };
-
   const renderToAst = async (file) => {
     const fileText = openFile(file);
     const tokens = tokenize(fileText, file);
@@ -2617,9 +2618,17 @@ module.exports = (config) => {
     return { ast, js };
   };
 
-  const render = async (file, data) => {
+  const renderToHTML = (ir, data, flush) => {
+    if (typeof ir === 'string') {
+      ir = JSON.parse(ir);
+    }
+    const html = execute(ir.ast, data || {}, ir.js, flush);
+    return html;
+  };
+
+  const render = async (file, data, flush) => {
     const result = await renderToAst(file);
-    const html = renderToHTML(result, data);
+    const html = renderToHTML(result, data, flush);
 
     return html;
   };
