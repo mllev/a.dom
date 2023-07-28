@@ -221,7 +221,7 @@ if (config.dev) {
   console.log(help);
 } else {
   const p = path.resolve(dir, config.name);
-  const pf = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
+  const pf = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
   fs.mkdirSync(p);
   if (config.ssg || config.ssr) {
     fs.mkdirSync(path.join(p, 'public'));
