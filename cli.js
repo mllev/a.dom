@@ -9,19 +9,19 @@ const config = {};
 const help = `
 usage: adom [options]
   options:
-    create <name> [--lean] Create a project boilerplate
-    dev                    Start a dev server
-    -r <path>=<file>       Specify a route to an adom file for the dev server
-    -p <port>              Port for the dev server (defaults to 3838)
+    create <name>    Create a project boilerplate
+    dev              Start a dev server
+    -r <path>=<file> Specify a route to an adom file for the dev server
+    -p <port>        Port for the dev server (defaults to 3838)
 `;
 
 const buildFile = `const adom = require('adom-js');
 
 const prod = !process.argv.includes('dev');
 
-const posts = {
-  post1: 'Blog post 1',
-  post2: 'Blog post 2'
+const content = {
+  page1: 'Welcome to page 1',
+  page2: 'Welcome to page 2'
 };
 
 adom.serve({
@@ -32,10 +32,10 @@ adom.serve({
     '/': {
       path: 'src/index.adom'
     },
-    '/blog/:post_id': {
-      path: 'src/blog.adom',
+    '/:page_id': {
+      path: 'src/page.adom',
       data: async (req) => {
-        return { post: posts[req.params.post_id] }
+        return { content: content[req.params.page_id] }
       }
     }
   }
@@ -65,6 +65,9 @@ export tag Layout [
   html lang='en' [
     head [
       title 'A-DOM'
+      meta charset='UTF-8' []
+      meta name='viewport' content='width=device-width, initial-scale=1.0' []
+      meta name='description' content='my site' []
     ]
     body [
       yield
@@ -73,25 +76,30 @@ export tag Layout [
 ]
 `;
 
-const blogFile = `
+const pageFile = `
 import 'layout.adom'
 
 Layout [
-  main [
-    h1 'Blog'
-    p '{{data.post}}'
-  ]
+  p '{{data.content}}'
+  a href='/' 'home'
 ]
 `;
 
 const indexFile = `import 'layout.adom'
 
+tag Counter [
+  let count = 0
+  button on:click='count++' 'count: {{count}}'
+]
+
+tag Nav [
+  a href='/page1' 'page 1'
+  a href='/page2' 'page 2'
+]
+
 Layout [
-  main [
-    h1 'Home'
-    a href='/blog/post1' 'blog post 1'
-    a href='/blog/post2' 'blog post 2'
-  ]
+  Nav []
+  Counter []
 ]
 `;
 
@@ -170,7 +178,7 @@ if (config.dev) {
     fs.mkdirSync(path.join(p, 'public'));
     fs.mkdirSync(path.join(p, 'src'));
     fs.writeFileSync(path.join(p, 'src/index.adom'), indexFile);
-    fs.writeFileSync(path.join(p, 'src/blog.adom'), blogFile);
+    fs.writeFileSync(path.join(p, 'src/page.adom'), pageFile);
     fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
     fs.writeFileSync(path.join(p, 'server.js'), buildFile);
     fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.create, pf.version));
