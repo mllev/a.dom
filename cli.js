@@ -9,49 +9,13 @@ const config = {};
 const help = `
 usage: adom [options]
   options:
-    create <name> --ssg Create a project boilerplate with an example build script for a statically generated site
-                  --ssr Create a project boilerplate for a server rendered or hybrid site
+    create <name> [--lean] Create a project boilerplate
+    dev                    Start a dev server
+    -r <path>=<file>       Specify a route to an adom file for the dev server
+    -p <port>              Port for the dev server (defaults to 3838)
 `;
 
-const ssgBuild = `const adom = require('adom-js');
-
-const posts = [
- { id: 'post1', content: 'Blog post 1' },
- { id: 'post2', content: 'Blog post 2' }
-];
-
-const build = async () => {
-  adom.compile({
-    input: 'src/index.adom',
-    output: 'public/index.html',
-    minify: true,
-  });
-
-  await Promise.all(posts.map(async (post) => {
-    await adom.compile({
-      input: 'src/blog.adom',
-      output: \`public/blog/\${post.id}.html\`,
-      minify: true,
-      data: { post: post.content }
-    });
-    console.log(\`Compiled \${post.id}.html\`);
-  }));
-  console.log('Completed build');
-};
-
-async function exec() {
-  if (process.argv.includes('dev')) {
-    await build()
-    adom.serve({ publicDir: './public' });
-  } else {
-    await build();
-  }
-}
-
-exec();
-`;
-
-const ssrBuild = `const adom = require('adom-js');
+const buildFile = `const adom = require('adom-js');
 
 const prod = !process.argv.includes('dev');
 
@@ -78,25 +42,7 @@ adom.serve({
 });
 `;
 
-const ssgPackageFile = (name, version) => `{
-  "name": "${name}",
-  "version": "0.0.1",
-  "description": "",
-  "main": "buidl.js",
-  "scripts": {
-    "build": "node build",
-    "dev": "node build dev"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "adom-js": "^${version}"
-  }
-}
-`;
-
-const ssrPackageFile = (name, version) => `{
+const packageFile = (name, version) => `{
   "name": "${name}",
   "version": "0.0.1",
   "description": "",
@@ -182,13 +128,10 @@ adom.serve({
 for (let i = 0; i < process.argv.length; i++) {
   switch (process.argv[i]) {
     case 'create':
-      config.name = process.argv[++i];
+      config.create = process.argv[++i];
       break
-    case '--ssg':
-      config.ssg = true;
-      break
-    case '--ssr':
-      config.ssr = true;
+    case '--lean':
+      config.lean= true;
       break
     case 'dev':
       config.dev = true;
@@ -215,29 +158,23 @@ if (config.dev) {
     publicDir: config.publicDir || '.',
     routes: config.routes
   });
-} else if ((config.ssr && config.ssg) || !config.name) {
-  console.log(help);
-} else {
-  const p = path.resolve(dir, config.name);
+} else if (config.create) {
+  const p = path.resolve(dir, config.create);
   const pf = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
   fs.mkdirSync(p);
-  if (config.ssg || config.ssr) {
+  if (config.lean) {
+    fs.writeFileSync(path.join(p, 'index.adom'), quickIndex);
+    fs.writeFileSync(path.join(p, 'server.js'), quickServer);
+    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.name, pf.version));
+  } else {
     fs.mkdirSync(path.join(p, 'public'));
     fs.mkdirSync(path.join(p, 'src'));
     fs.writeFileSync(path.join(p, 'src/index.adom'), indexFile);
     fs.writeFileSync(path.join(p, 'src/blog.adom'), blogFile);
     fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
-    if (config.ssg) {
-      fs.mkdirSync(path.join(p, 'public/blog'));
-      fs.writeFileSync(path.join(p, 'build.js'), ssgBuild);
-      fs.writeFileSync(path.join(p, 'package.json'), ssgPackageFile(config.name, pf.version));
-    } else if (config.ssr) {
-      fs.writeFileSync(path.join(p, 'server.js'), ssrBuild);
-      fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name, pf.version));
-    }
-  } else {
-    fs.writeFileSync(path.join(p, 'index.adom'), quickIndex);
-    fs.writeFileSync(path.join(p, 'server.js'), quickServer);
-    fs.writeFileSync(path.join(p, 'package.json'), ssrPackageFile(config.name, pf.version));
+    fs.writeFileSync(path.join(p, 'server.js'), buildFile);
+    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.name, pf.version));
   }
+} else {
+  console.log(help);
 }
