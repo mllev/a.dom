@@ -165,7 +165,7 @@ if (config.dev) {
   if (config.lean) {
     fs.writeFileSync(path.join(p, 'index.adom'), quickIndex);
     fs.writeFileSync(path.join(p, 'server.js'), quickServer);
-    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.name, pf.version));
+    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.create, pf.version));
   } else {
     fs.mkdirSync(path.join(p, 'public'));
     fs.mkdirSync(path.join(p, 'src'));
@@ -173,7 +173,7 @@ if (config.dev) {
     fs.writeFileSync(path.join(p, 'src/blog.adom'), blogFile);
     fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
     fs.writeFileSync(path.join(p, 'server.js'), buildFile);
-    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.name, pf.version));
+    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.create, pf.version));
   }
 } else {
   console.log(help);
