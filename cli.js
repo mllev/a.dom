@@ -138,8 +138,7 @@ Layout [
 ]
 `;
 
-const indexFile = `
-import 'layout.adom'
+const indexFile = `import 'layout.adom'
 
 Layout [
   main [
@@ -150,8 +149,7 @@ Layout [
 ]
 `;
 
-const quickIndex = `
-tag Counter [
+const quickIndex = `tag Counter [
   let count = 0
   button on:click='count++' 'count: {{count}}'
 ]
@@ -230,6 +228,7 @@ if (config.dev) {
     fs.writeFileSync(path.join(p, 'src/blog.adom'), blogFile);
     fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
     if (config.ssg) {
+      fs.mkdirSync(path.join(p, 'public/blog'));
       fs.writeFileSync(path.join(p, 'build.js'), ssgBuild);
       fs.writeFileSync(path.join(p, 'package.json'), ssgPackageFile(config.name, pf.version));
     } else if (config.ssr) {

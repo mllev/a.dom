@@ -1146,8 +1146,9 @@ module.exports = (config) => {
         let str = parse_string();
         ast_node('textnode', str);
         parse_tag_list();
-      } else if (accept("yield")) {
-        ast_node('yield');
+      } else if (peek("yield")) {
+        ast_node('yield', { pos: tok.pos, file: tok.file });
+        next();
         parse_tag_list();
       } else if (in_tag && (peek('global') || peek('const') || peek('let'))) {
         parse_assignment();
@@ -1531,7 +1532,7 @@ module.exports = (config) => {
           if (c.yield) {
             c.yield();
           } else {
-            err('Cannot yield outside of a custom tag', node);
+            err('Cannot yield outside of a custom tag', node.data);
           }
         } break;
         case 'set': {
@@ -1605,9 +1606,9 @@ module.exports = (config) => {
           for (let i = 1; i < node.data.length; i++) {
             v = node.data[i];
             const str = evaluate(v);
-            assertType(str, ['string', 'number'], node.data);
+            assertType(str, ['string', 'number'], node.data[i]);
             if (ptr == null) {
-              err(str + ' is not defined');
+              err(prev + ' is not defined', node.data[i-1]);
             }
             prev = str;
             ptr = ptr[str];

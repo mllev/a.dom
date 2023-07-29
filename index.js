@@ -176,7 +176,10 @@ ADOM.compile = async (name, opts) => {
     }
     if (e.origin === 'adom') {
       msg = `<pre>${adom.printError(e)}</pre>`;
-    } else msg = `<pre>${e.message}</pre>`;
+    } else {
+      console.log(e);
+      msg = `<pre>${e.message}</pre>`;
+    }
     if (!opts.output) return msg;
     else {
       fs.writeFileSync(opts.output, msg);
@@ -187,6 +190,7 @@ ADOM.compile = async (name, opts) => {
 const serveStaticFile = (p, res) => {
   let ext = path.extname(p);
   if (!ext) {
+    return false;
     p += '.html';
     ext = 'html';
   } else {
@@ -318,32 +322,31 @@ ADOM.app = (opts) => {
 
   return async (req, res) => {
     const p = url.parse(req.url).pathname;
-    if (req.method === 'GET') {
-      const f = path.resolve(process.cwd(), publicDir, p.slice(1));
-      if (serveStaticFile(f, res)) return;
-    }
     if (routes['*']) {
       routes = { '*': routes['*'] };
     }
     for (let r in routes) {
-      let data;
+      let data = {};
       const params = getMatches(p, r);
       if (!params) continue;
+      req.params = params;
+      req.query = parseQuery(req.url);
+      if (req.method === 'POST' || req.method === 'PUT') {
+        req.body = await parseBody(req, 1e9);
+      } else {
+        req.body = {};
+      }
       if (routes[r].data) {
         if (typeof routes[r].data === 'object') {
           data = routes[r].data;
         } else {
-          req.params = params;
-          req.query = parseQuery(req.url);
-          if (req.method === 'POST' || req.method === 'PUT') {
-            req.body = await parseBody(req, 1e9);
-          } else {
-            req.body = {};
-          }
           data = await routes[r].data(req);
         }
       }
       if (routes[r].path) {
+        if (req.params && !data.params) {
+          data.params = req.params;
+        }
         if (stream) {
           res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
           await ADOM.compile(routes[r].path, {
@@ -369,6 +372,12 @@ ADOM.app = (opts) => {
         res.end();
       }
       return;
+    }
+    if (req.method === 'GET') {
+      let f = path.resolve(process.cwd(), publicDir, p.slice(1) || 'index');
+      const ext = path.extname(f);
+      if (!ext) f += '.html';
+      if (serveStaticFile(f, res)) return;
     }
     res.writeHead(404, { 'Content-type': 'text/plain' });
     res.end('not found');
