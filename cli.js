@@ -15,7 +15,8 @@ usage: adom [options]
     -p <port>        Port for the dev server (defaults to 3838)
 `;
 
-const buildFile = `const adom = require('adom-js');
+const buildFile = `const http = require('http');
+const adom = require('adom-js');
 
 const prod = !process.argv.includes('dev');
 
@@ -24,21 +25,23 @@ const content = {
   page2: 'Welcome to page 2'
 };
 
-adom.serve({
+const app = adom.app({
   publicDir: './public',
   cache: prod,
-  minify: prod,
-  routes: {
-    '/': {
-      path: 'src/index.adom'
-    },
-    '/:page_id': {
-      path: 'src/page.adom',
-      data: async (req) => {
-        return { content: content[req.params.page_id] }
-      }
-    }
+  minify: prod
+});
+
+app.route('/', 'src/index.adom');
+
+app.route('/:page_id', {
+  input: 'src/page.adom',
+  data: async (req) => {
+    return { content: content[req.params.page_id] }
   }
+});
+
+http.createServer(app).listen(port, () => {
+  console.log(\`Listening on port ${port}\`);
 });
 `;
 
@@ -76,8 +79,7 @@ export tag Layout [
 ]
 `;
 
-const pageFile = `
-import 'layout.adom'
+const pageFile = `import 'layout.adom'
 
 Layout [
   p '{{data.content}}'

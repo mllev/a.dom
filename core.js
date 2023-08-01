@@ -2108,7 +2108,7 @@ module.exports = (config) => {
       if (isNew) {
         $$emit_event.call($state, 'mount');
       } else if (newp !== oldp) {
-        $$emit_event.call($state, 'change');
+        $$emit_event.call($state, 'change', JSON.parse(oldp));
       }
       $$emit_event.call($state, 'render');
       $$rendered[id] = true;
