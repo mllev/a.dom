@@ -43,7 +43,7 @@ app.route('/:page_id', {
 });
 
 http.createServer(app).listen(port, () => {
-  console.log(\`Listening on port ${port}\`);
+  console.log(\`Listening on port \${port}\`);
 });
 `;
 
