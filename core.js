@@ -986,12 +986,12 @@ module.exports = (config) => {
       let events = [];
       while (true) {
         let key = tok.data;
-        if (accept("ident")) {
+        if (accept("ident") || accept("as")) {
           // allow ':' in attribute names
           while (accept(':')) {
             key += ':'
             key += tok.data;
-            expect('ident');
+            expect("ident");
           }
           if (accept("=")) {
             if (accept("{")) {
@@ -1314,6 +1314,7 @@ module.exports = (config) => {
     const globals = { data: initial_state };
 
     let inScript = false;
+    let inStyle = false;
 
     const found = { head: false, head: false, body: false };
 
@@ -1434,6 +1435,9 @@ module.exports = (config) => {
           if (node.data.name === 'script') {
             inScript = true;
           }
+          if (node.data.name === 'style') {
+            inStyle = true;
+          }
           if (node.data.name === 'html') {
             emit('<!DOCTYPE html>');
           }
@@ -1545,7 +1549,7 @@ module.exports = (config) => {
           }
         } break;
         case 'textnode': {
-          if (inScript) {
+          if (inScript || inStyle) {
             emit(evaluate(node.data));
           } else {
             emit(escapeHTML(evaluate(node.data)));
