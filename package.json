@@ -1,6 +1,6 @@
 {
   "name": "adom-js",
-  "version": "0.20.9",
+  "version": "0.20.10",
   "description": "Advanced Data Oriented Markup",
   "main": "index.js",
   "scripts": {

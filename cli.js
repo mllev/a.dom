@@ -20,6 +20,8 @@ const adom = require('adom-js');
 
 const prod = !process.argv.includes('dev');
 
+const port = 3838;
+
 const content = {
   page1: 'Welcome to page 1',
   page2: 'Welcome to page 2'
