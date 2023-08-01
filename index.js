@@ -310,7 +310,7 @@ ADOM.app = (opts) => {
   const minify = opts.minify || false;
   const cache = opts.cache || false;
   const stream = opts.stream || false;
-  let routes = opts.routes || {};
+  let routes = [];
 
   Object.keys(mimedb).forEach((type) => {
     if (mimedb[type].extensions) {
@@ -320,68 +320,138 @@ ADOM.app = (opts) => {
     }
   });
 
-  return async (req, res) => {
+  if (opts.routes) {
+    if (opts.routes['*']) {
+      routes = [opts.routes['*']];
+      routes[0].path = '*';
+    } else {
+      routes = Object.keys(opts.routes).map((route) => {
+        return {
+          path: route,
+          input: opts.routes[route].input || opts.routes[route].path,
+          data: opts.routes[route].data,
+          handler: opts.routes[route].handler
+        };
+      });
+    }
+  }
+
+  async function app (req, res) {
     const p = url.parse(req.url).pathname;
-    if (routes['*']) {
-      routes = { '*': routes['*'] };
-    }
-    for (let r in routes) {
-      let data = {};
-      const params = getMatches(p, r);
-      if (!params) continue;
-      req.params = params;
-      req.query = parseQuery(req.url);
-      if (req.method === 'POST' || req.method === 'PUT') {
-        req.body = await parseBody(req, 1e9);
-      } else {
-        req.body = {};
-      }
-      if (routes[r].data) {
-        if (typeof routes[r].data === 'object') {
-          data = routes[r].data;
-        } else {
-          data = await routes[r].data(req);
-        }
-      }
-      if (routes[r].path) {
-        if (req.params && !data.params) {
-          data.params = req.params;
-        }
-        if (stream) {
-          res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
-          await ADOM.compile(routes[r].path, {
-            flush: res.write.bind(res),
-            data,
-            minify,
-            cache,
-          });
-          res.end();
-        } else {
-          const html = await ADOM.compile(routes[r].path, { data, minify, cache });
-          res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
-          res.end(html);
-        }
-      } else if (data) {
-        if (typeof data !== 'object') {
-          throw new Error('Data function must return an object or array');
-        }
-        res.writeHead(200, {'Content-type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify(data));
-      } else {
-        res.statusCode = 200;
-        res.end();
-      }
-      return;
-    }
+    let r = 0;
     if (req.method === 'GET') {
-      let f = path.resolve(process.cwd(), publicDir, p.slice(1) || 'index');
+      let f = path.resolve(process.cwd(), publicDir, p.slice(1));
       const ext = path.extname(f);
-      if (!ext) f += '.html';
-      if (serveStaticFile(f, res)) return;
+      if (ext && serveStaticFile(f, res)) return;
     }
-    res.writeHead(404, { 'Content-type': 'text/plain' });
-    res.end('not found');
+    async function next() {
+      for (; r < routes.length; r++) {
+        let data = {};
+        const params = getMatches(p, routes[r].path);
+        if (!params) continue;
+        req.params = params;
+        req.query = parseQuery(req.url);
+        if (req.method === 'POST' || req.method === 'PUT') {
+          req.body = await parseBody(req, 1e9);
+        } else {
+          req.body = {};
+        }
+        if (routes[r].data) {
+          if (typeof routes[r].data === 'object') {
+            data = routes[r].data;
+          } else {
+            data = await routes[r].data(req);
+          }
+        }
+        if (routes[r].handler &&
+          (!routes[r].method || routes[r].method.toUpperCase() === req.method)) {
+          routes[r++].handler(req, res, next);
+          return;
+        } else if (routes[r].input) {
+          if (req.params && !data.params) {
+            data.params = req.params;
+          }
+          if (stream) {
+            res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
+            await ADOM.compile(routes[r].input, {
+              flush: res.write.bind(res),
+              data,
+              minify,
+              cache,
+            });
+            res.end();
+          } else {
+            const html = await ADOM.compile(routes[r].input, { data, minify, cache });
+            res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
+            res.end(html);
+          }
+        } else if (data) {
+          if (typeof data !== 'object') {
+            throw new Error('Data function must return an object or array');
+          }
+          res.writeHead(200, {'Content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(data));
+        } else {
+          res.statusCode = 200;
+          res.end();
+        }
+        return;
+      }
+      if (req.method === 'GET') {
+        let f = path.resolve(process.cwd(), publicDir, p.slice(1) || 'index');
+        const ext = path.extname(f);
+        if (!ext) {
+          f += '.html';
+          if (serveStaticFile(f, res)) return;
+        }
+      }
+      res.writeHead(404, { 'Content-type': 'text/plain' });
+      res.end('not found');
+    }
+    next();
+  }
+
+  app.route = (path, opts, method) => {
+    let handler = null;
+
+    if (typeof path !== 'string')
+      throw new Error('app.route expects a string as a first argument')
+    if (!opts)
+      throw new Error('app.route expects a second argument');
+    if (typeof opts === 'string') {
+      opts = { input: opts };
+    } else if (typeof opts === 'function') {
+      handler = opts;
+    }
+
+    routes.push({
+      path,
+      method: method || opts.method,
+      input: opts.input,
+      data: opts.data,
+      handler: handler || opts.handler
+    });
+
+    return app;
   };
+
+  app.get = (path, opts) => {
+    return app.route(path, opts || {}, 'get');
+  };
+
+  app.post = (path, opts) => {
+    return app.route(path, opts || {}, 'post');
+  };
+
+  app.put = (path, opts) => {
+    return app.route(path, opts || {}, 'put');
+  };
+
+  app.delete = (path, opts) => {
+    return app.route(path, opts || {}, 'delete');
+  };
+
+  return app;
 };
 
 ADOM.serve = (opts) => {
