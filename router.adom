@@ -1,4 +1,5 @@
 let page = data.path || ''
+let pageIsRendered = false
 
 ---
 // on page load, get path and update page
@@ -11,8 +12,24 @@ window.onpopstate = function (event) {
 
 ---
 
+global params = {}
+
 export tag Route [
-  if (page == props.path) [
+  let show = false
+  ---
+  const match = require('./match.js');
+
+  $on('prerender', () => {
+    const matches = match(page, props.path)
+    if (matches) {
+      show = true;
+      params = matches;
+    } else {
+      show = false;
+    }
+  });
+  ---
+  if (show) [
     yield
   ]
 ]

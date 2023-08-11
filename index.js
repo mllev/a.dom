@@ -27,6 +27,7 @@ const https = require('https');
 const esbuild = require('esbuild');
 const core = require('./core.js');
 const mimedb = require('./mime.json');
+const getMatches = require('./match.js');
 
 const ADOM = {};
 const mimetypes = {};
@@ -37,36 +38,6 @@ const getPathInfo = (p, base) => {
   const parent = path.dirname(full);
   const file = path.basename(full);
   return { full, parent, file };
-};
-
-const getMatches = (istr, mstr) => {
-  if (mstr === '*') return {};
-  const p0 = istr.split('/').filter(p => p);
-  const p1 = mstr.split('/').filter(p => p);
-  const out = {};
-  if (p0.length > p1.length && p1.length > 0) {
-    const last = p1[p1.length - 1];
-    if (last[last.length - 1] !== '*') {
-      return null;
-    }
-  } else if (p0.length !== p1.length) return null;
-  for (let i = 0; i < p1.length; i++) {
-    const p = p1[i];
-    if (p[0] !== ':') {
-      if(p !== p0[i]) return null;
-      // else keep moving
-    } else {
-      if (i === p1.length - 1 && p[p.length - 1] === '*') {
-        out[p.slice(1, -1)] = p0[i];
-        for (let j = i + 1; j < p0.length; j++) {
-          out[p.slice(1, -1)] += `/${p0[j]}`;
-        }
-      } else {
-        out[p.slice(1)] = p0[i];
-      }
-    }
-  }
-  return out;
 };
 
 const addParentPaths = (code, p) => {
@@ -189,13 +160,9 @@ ADOM.compile = async (name, opts) => {
 
 const serveStaticFile = (p, res) => {
   let ext = path.extname(p);
-  if (!ext) {
+  if (!ext)
     return false;
-    p += '.html';
-    ext = 'html';
-  } else {
-    ext = ext.slice(1);
-  }
+  ext = ext.slice(1);
   try {
     if (p.indexOf('..') !== -1) {
       res.statusCode = 403;
@@ -366,7 +333,6 @@ ADOM.app = (opts) => {
         if (routes[r].handler &&
           (!routes[r].method || routes[r].method.toUpperCase() === req.method)) {
           routes[r++].handler(req, res, next);
-          return;
         } else if (routes[r].input) {
           if (req.params && !data.params) {
             data.params = req.params;

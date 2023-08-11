@@ -507,6 +507,10 @@ module.exports = (config) => {
           tok.type = "null";
           tok.data = null;
         }
+      } else if (c === "<" && prog[cursor + 1] === "=" && prog[cursor + 2] === ">") {
+        tok.type = "<=>";
+        tok.data = "<=>";
+        cursor += 3;
       } else if (c === ":" && prog[cursor + 1] === ":") {
         tok.type = "::";
         tok.data = "::";
@@ -882,7 +886,7 @@ module.exports = (config) => {
       'includes': 1,
       'indexof': 1,
       'reverse': 0,
-      'json': 0,
+      'todata': 0,
       'replace': 2,
       'tostring': 0,
       'join': 1,
@@ -1758,12 +1762,15 @@ module.exports = (config) => {
             case 'todata': {
               const val = evaluate(node.data[1]);
               const t = getType(val);
-              if (t === 'array' || t === 'object') {
-                stack.push(JSON.parse(val));
-              } else if (t === 'number') {
+              assertType(val, 'string', node.data[1]);
+              if (!isNaN(val)) {
                 stack.push(parseFloat(val));
               } else {
-                stack.push(val);
+                try {
+                  stack.push(JSON.parse(val));
+                } catch (e) {
+                  stack.push(val);
+                }
               }
             } break;
             case 'replace': {
@@ -2065,9 +2072,19 @@ module.exports = (config) => {
   }
 
   function $$todata(val) {
-    if (typeof val === 'object') return JSON.parse(val);
-    else if (typeof val === 'number') return parseFloat(val);
-    else return val;
+    if (typeof val === 'string') {
+      if (!isNaN(val)) {
+        return parseFloat(val);
+      } else {
+        try {
+          return JSON.parse(val);
+        } catch (e) {
+          return val;
+        }
+      }
+    } else {
+      return val;
+    }
   }
 
   function $$set_event (events, event, fn) {
@@ -2093,7 +2110,7 @@ module.exports = (config) => {
       var isNew = false;
       var newp = JSON.stringify(props);
       if (!$state) {
-        $state = { events: {}, props: newp };
+        $state = { events: {}, props: newp, props_ptr: props };
         $state.body = init(props, $$emit_event.bind($state), function (event, cb) {
           $$set_event($state.events, event, cb);
         });
@@ -2103,16 +2120,21 @@ module.exports = (config) => {
         isNew = true;
       }
       const oldp = $state.props;
+      $$emit_event.call($state, 'prerender');
+      if (newp !== oldp) {
+        $$emit_event.call($state, 'change', JSON.parse(oldp));
+        for (let k in props) {
+          $state.props_ptr[k] = props[k];
+        }
+      }
       $state.body(id, props, yield_fn);
       $state.props = newp;
-      if (isNew) {
-        $$emit_event.call($state, 'mount');
-      } else if (newp !== oldp) {
-        $$emit_event.call($state, 'change', JSON.parse(oldp));
-      }
-      $$emit_event.call($state, 'render');
       $$rendered[id] = true;
       $$states[id] = $state;
+      if (isNew) {
+        $$emit_event.call($state, 'mount');
+      }
+      $$emit_event.call($state, 'render');
     }
   }
 
@@ -2132,6 +2154,7 @@ module.exports = (config) => {
     const fileList = [];
     const fileIdMap = {};
     const globals = {};
+
     let custom = false;
     let fileIdx = -1;
     let loop_depth = 0;
@@ -2346,7 +2369,7 @@ module.exports = (config) => {
             emit(e.type);
             emit('": function($e) {');
             emit(e.handler);
-            emit('; $sync(); }, ');
+            emit(`;${e.sync ? ' $sync();' : ''} }, `);
           }
           emit('}');
           if (node.children.length) {

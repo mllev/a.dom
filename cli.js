@@ -157,7 +157,7 @@ for (let i = 0; i < process.argv.length; i++) {
         const parts = r.split('=');
         if (parts.length === 2) {
           if (!config.routes) config.routes = {};
-          config.routes[parts[0]] = { path: parts[1] };
+          config.routes[parts[0]] = { input: parts[1] };
         }
       }
       break;
