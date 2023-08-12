@@ -6,3 +6,7 @@ ADOM is a revolutionary markup language that combines the simplicity of the earl
 
 [a-dom.io](https://a-dom.io)
 
+#### Latest
+
+* First public release: 0.20.15 alpha
+

@@ -16,6 +16,7 @@ usage: adom [options]
     dev              Start a dev server
     -r <path>=<file> Specify a route to an adom file for the dev server
     -p <port>        Port for the dev server (defaults to 3838)
+    -d <dir>         Public directory for the dev server
 `;
 
 const expressServerFile = `const path = require('path');
@@ -247,8 +248,11 @@ for (let i = 0; i < process.argv.length; i++) {
     case 'dev':
       config.dev = true;
       break;
-    case '-p':
+    case '-d':
       config.publicDir = process.argv[++i];
+      break;
+    case '-p':
+      config.port= process.argv[++i];
       break;
     case '-r':
       const r = process.argv[++i];
@@ -266,6 +270,7 @@ for (let i = 0; i < process.argv.length; i++) {
 }
 if (config.dev) {
   adom.serve({
+    port: config.port || 3838,
     publicDir: config.publicDir || '.',
     routes: config.routes
   });
