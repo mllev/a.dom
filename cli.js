@@ -9,13 +9,64 @@ const config = {};
 const help = `
 usage: adom [options]
   options:
-    create <name>    Create a project boilerplate
+    create <name>    Create a project boilerplate using A-DOM's built-in router
+      --lean         Create a very minimal boilerplate using A-DOM's built-in router
+      --express      Create a project boilerplate using express
+
     dev              Start a dev server
     -r <path>=<file> Specify a route to an adom file for the dev server
     -p <port>        Port for the dev server (defaults to 3838)
 `;
 
-const buildFile = `const http = require('http');
+const expressServerFile = `const path = require('path');
+const http = require('http');
+const express = require('express');
+const adom = require('adom-js');
+
+const prod = !process.argv.includes('dev');
+
+const config = {
+  cache: prod,
+  minfiy: prod
+};
+
+const port = 3838;
+
+const content = {
+  page1: 'Welcome to page 1',
+  page2: 'Welcome to page 2'
+};
+
+const app = express();
+
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+
+app.route('/', 'src/index.adom');
+
+app.get('/', async (req, res) => {
+  const html = await adom.compile('src/index.adom', config);
+  res.setHeader('Content-type', 'text/html');
+  res.end(html)
+});
+
+app.get('/:page_id', async (req, res) => {
+  const html = await adom.compile('src/page.adom', {
+    data: {
+      content: content[req.params.page_id]
+    },
+    ...config
+  });
+  res.setHeader('Content-type', 'text/html');
+  res.end(html);
+});
+
+http.createServer(app).listen(port, () => {
+  console.log(\`Listening on port \${port}\`);
+});
+`;
+
+const serverFile = `const http = require('http');
 const adom = require('adom-js');
 
 const prod = !process.argv.includes('dev');
@@ -47,7 +98,7 @@ http.createServer(app).listen(port, () => {
 });
 `;
 
-const packageFile = (name, version) => `{
+const packageFile = (name, version, express) => `{
   "name": "${name}",
   "version": "0.0.1",
   "description": "",
@@ -60,19 +111,20 @@ const packageFile = (name, version) => `{
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "adom-js": "^${version}"
+    "adom-js": "^${version}"${express ? `,
+    "express": "*"` : ''}
   }
 }
 `;
 
-const layoutFile = `
-export tag Layout [
+const layoutFile = `export tag Layout [
   html lang='en' [
     head [
       title 'A-DOM'
       meta charset='UTF-8' []
       meta name='viewport' content='width=device-width, initial-scale=1.0' []
       meta name='description' content='my site' []
+      link rel='stylesheet' href='main.css' []
     ]
     body [
       yield
@@ -84,8 +136,10 @@ export tag Layout [
 const pageFile = `import 'layout.adom'
 
 Layout [
-  p '{{data.content}}'
-  a href='/' 'home'
+  main [
+    a href='/' 'home'
+    p '{{data.content}}'
+  ]
 ]
 `;
 
@@ -97,17 +151,41 @@ tag Counter [
 ]
 
 tag Nav [
-  a href='/page1' 'page 1'
-  a href='/page2' 'page 2'
+  div [
+    a href='/page1' 'page 1'
+    a href='/page2' 'page 2'
+  ]
 ]
 
 Layout [
-  Nav []
-  Counter []
+  main [
+    Nav []
+    Counter []
+  ]
 ]
 `;
 
-const quickIndex = `tag Counter [
+const todoFile = `export tag TodoList [
+  let item = ''
+  let items = props.items
+  ---
+  const add = () => {
+    items.push(item);
+    item = '';
+  };
+  ---
+  input bind:value={item} []
+  button on:click='add()' 'add'
+  ul [
+    each (i in items) [
+      li '{{i}}'
+    ]
+  ]
+]
+`
+
+const quickIndex = `import './todo.adom'
+tag Counter [
   let count = 0
   button on:click='count++' 'count: {{count}}'
 ]
@@ -115,9 +193,15 @@ const quickIndex = `tag Counter [
 html [
   head [
     title 'A-DOM'
+    meta charset='UTF-8' []
+    meta name='viewport' content='width=device-width, initial-scale=1.0' []
+    meta name='description' content='my site' []
+    link rel='stylesheet' href='main.css' []
   ]
   h1 'Welcome'
   Counter []
+  br []
+  TodoList items={data.items} []
 ]
 `;
 
@@ -131,11 +215,23 @@ adom.serve({
   minify: prod,
   routes: {
     '/': {
-      path: 'index.adom'
+      path: 'index.adom',
+      data: {
+        items: [
+          'wake up',
+          'walk dog'
+        ]
+      }
     }
   }
 });
 `;
+
+const cssFile = `body {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  margin: 20px;
+}
+`
 
 for (let i = 0; i < process.argv.length; i++) {
   switch (process.argv[i]) {
@@ -143,7 +239,10 @@ for (let i = 0; i < process.argv.length; i++) {
       config.create = process.argv[++i];
       break
     case '--lean':
-      config.lean= true;
+      config.lean = true;
+      break
+    case '--express':
+      config.express = true;
       break
     case 'dev':
       config.dev = true;
@@ -175,17 +274,21 @@ if (config.dev) {
   const pf = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
   fs.mkdirSync(p);
   if (config.lean) {
+    fs.mkdirSync(path.join(p, 'public'));
+    fs.writeFileSync(path.join(p, 'public/main.css'), cssFile);
     fs.writeFileSync(path.join(p, 'index.adom'), quickIndex);
+    fs.writeFileSync(path.join(p, 'todo.adom'), todoFile);
     fs.writeFileSync(path.join(p, 'server.js'), quickServer);
     fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.create, pf.version));
   } else {
     fs.mkdirSync(path.join(p, 'public'));
     fs.mkdirSync(path.join(p, 'src'));
+    fs.writeFileSync(path.join(p, 'public/main.css'), cssFile);
     fs.writeFileSync(path.join(p, 'src/index.adom'), indexFile);
     fs.writeFileSync(path.join(p, 'src/page.adom'), pageFile);
     fs.writeFileSync(path.join(p, 'src/layout.adom'), layoutFile);
-    fs.writeFileSync(path.join(p, 'server.js'), buildFile);
-    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.create, pf.version));
+    fs.writeFileSync(path.join(p, 'server.js'), config.express ? expressServerFile : serverFile);
+    fs.writeFileSync(path.join(p, 'package.json'), packageFile(config.create, pf.version, config.express));
   }
 } else {
   console.log(help);

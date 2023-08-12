@@ -1761,16 +1761,18 @@ module.exports = (config) => {
             } break;
             case 'todata': {
               const val = evaluate(node.data[1]);
-              const t = getType(val);
-              assertType(val, 'string', node.data[1]);
-              if (!isNaN(val)) {
-                stack.push(parseFloat(val));
-              } else {
-                try {
-                  stack.push(JSON.parse(val));
-                } catch (e) {
-                  stack.push(val);
+              if (getType(val) === 'string') {
+                if (!isNaN(val)) {
+                  stack.push(parseFloat(val));
+                } else {
+                  try {
+                    stack.push(JSON.parse(val));
+                  } catch (_) {
+                    stack.push(val);
+                  }
                 }
+              } else {
+                stack.push(val);
               }
             } break;
             case 'replace': {

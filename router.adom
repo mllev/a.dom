@@ -9,7 +9,6 @@ window.onpopstate = function (event) {
   page = event.state;
   $sync();
 };
-
 ---
 
 global params = {}
