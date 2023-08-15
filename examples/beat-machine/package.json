@@ -1,0 +1,17 @@
+{
+  "name": "beat-machine",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "./node_modules/.bin/adom dev -r /=index.adom",
+    "dev_global": "adom dev -r /=index.adom",
+    "local": "node ../../a.dom/cli.js dev -r /=index.adom"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "adom-js": "^0.20.15"
+  }
+}

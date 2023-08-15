@@ -1,0 +1,162 @@
+let is_playing false
+let rows [{
+  type: 'hat',
+  style: 10,
+  pads: 1 | repeat 8
+}, {
+  type: 'kick',
+  style: 1,
+  instrument: 'kick_01',
+  pads: [1, 0, 0, 0, 0, 1, 0, 0]
+}, {
+  type: 'snare',
+  style: 1,
+  pads: [0, 0, 1, 0, 0, 0, 1, 0]
+}]
+
+let instruments = {}
+let column = 0
+let bpm = 100
+let tempo = 0.5
+
+---
+const AudioContext = window.AudioContext || window.webkitAudioContext
+const audioCtx = new AudioContext()
+let timeout = undefined
+
+function instrumentName (row) {
+  let s = row.style;
+  return `${row.type}_${s < 10 ? '0' + s : s}`
+}
+
+function play () {
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  let update = () => {
+    column = (column+1)%8;
+    rows.forEach(row => {
+      if (row.pads[column] === 1) {
+        playSound(instruments[instrumentName(row)])
+      }
+    })
+    $sync();
+    if (bpm > 0) {
+      timeout = setTimeout(update, 60000 / bpm * tempo);
+    }
+  }
+  update();
+}
+
+function pause () {
+  clearTimeout(timeout);
+}
+
+function addRow () {
+  rows.push({
+    instrument: 'snare_01',
+    pads: [0, 0, 0, 0, 0, 0, 0, 0]
+  })
+}
+
+function playSound (buf) {
+  let source = audioCtx.createBufferSource();
+  source.buffer = buf;
+  source.connect(audioCtx.destination);
+  source.start();
+}
+
+async function getAudioFile (path) {
+  let data = await fetch(path);
+  let buf = await data.arrayBuffer();
+  return new Promise(function (resolve, reject) {
+    audioCtx.decodeAudioData(buf, resolve, reject);
+  });
+}
+
+async function loadInstruments () {
+  for (i = 1; i <= 10; i++) {
+    let num = i < 10 ? `0${i}` : '10';
+    instruments[`hat_${num}`] = await getAudioFile(`instruments/hat_${num}.wav`);
+    instruments[`snare_${num}`] = await getAudioFile(`instruments/snare_${num}.wav`);
+    instruments[`kick_${num}`] = await getAudioFile(`instruments/kick_${num}.wav`);
+  }
+  $sync();
+}
+
+function playPause () {
+  if (is_playing) {
+    pause();
+    is_playing = false;
+    column = 0;
+  } else {
+    play();
+    is_playing = true;
+  }
+}
+
+loadInstruments()
+---
+
+import 'components/page.adom'
+import 'components/slider.adom'
+import 'components/instruments.adom'
+import 'components/pad.adom'
+
+let tempos = [
+  { display: '1', value: 1 },
+  { display: '1/2', value: 0.5 },
+  { display: '1/4', value: 0.25 },
+  { display: '1/8', value: 0.125 },
+  { display: '1/16', value: 0.0625 },
+  { display: '1/32', value: 0.03125 }
+]
+
+Page [
+  div.container [
+    h3.title "Beat Machine"
+    div style='text-align:center;' [
+      button on:click="playPause()" [
+        i class={is_playing ? 'fa fa-pause' : 'fa fa-play'} []
+      ]
+    ]
+    div.board [
+      div.controls [
+        div [
+          label "BPM"
+          Slider initial={bpm} width={200} max={200} on:slide="bpm = $e" []
+          span "{{bpm}}"
+        ]
+        div [
+          label "Tempo"
+          select on:change='tempo = parseFloat($e.target.value)' [
+            each (t in tempos) [
+              option selected={t.value == tempo ? true : false} value={t.value} "{{t.display}}"
+            ]
+          ]
+        ]
+      ]
+      each (row in rows) [
+        div.row [
+          Instruments
+            on:type='row.type = $e'
+            on:style='row.style = $e'
+            type={row.type}
+            style={row.style} []
+          div.pads [
+            each (pad, i in row.pads) [
+              Pad
+                playing={i == column}
+                on:tap='row.pads[$e] = 1 - row.pads[$e]'
+                index={i}
+                active={pad} []
+            ]
+          ]
+        ]
+      ]
+    ]
+    div style='text-align:center;' [
+      button on:click="addRow()" "add row"
+    ]
+  ]
+]

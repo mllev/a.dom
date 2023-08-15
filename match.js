@@ -12,17 +12,16 @@ module.exports = (istr, mstr) => {
   for (let i = 0; i < p1.length; i++) {
     const p = p1[i];
     if (p[0] !== ':') {
-      if(p !== p0[i]) return null;
-      // else keep moving
-    } else {
-      if (i === p1.length - 1 && p[p.length - 1] === '*') {
-        out[p.slice(1, -1)] = p0[i];
-        for (let j = i + 1; j < p0.length; j++) {
-          out[p.slice(1, -1)] += `/${p0[j]}`;
-        }
-      } else {
-        out[p.slice(1)] = p0[i];
+      if (p !== p0[i]) return null;
+      else continue;
+    }
+    if (i === p1.length - 1 && p[p.length - 1] === '*') {
+      out[p.slice(1, -1)] = p0[i];
+      for (let j = i + 1; j < p0.length; j++) {
+        out[p.slice(1, -1)] += `/${p0[j]}`;
       }
+    } else {
+      out[p.slice(1)] = p0[i];
     }
   }
   return out;
