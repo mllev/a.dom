@@ -125,13 +125,13 @@ ADOM.compile = async (name, opts) => {
         html = await adom.renderToHTML(cache, opts.data);
       */
       } else {
-        const cache = await adom.renderToCache(opts.input, opts.data);
+        const cache = await adom.renderToCache(opts.input, opts.actions);
         // fs.writeFileSync(cachePath, cache);
         ssrCache[cachePath] = cache;
         html = adom.renderToHTML(cache, opts.data, opts.flush);
       }
     } else {
-      html = await adom.render(opts.input, opts.data, opts.flush);
+      html = await adom.render(opts.input, opts.data, opts.flush, opts.actions);
     }
     if (!opts.output) {
       return html;
@@ -277,6 +277,7 @@ ADOM.app = (opts) => {
   const minify = opts.minify || false;
   const cache = opts.cache || false;
   const stream = opts.stream || false;
+  const actions = Object.keys(opts.actions || {});
   let routes = [];
 
   Object.keys(mimedb).forEach((type) => {
@@ -309,17 +310,15 @@ ADOM.app = (opts) => {
         const name = req.body.name;
         const args = req.body.args;
         if (opts.actions[name]) {
-          try {
-            opts.actions[name].apply(undefined, args).then((data) => {
-              res.writeHead(200, { 'Content-type': 'application/json; charset=utf-8' });
-              if (!data) data = null;
-              res.end(JSON.stringify(data));
-            });
-          } catch (e) {
+          opts.actions[name].apply(undefined, args).then((data) => {
+            res.writeHead(200, { 'Content-type': 'application/json; charset=utf-8' });
+            if (!data) data = null;
+            res.end(JSON.stringify(data));
+          }).catch((e) => {
             console.error(e);
             res.writeHead(500, { 'Content-type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ message: `Server error when calling ${name}` }));
-          }
+          });
         } else {
           res.writeHead(500, { 'Content-type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ message: `${name} is not defined on the server` }));
@@ -374,10 +373,16 @@ ADOM.app = (opts) => {
               data,
               minify,
               cache,
+              actions
             });
             res.end();
           } else {
-            const html = await ADOM.compile(routes[r].input, { data, minify, cache });
+            const html = await ADOM.compile(routes[r].input, {
+              data,
+              minify,
+              cache,
+              actions
+            });
             res.writeHead(200, {'Content-type': 'text/html; charset=utf-8' });
             res.end(html);
           }

@@ -186,6 +186,7 @@ const todoFile = `export tag TodoList [
 `
 
 const quickIndex = `import './todo.adom'
+
 tag Counter [
   let count = 0
   button on:click='count++' 'count: {{count}}'
@@ -199,10 +200,12 @@ html [
     meta name='description' content='my site' []
     link rel='stylesheet' href='main.css' []
   ]
-  h1 'Welcome'
-  Counter []
-  br []
-  TodoList items={data.items} []
+  body [
+    h1 'Welcome'
+    Counter []
+    br []
+    TodoList items={data.items} []
+  ]
 ]
 `;
 

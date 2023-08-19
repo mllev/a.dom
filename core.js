@@ -1484,6 +1484,10 @@ module.exports = (config) => {
               if (!found.head) err('Expected head tag', node.data);
               if (found.body) err('body tag may only be used once', node.data);
               found.body = true;
+            } else if (found.html && !found.head) {
+              err('Expected head tag', node.data);
+            } else if (found.html && !found.body) {
+              err('Expected body tag', node.data);
             }
             node.children.forEach(walk);
             if (node.data.name === 'head') {
@@ -2167,7 +2171,7 @@ module.exports = (config) => {
   }
 `;
 
-  const generateRuntime = (ast) => {
+  const generateRuntime = (ast, actions) => {
     const out = [{ code: '', transform: false }];
     const fileList = [];
     const fileIdMap = {};
@@ -2638,6 +2642,9 @@ module.exports = (config) => {
       emit(g);
       emit(';\n')
     }
+    for (let a of actions) {
+      emit(`var $${a} = $call.bind(undefined, '${a}');\n`);
+    }
     fileList.forEach((file, i) => {
       let written = false;
       const children = file.ast.children;
@@ -2674,11 +2681,11 @@ module.exports = (config) => {
     return out;
   };
 
-  const renderToAst = async (file) => {
+  const renderToAst = async (file, actions) => {
     const fileText = openFile(file);
     const tokens = tokenize(fileText, file);
     const ast = parse(tokens);
-    const runtime = generateRuntime(ast);
+    const runtime = generateRuntime(ast, actions);
     let js;
 
     if (config.jsTransform) {
@@ -2707,15 +2714,15 @@ module.exports = (config) => {
     return html;
   };
 
-  const render = async (file, data, flush) => {
-    const result = await renderToAst(file);
+  const render = async (file, data, flush, actions) => {
+    const result = await renderToAst(file, actions);
     const html = renderToHTML(result, data, flush);
 
     return html;
   };
 
-  const renderToCache = async (file) => {
-    const result = await renderToAst(file);
+  const renderToCache = async (file, actions) => {
+    const result = await renderToAst(file, actions);
     return JSON.stringify(result);
   };
 
