@@ -2089,6 +2089,22 @@ module.exports = (config) => {
     }
   }
 
+  function $call() {
+    var args = Array.prototype.slice.apply(arguments);
+    var name = args.shift();
+    return fetch('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'ADOM_SERVER_FUNCTION',
+        name: name,
+        args: args
+      })
+    }).then(function (data) {
+      return data.json();
+    });
+  }
+
   function $$set_event (events, event, fn) {
     if (events[event]) {
       events[event].push(fn);

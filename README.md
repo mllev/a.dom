@@ -8,5 +8,4 @@ ADOM is a revolutionary markup language that combines the simplicity of the earl
 
 #### Latest
 
-* First public release: 0.20.15 alpha
-
+* 8/11/23: first public release: 0.20.15 alpha

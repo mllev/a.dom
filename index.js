@@ -303,26 +303,56 @@ ADOM.app = (opts) => {
     }
   }
 
+  function handleAction (req, res) {
+    if (req.method === 'POST') {
+      if (req.body.type === 'ADOM_SERVER_FUNCTION') {
+        const name = req.body.name;
+        const args = req.body.args;
+        if (opts.actions[name]) {
+          try {
+            opts.actions[name].apply(undefined, args).then((data) => {
+              res.writeHead(200, { 'Content-type': 'application/json; charset=utf-8' });
+              if (!data) data = null;
+              res.end(JSON.stringify(data));
+            });
+          } catch (e) {
+            console.error(e);
+            res.writeHead(500, { 'Content-type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ message: `Server error when calling ${name}` }));
+          }
+        } else {
+          res.writeHead(500, { 'Content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ message: `${name} is not defined on the server` }));
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function app (req, res) {
     const p = url.parse(req.url).pathname;
-    let r = 0;
+    req.query = parseQuery(req.url);
+    if (req.method === 'POST' || req.method === 'PUT') {
+      req.body = await parseBody(req, 1e9);
+    } else {
+      req.body = {};
+    }
+    if (handleAction(req, res)) {
+      return;
+    }
     if (req.method === 'GET') {
       let f = path.resolve(process.cwd(), publicDir, p.slice(1));
       const ext = path.extname(f);
       if (ext && serveStaticFile(f, res)) return;
     }
+    let r = 0;
     async function next() {
       for (; r < routes.length; r++) {
         let data = {};
         const params = getMatches(p, routes[r].path);
         if (!params) continue;
         req.params = params;
-        req.query = parseQuery(req.url);
-        if (req.method === 'POST' || req.method === 'PUT') {
-          req.body = await parseBody(req, 1e9);
-        } else {
-          req.body = {};
-        }
         if (routes[r].data) {
           if (typeof routes[r].data === 'object') {
             data = routes[r].data;
