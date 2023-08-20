@@ -1,9 +1,0 @@
-export tag Pad [
-  div
-    class={[
-      'pad',
-      props.active ? "active" : "",
-      props.playing ? "playing" : ""
-    ]}
-    on:click='$emit("tap", props.index)' []
-]
