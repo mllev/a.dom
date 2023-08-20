@@ -1484,10 +1484,6 @@ module.exports = (config) => {
               if (!found.head) err('Expected head tag', node.data);
               if (found.body) err('body tag may only be used once', node.data);
               found.body = true;
-            } else if (found.html && !found.head) {
-              err('Expected head tag', node.data);
-            } else if (found.html && !found.body) {
-              err('Expected body tag', node.data);
             }
             node.children.forEach(walk);
             if (node.data.name === 'head') {
@@ -1535,7 +1531,7 @@ module.exports = (config) => {
               node.children.forEach(walk);
             }
           } else {
-            err('Value is not iterable', node);
+            err('Value is not iterable', node.data.list);
           }
           ctx[ctx.length - 1].state.pop();
         } break;
@@ -1644,8 +1640,17 @@ module.exports = (config) => {
         } break;
         case 'binop': {
           const op = node.op;
-          const v1 = evaluate(node.data[0]);
-          const v2 = evaluate(node.data[1]);
+          let v1 = node.data[0];
+          let v2 = node.data[1];
+          if (op === '&&') {
+            stack.push(evaluate(v1) && evaluate(v2));
+            break;
+          } else if (op === '||') {
+            stack.push(evaluate(v1) || evaluate(v2));
+            break;
+          }
+          v1 = evaluate(v1);
+          v2 = evaluate(v2);
           if (op === '==') {
             stack.push(v1 === v2);
           } else if (op === '!=') {
@@ -1654,10 +1659,6 @@ module.exports = (config) => {
             stack.push(v1 <= v2);
           } else if (op === '>=') {
             stack.push(v1 >= v2);
-          } else if (op === '&&') {
-            stack.push(v1 && v2);
-          } else if (op === '||') {
-            stack.push(v1 || v2);
           } else if (op === '>') {
             assertType(v1, 'number', node.data[0]);
             assertType(v2, 'number', node.data[1]);
@@ -1738,7 +1739,7 @@ module.exports = (config) => {
               const del = evaluate(node.data[2]);
               assertType(val, 'string', node.data[1]);
               assertType(del, 'string', node.data[2]);
-              stack.push(e.split(del));
+              stack.push(val.split(del));
             } break;
             case 'includes': {
               const val = evaluate(node.data[1]);
@@ -1750,7 +1751,7 @@ module.exports = (config) => {
               const del = evaluate(node.data[2]);
               assertType(val, ['string', 'array'], node.data[1]);
               assertType(del, ['string', 'number'], node.data[2]);
-              stack.push(e.indexOf(del));
+              stack.push(val.indexOf(del));
             } break;
             case 'reverse': {
               const val = evaluate(node.data[1]);
@@ -2642,8 +2643,10 @@ module.exports = (config) => {
       emit(g);
       emit(';\n')
     }
-    for (let a of actions) {
-      emit(`var $${a} = $call.bind(undefined, '${a}');\n`);
+    if (actions) {
+      for (let a of actions) {
+        emit(`var $${a} = $call.bind(undefined, '${a}');\n`);
+      }
     }
     fileList.forEach((file, i) => {
       let written = false;

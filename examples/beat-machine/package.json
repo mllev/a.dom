@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "./node_modules/.bin/adom dev -r /=index.adom",
-    "local": "node ../../a.dom/cli.js dev -r /=index.adom"
+    "local": "node ../../cli.js dev -r /=index.adom"
   },
   "author": "",
   "license": "ISC",

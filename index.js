@@ -355,8 +355,11 @@ ADOM.app = (opts) => {
         if (routes[r].data) {
           if (typeof routes[r].data === 'object') {
             data = routes[r].data;
-          } else {
+          } else if (typeof routes[r].data === 'function') {
             data = await routes[r].data(req);
+            if (!data) continue;
+          } else {
+            throw new Error("config error: 'data' property must be an object or function");
           }
         }
         if (routes[r].handler &&
