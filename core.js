@@ -333,417 +333,326 @@ module.exports = (config) => {
     return filepath;
   }
 
-  const tokenize = (prog, file, offset) => {
-    let cursor = 0, end_pos = prog.length - 1;
-    let tokens = [{ type: "file_begin", data: file, pos: 0, file: file }];
-    let keywords = [
-      "tag",
-      "each",
-      "if",
-      "in",
-      "else",
-      "import",
-      "yield",
-      "on",
-      "export",
-      "file",
-      "const",
-      "let",
-      "nosync",
-      "as",
-      "global"
+  const parse = (program, fullpath) => {
+    let inString = false;
+    let inTag = false;
+    let htmlMode = false;
+    let tok = {
+      type: "file_begin",
+      data: fullpath,
+      pos: 0,
+      file: fullpath
+    };
+    let cursor = 0;
+
+    const ast = { type: 'file', data: { file: tok.file }, children: [] };
+
+    const keywords = [
+      'tag',
+      'each',
+      'if',
+      'in',
+      'else',
+      'import',
+      'yield',
+      'on',
+      'export',
+      'file',
+      'const',
+      'let',
+      'nosync',
+      'as',
+      'global'
     ];
 
-    let symbols = [
-      ".",
-      "#",
-      "=",
-      "[",
-      "]",
-      ";",
-      "{",
-      "}",
-      "(",
-      ")",
-      ":",
-      "$",
-      ",",
-      ">",
-      "<",
-      "?",
-      "|",
-      "+",
-      "/",
-      "-",
-      "*",
-      "%",
-      "!",
-      "@"
-    ];
+    let parentNode = ast;
 
-    function is_newline (c) {
+    const astNode = (type, data) => {
+      let node = { type, data, children: [] };
+      parentNode.children.push(node);
+      return node;
+    };
+
+    const isNewline = (c) => {
       return c == '\n' || c == '\r'
-    }
+    };
 
-    // amazing
-    // https://stackoverflow.com/a/32567789
-    function is_letter (c) {
+    const isLetter = (c) => {
       return c.toLowerCase() != c.toUpperCase();
-    }
+    };
 
-    function break_into_chunks(text, cursor) {
-      let chunks = [];
-      let chunk = "";
-      let i = 0,
-        max = text.length;
-      let in_expr = false;
-      let pos = cursor;
-      while (i < max) {
-        if (text[i] === "{" && text[i+1] === "{" && in_expr === false) {
-          in_expr = true;
-          chunks.push({ type: "chunk", data: chunk, pos: pos, file: file });
-          chunk = "{{";
-          i += 2;
-          pos = cursor + i - 1;
-        } else if (text[i] === "}" && text[i+1] === "}" && in_expr === true) {
-          in_expr = false;
-          chunk += "}}";
-          let toks = tokenize(chunk, file, pos);
-          toks.shift(); //file_begin
-          toks.pop(); //eof
-          toks.forEach(function(t) {
-            chunks.push(t);
-          });
-          chunk = "";
-          i += 2;
-          pos = cursor + i + 1;
-        } else {
-          chunk += text[i++];
-        }
+    const isSpace = (c) => {
+      return c === ' ' || c === '\t' || isNewline(c);
+    };
+
+    const isNumber = (c) => c >= '0' && c <= '9';
+
+    const pc = (num) => program[cursor + (num || 0)];
+
+    const _next = () => {
+      const c0 = pc(0);
+      const c1 = pc(1);
+      const max = program.length;
+
+      const pos = { pos: cursor, file: fullpath };
+
+      if (cursor >= max) {
+        return { type: 'eof', ...pos };
       }
-      chunks.push({ type: "chunk", data: chunk, pos: pos, file: file });
-      return chunks;
-    }
 
-    let offs = offset || 0;
-
-    while (true) {
-      let c = prog[cursor];
-      let tok = { type: "", data: "", pos: offs + cursor, file: file };
-
-      if (cursor > end_pos) {
-        tok.type = "eof";
-        tokens.push(tok);
-        break;
-      } else if (c === " " || is_newline(c) || c === "\t") {
-        let i = cursor;
-        while (
-          i <= end_pos &&
-          (prog[i] === " " || prog[i] === "\t" || is_newline(prog[i]))
-        ) {
-          i++;
-        }
-        cursor = i;
-        continue;
-      } else if (c === "/" && prog[cursor + 1] === "/") {
-        let i = cursor;
-        while (c !== "\n" && i <= end_pos) c = prog[++i];
-        cursor = i;
-        continue;
-      } else if (c === "/" && prog[cursor + 1] === "*") {
-        let i = cursor + 2;
+      if (isSpace(c0)) {
+        let data = '';
         while (true) {
-          if (i >= end_pos) break;
-          if (prog[i] === '*' && prog[i+1] === '/') {
-            i += 2;
-            break;
-          }
-          i++;
+          if (cursor >= max) break;
+          if (!isSpace(pc())) break;
+          data += program[cursor++];
         }
-        cursor = i;
-        continue;
-      } else if (c >= "0" && c <= "9") {
-        let num = "";
-        let i = cursor;
+        return { type: 'space', data, ...pos };
+      }
+
+      if (isNumber(c0) || (c0 === '-' && isNumber(c1))) {
+        let num = '';
         let dot = false;
-        while ((c >= "0" && c <= "9") || c === ".") {
+        let c = c0 === '-' ? c1 : c0;
+        while (isNumber(c) || c === '.') {
           if (c === ".") {
             if (dot) break;
             else dot = true;
           }
           num += c;
-          c = prog[++i];
+          c = program[++cursor];
         }
-        cursor = i;
-        tok.type = "number";
-        tok.data = parseFloat(num);
-      } else if (
-        (c === '-' && prog[cursor+1] === '-' && is_letter(prog[cursor+2])) ||
-        is_letter(c) || c === '_'
-      ){
-        let i = cursor;
-        tok.data = "";
-        while (
-          c &&
-          (is_letter(c) ||
-          (c >= "0" && c <= "9") ||
-          (c === "_") ||
-          (c === "-"))
-        ) {
-          tok.data += c;
-          c = prog[++i];
-        }
-        cursor = i;
-        let idx = keywords.indexOf(tok.data);
-        if (idx !== -1) {
-          tok.type = keywords[idx];
-        } else {
-          tok.type = "ident";
-        }
-        if (tok.data === "true" || tok.data === "false") {
-          tok.type = "bool";
-          tok.data = tok.data === "true";
-        } else if (tok.data === "null") {
-          tok.type = "null";
-          tok.data = null;
-        }
-      } else if (c === "<" && prog[cursor + 1] === "=" && prog[cursor + 2] === ">") {
-        tok.type = "<=>";
-        tok.data = "<=>";
+        let f = parseFloat(num);
+        if (c0 === '-') f *= -1;
+        return { type: 'number', data: f, ...pos };
+      }
+
+      if (!inString && c0 === '-' && c1 === '-' && pc(2) === '-') {
+        let data = '';
         cursor += 3;
-      } else if (c === ":" && prog[cursor + 1] === ":") {
-        tok.type = "::";
-        tok.data = "::";
-        cursor += 2;
-      } else if (c === "<" && prog[cursor + 1] === "=") {
-        tok.type = "<=";
-        tok.data = "<=";
-        cursor += 2;
-      } else if (c === ">" && prog[cursor + 1] === "=") {
-        tok.type = ">=";
-        tok.data = ">=";
-        cursor += 2;
-      } else if (c === "=" && prog[cursor + 1] === "=") {
-        tok.type = "==";
-        tok.data = "==";
-        cursor += 2;
-      } else if (c === "!" && prog[cursor + 1] === "=") {
-        tok.type = "!=";
-        tok.data = "!=";
-        cursor += 2;
-      } else if (c === "&" && prog[cursor + 1] === "&") {
-        tok.type = "&&";
-        tok.data = "&&";
-        cursor += 2;
-      } else if (c === "|" && prog[cursor + 1] === "|") {
-        tok.type = "||";
-        tok.data = "||";
-        cursor += 2;
-      } else if (
-        c === '"' &&
-        prog[cursor + 1] === '"' &&
-        prog[cursor + 2] === '"'
+        while (true) {
+          if (cursor >= max) {
+            throw_adom_error({ msg: 'unterminated js context', ...pos });
+          }
+          if (pc() === '-' && pc(1) === '-' && pc(2) === '-') {
+            cursor += 3;
+            break;
+          }
+          data += program[cursor++];
+        }
+        return { type: 'js_context', data, ...pos };
+      }
+
+      if (
+        pc(0) === '<' && pc(1) === 's' &&
+        pc(2) === 'c' && pc(3) === 'r' &&
+        pc(4) === 'i' && pc(5) === 'p' &&
+        pc(6) === 't' && pc(7) === '>'
       ) {
-        let str = "";
-        let i = cursor + 3;
+        let data = '';
+        cursor += 3;
         while (true) {
-          if (i > end_pos) {
-            throw_adom_error({ msg: "unterminated long string", pos: offs + cursor, file: file });
-          } else if (
-            prog[i] === '"' &&
-            prog[i + 1] === '"' &&
-            prog[i + 2] === '"'
-          ) {
-            i += 3;
-            break;
+          if (cursor >= max) {
+            throw_adom_error({ msg: 'unterminated js context', ...pos });
           }
-          str += prog[i++];
-        }
-        tokens.push({ type: 'string', pos: offs + cursor, file: file });
-        tokens.push({ type: 'chunk', data: str, pos: offs + cursor, file: file })
-        cursor = i;
-        continue;
-      } else if (c === '`') {
-        let i = cursor + 1;
-        let text = '';
-        while (true) {
-          if (i > end_pos) {
-            throw_adom_error({ msg: "unterminated string", pos: offs + cursor, file: file });
-          }
-          if (prog[i] === '`') {
-            i++;
-            break;
-          }
-          if (prog[i] === "\\" && prog[i + 1] === '`') {
-            text += prog[i + 1];
-            i += 2;
-          }
-          text += prog[i++];
-        }
-        let lines = text.split(/\r?\n/);
-        const start = lines[0];
-        const end = lines[lines.length - 1];
-        if (start === '') lines.shift();
-        if (!/\S/.test(end)) {
-          const len = end.length;
-          lines = lines.map((line) => {
-            return line.slice(len);
-          });
-        }
-        text = lines.join('\n');
-        tokens.push({ type: 'string', pos: offs + cursor, file: file });
-        tokens.push({ type: 'chunk', data: text, pos: offs + cursor, file: file })
-        cursor = i;
-        continue;
-      } else if (c === '"' || c === "'") {
-        let del = c;
-        let i = cursor + 1;
-        let text = '';
-        while (true) {
-          if (i > end_pos || is_newline(prog[i])) {
-            throw_adom_error({ msg: "unterminated string", pos: offs + cursor, file: file });
-          }
-          if (prog[i] === del) {
-            i++;
-            break;
-          }
-          if (prog[i] === "\\" && prog[i + 1] === del) {
-            text += prog[i + 1];
-            i += 2;
-          }
-          text += prog[i++];
-        }
-        let chunks = break_into_chunks(text, cursor);
-        tokens.push({ type: 'string', pos: offs + cursor, file: file });
-        if (chunks.length > 1) {
-          chunks.forEach(function(c) {
-            tokens.push(c);
-          });
-        } else {
-          tokens.push({ type: 'chunk', data: text, pos: offs + cursor, file: file })
-        }
-        cursor = i;
-        continue;
-      } else if (c === "-" && prog[cursor + 1] === "-" && prog[cursor + 2] === "-") {
-        let i = cursor + 3;
-        let found = false;
-        while (i <= (end_pos - 2)) {
           if (
-            prog[i] === "-" &&
-            prog[i + 1] === "-" &&
-            prog[i + 2] === "-"
+            pc(0) === '<' && pc(1) === '/' &&
+            pc(2) === 's' && pc(3) === 'c' &&
+            pc(4) === 'r' && pc(5) === 'i' &&
+            pc(6) === 'p' && pc(7) === 't' &&
+            pc(8) === '>'
           ) {
-            i += 3;
-            found = true;
+            cursor += 3;
             break;
           }
-          tok.data += prog[i++];
+          data += program[cursor++];
         }
-        if (!found) {
-          throw_adom_error({ msg: "expected closing ---", pos: offs + cursor, file: file });
-        }
-        cursor = i;
-        tok.type = "js_context";
-      } else if (symbols.indexOf(c) !== -1) {
-        tok.type = c;
-        tok.data = c;
-        cursor++;
-      } else {
-        tok.type = tok.data = c;
-        cursor++;
+        return { type: 'js_context', data, ...pos };
       }
-      tokens.push(tok);
-    }
 
-    return tokens;
-  };
+      if (!inString && c0 === '/' && c1 === '/') {
+        let data = '';
+        cursor += 2;
+        while (true) {
+          if (cursor >= max) break;
+          if (isNewline(pc())) {
+            if (cursor < max) cursor++;
+            break;
+          }
+          data += pc();
+          cursor++;
+        }
+        return { type: 'comment', data, ...pos };
+      }
 
-  const parse = (tokens) => {
-    let tok = tokens[0];
-    let cursor = 0;
-    let in_tag = false;
-    let ast = { type: 'file', data: { file: tok.file }, children: [] };
-    let parent = ast;
+      if (!inString && c0 === '/' && c1 === '*') {
+        const data = '';
+        cursor += 2;
+        while (true) {
+          if (cursor >= max) break;
+          if (pc() === '*' && pc(1) === '/') {
+            cursor += 2;
+            break;
+          }
+          data += pc();
+          cursor++;
+        }
+        return { type: 'comment', data, ...pos };
+      }
 
-    function ast_node(type, data) {
-      let node = { type, data, children: [] };
-      parent.children.push(node);
-      return node;
-    }
+      if (
+        (c0 === ':' && c1 === ':') ||
+        (c0 === '<' && c1 === '=') ||
+        (c0 === '>' && c1 === '=') ||
+        (c0 === '!' && c1 === '=') ||
+        (c0 === '=' && c1 === '=') ||
+        (c0 === '&' && c1 === '&') ||
+        (c0 === '|' && c1 === '|') ||
+        (c0 === '{' && c1 === '{') ||
+        (c0 === '}' && c1 === '}')
+      ) {
+        cursor += 2;
+        const v = c0 + c1;
+        return { type: v, ...pos, data: v };
+      }
 
-    function next() {
-      tok = tokens[++cursor];
-      if (cursor === tokens.length) return 0;
-      return 1;
-    }
+      if (['"', '`', '\''].includes(c0)) {
+        cursor++;
+        return { type: 'string', data: c0, ...pos };
+      }
 
-    function unexpected() {
+      if ([
+        '.', '#', '=', '[',
+        ']', ';', '{', '}',
+        '(', ')', ':', '$',
+        ',', '>', '<', '?',
+        '|', '+', '/', '-',
+        '*', '%', '!', '@',
+      ].includes(c0)) {
+        cursor++;
+        return { type: c0, ...pos, data: c0 };
+      }
+
+      if (isLetter(c0) || c0 === '_') {
+        let data = '';
+        while (true) {
+          let c = program[cursor];
+          if (cursor >= max) break;
+          if (!isLetter(c) && !isNumber(c) && c !== '_' && c !== '-')
+            break;
+          data += c;
+          cursor++;
+        }
+        if (keywords.includes(data)) {
+          return { type: data, ...pos, data };
+        }
+        if (data === 'true' || data === 'false') {
+          return { type: 'bool', data: data === 'true', ...pos };
+        }
+        if (data === 'null') {
+          return { type: 'null', data: null, ...pos };
+        }
+        return { type: 'ident', data, ...pos };
+      }
+      cursor++;
+      return { type: 'unknown', data: c0, ...pos };
+    };
+
+    const next = (s) => {
+      tok = _next();
+      if (!s) {
+        while (tok.type === 'space' || tok.type === 'comment')
+          tok = _next();
+      }
+    };
+
+    const unexpected = () => {
       throw_adom_error({ msg: "unexpected " + tok.type, pos: tok.pos, file: tok.file });
-    }
+    };
 
-    function expect(t) {
+    const expected = (type) => {
+      throw_adom_error({ msg: "expected " + type, pos: tok.pos, file: tok.file });
+    };
+
+    const expect = (t, s) => {
       if (tok.type === t) {
-        next();
+        next(s);
       } else {
-        throw_adom_error({
-          msg: "expected: " + t + " found: " + tok.type,
-          pos: tok.pos,
-          file: tok.file
-        });
+        unexpected();
       }
-    }
+    };
 
-    function accept(t) {
+    const accept = (t) => {
       if (tok.type === t) {
         next();
         return true;
       }
       return false;
-    }
+    };
 
-    function peek(t) {
-      if (tok.type === t) {
-        return true;
+    const peek = (t) => {
+      return tok.type === t;
+    };
+
+    const parseString = (skip) => {
+      const del = tok.data;
+      const { pos, file } = tok;
+      const _tok = tok;
+      const data = [];
+      let chunk = '';
+      if (peek('string')) {
+        next(true);
+      } else {
+        expected('string');
       }
-      return false;
-    }
-
-    function get_dir (path) {
-      let del = path.indexOf('\\') > -1 ? '\\' : '/'
-      let dir = path.split(del);
-      dir.pop();
-      return dir.join(del);
-    }
-
-    function parse_string () {
-      let data = [];
-      let pos = tok.pos;
-      let file = tok.file;
-      expect('string');
+      inString = true;
       while (true) {
-        let d = tok.data;
-        if (accept('chunk')) {
-          data.push({ type: 'chunk', data: d });
-        } else if (accept('{')) {
-          expect('{');
-          data.push(parse_expr());
-          expect('}');
-          expect('}');
+        if (tok.data === del) {
+          if (chunk[chunk.length - 1] === '\\') {
+            chunk = chunk.slice(0, -1);
+            chunk += del;
+          } else {
+            data.push({ type: 'chunk', data: chunk });
+            inString = false;
+            next();
+            break;
+          }
+        }
+        if (tok.type === 'eof') {
+          throw_adom_error({
+            msg: 'unterminated string',
+            pos: tok.pos,
+            file: tok.file
+          });
+        } else if (!skip && tok.type === '{{') {
+          if (chunk[chunk.length - 1] === '\\') {
+            chunk = chunk.slice(0, -1);
+            chunk += '{{';
+            next(true);
+          } else {
+            data.push({ type: 'chunk', data: chunk });
+            next();
+            data.push(parseExpr());
+            expect('}}', true);
+            chunk = '';
+          }
         } else {
-          break;
+          chunk += tok.data;
+          next(true);
         }
       }
-      return { type: 'string', data: data, pos: pos, file: file }
-    }
+      if (skip) return data[0].data;
+      return { type: 'string', data, pos, file };
+    };
 
-    function parse_acc () {
+    function parseAcc () {
       let acc = null;
 
       while (true) {
         if (accept('.')) {
-          let p = tok.pos, f = tok.file;
+          const p = tok.pos, f = tok.file;
           if (!acc)  acc = [];
-          // because .ident is short for ['ident'] as in javascript
+          // because .ident is short for ['ident']
           acc.push({
             type: "string",
             data: [{
@@ -756,7 +665,7 @@ module.exports = (config) => {
           expect('ident');
         } else if (accept('[')) {
           if (!acc) acc = [];
-          acc.push(parse_expr());
+          acc.push(parseExpr());
           expect(']');
         } else {
           break;
@@ -766,14 +675,14 @@ module.exports = (config) => {
       return acc;
     }
 
-    function parse_atom () {
-      let unop = tok.data;
+    function parseAtom () {
+      const unop = tok.data;
       let expr = { pos: tok.pos, file: tok.file };
       if (accept('!') || accept('-')) {
         return {
           type: 'unop',
           op: unop,
-          data: parse_atom(),
+          data: parseAtom(),
           pos: tok.pos,
           file: tok.file
         };
@@ -783,7 +692,7 @@ module.exports = (config) => {
         expr.data = tok.data;
         next();
       } else if (peek('string')) {
-        expr = parse_string();
+        expr = parseString();
       } else if (peek('ident')) {
         expr = {
           pos: tok.pos,
@@ -795,21 +704,21 @@ module.exports = (config) => {
       } else if (accept('(')) {
         expr = {
           type: 'parenthetical',
-          data: parse_expr(),
+          data: parseExpr(),
           pos: expr.pos,
           file: expr.file
         };
         expect(')');
       } else if (peek('{')) {
         expr.type = 'object';
-        expr.data = parse_object();
+        expr.data = parseObject();
       } else if (peek('[')) {
         expr.type = 'array';
-        expr.data = parse_array();
+        expr.data = parseArray();
       } else {
         unexpected();
       }
-      let acc = parse_acc();
+      const acc = parseAcc();
       if (acc) {
         acc.unshift(expr);
         return {
@@ -822,7 +731,7 @@ module.exports = (config) => {
       return expr
     }
 
-    function get_precendence (op) {
+    function getPrecendence (op) {
       return {
         '||': 1,
         '&&': 2,
@@ -840,12 +749,12 @@ module.exports = (config) => {
       }[op] || null;
     }
 
-    function parse_expr1 (min_prec) {
-      let expr = parse_atom();
+    function parseExpr1(min_prec) {
+      let expr = parseAtom();
 
       while (true) {
-        let op = tok.data;
-        let prec = get_precendence(op);
+        const op = tok.type;
+        const prec = getPrecendence(op);
 
         if (!prec || prec < min_prec) {
           break;
@@ -856,7 +765,7 @@ module.exports = (config) => {
         expr = {
           type: 'binop',
           op: op,
-          data: [expr, parse_expr1(prec + 1)]
+          data: [expr, parseExpr1(prec + 1)]
         };
       }
 
@@ -867,9 +776,9 @@ module.exports = (config) => {
           pos: expr.pos,
           file: expr.file
         };
-        expr.data.push(parse_expr1(0));
+        expr.data.push(parseExpr1(0));
         expect(':');
-        expr.data.push(parse_expr1(0));
+        expr.data.push(parseExpr1(0));
       }
 
       return expr;
@@ -903,9 +812,9 @@ module.exports = (config) => {
       'slice': 2
     };
 
-    function parse_expr (min_prec) {
+    function parseExpr (min_prec) {
       if (min_prec == null) min_prec = 0;
-      let expr = parse_expr1(min_prec);
+      let expr = parseExpr1(min_prec);
       while (true) {
         if (accept('|')) {
           const func = tok.data;
@@ -921,7 +830,7 @@ module.exports = (config) => {
           }
           const args = [func, expr];
           while (count > 0) {
-            args.push(parse_expr1(0));
+            args.push(parseExpr1(0));
             count--;
           }
           expr = {
@@ -935,15 +844,15 @@ module.exports = (config) => {
       return expr;
     }
 
-    function parse_object() {
-      let obj = {};
+    function parseObject() {
+      const obj = {};
       expect("{");
       if (!peek('}')) {
         while (true) {
-        	let key = tok.data;
+        	const key = tok.data;
         	expect("ident");
         	expect(":");
-          obj[key] = parse_expr();
+          obj[key] = parseExpr();
         	if (!accept(",")) break;
         }
       }
@@ -951,12 +860,12 @@ module.exports = (config) => {
       return obj;
     }
 
-    function parse_array() {
-      let arr = [];
+    function parseArray() {
+      const arr = [];
       expect("[");
       if (!peek(']')) {
         while (true) {
-          arr.push(parse_expr());
+          arr.push(parseExpr());
           if (!accept(",")) break;
         }
       }
@@ -964,8 +873,8 @@ module.exports = (config) => {
       return arr;
     }
 
-    function parse_class_list() {
-      let classes = [];
+    function parseClassList() {
+      const classes = [];
       while (true) {
         if (!accept(".")) break;
         classes.push({
@@ -985,9 +894,9 @@ module.exports = (config) => {
       };
     }
 
-    function parse_attributes() {
-      let attr = {};
-      let events = [];
+    function parseAttributes() {
+      const attr = {};
+      const events = [];
       while (true) {
         let key = tok.data;
         if (accept("ident") || accept("as")) {
@@ -999,10 +908,10 @@ module.exports = (config) => {
           }
           if (accept("=")) {
             if (accept("{")) {
-              attr[key] = parse_expr();
+              attr[key] = parseExpr();
               expect("}");
             } else if (peek("string")) {
-              attr[key] = parse_string();
+              attr[key] = parseString();
             } else {
               throw_adom_error({
                 msg: "unexpected " + tok.type,
@@ -1015,12 +924,11 @@ module.exports = (config) => {
           }
         } else if (accept("on")) {
           expect(":");
-          let handler;
-          let evt = tok.data;
+          const evt = tok.data;
           expect("ident");
           expect("=");
-          handler = parse_strict_string();
-          let nosync = accept('nosync');
+          const handler = parseString(true);
+          const nosync = accept('nosync');
           events.push({ type: evt, handler: handler, sync: !nosync });
         } else {
           break;
@@ -1029,15 +937,15 @@ module.exports = (config) => {
       return [attr, events];
     }
 
-    function parse_custom_tag_body () {
-      in_tag = true;
-      parse_tag_list();
-      in_tag = false;
+    function parseCustomTagBody () {
+      inTag = true;
+      parseTagList();
+      inTag = false;
     }
 
-    function parse_tag() {
+    function parseTag() {
+      const { pos, file } = tok;
       let name = tok.data;
-      let { pos, file } = tok;
       let ns = null;
       expect("ident");
       if (accept('::')) {
@@ -1045,10 +953,10 @@ module.exports = (config) => {
         name = tok.data;
         expect('ident');
       }
-      let classlist = parse_class_list();
-      let attr_data = parse_attributes();
-      let events = attr_data[1];
-      let attr = attr_data[0];
+      const classlist = parseClassList();
+      const attr_data = parseAttributes();
+      const events = attr_data[1];
+      const attr = attr_data[0];
       if (classlist.data.length > 0) {
         if (attr.class) {
           if (attr.class.type === 'array') {
@@ -1061,7 +969,7 @@ module.exports = (config) => {
           attr.class = classlist;
         }
       }
-      let node = ast_node('tag', {
+      const node = astNode('tag', {
         name: name,
         namespace: ns,
         attributes: attr,
@@ -1069,55 +977,56 @@ module.exports = (config) => {
         pos,
         file
       });
-      let current = parent;
-      parent = node;
+      const current = parentNode;
+      parentNode = node;
       if (accept("[")) {
-        parse_tag_list();
+        parseTagList();
         expect("]");
       } else if (peek("string")) {
-        let str = parse_string();
-        ast_node('textnode', str);
+        const str = parseString();
+        astNode('textnode', str);
       } else {
         unexpected();
       }
-      parent = current;
+      parentNode = current;
     }
 
-    function parse_if_statement() {
+
+    function parseIfStatement() {
       expect("(");
-      let condition = parse_expr();
+      const condition = parseExpr();
       expect(")");
-      let current = parent;
-      let node = ast_node('if', condition);
-      parent = node;
-      let pass = ast_node('block');
-      parent = pass;
+      const current = parentNode;
+      const node = astNode('if', condition);
+      parentNode = node;
+      const pass = astNode('block');
+      parentNode = pass;
       if (accept("[")) {
-        parse_tag_list();
+        parseTagList();
         expect("]");
       } else {
-        parse_tag();
+        parseTag();
       }
       if (accept("else")) {
-        parent = node;
-        let fail = ast_node('block');
-        parent = fail;
+        parentNode = node;
+        const fail = astNode('block');
+        parentNode = fail;
         if (accept("[")) {
-          parse_tag_list();
+          parseTagList();
           expect("]");
         } else if (accept("if")) {
-          parse_if_statement();
+          parseIfStatement();
         } else {
-          parse_tag();
+          parseTag();
         }
       }
-      parent = current;
+      parentNode = current;
     }
 
-    const parse_tag_list = () => {
+    function parseTagList() {
       if (accept("if")) {
-        parse_if_statement();
-        parse_tag_list();
+        parseIfStatement();
+        parseTagList();
       } else if (accept("each")) {
         expect("(");
         let it1, it0 = tok.data;
@@ -1127,79 +1036,65 @@ module.exports = (config) => {
           expect("ident");
         }
         expect("in");
-        let list = parse_expr();
-        let node = ast_node('each', {
+        const list = parseExpr();
+        const node = astNode('each', {
           list: list,
           iterators: [it0, it1]
         });
         expect(")");
-        let current = parent;
-        parent = node;
+        const current = parentNode;
+        parentNode = node;
         if (accept("[")) {
-          parse_tag_list();
+          parseTagList();
           expect("]");
         } else {
           parse_tag();
         }
-        parent = current;
-        parse_tag_list();
+        parentNode = current;
+        parseTagList();
       } else if (peek("ident")) {
-        parse_tag();
-        parse_tag_list();
+        parseTag();
+        parseTagList();
       } else if (peek("string")) {
-        let str = parse_string();
-        ast_node('textnode', str);
-        parse_tag_list();
+        const str = parseString();
+        astNode('textnode', str);
+        parseTagList();
       } else if (peek("yield")) {
-        ast_node('yield', { pos: tok.pos, file: tok.file });
+        astNode('yield', { pos: tok.pos, file: tok.file });
         next();
-        parse_tag_list();
-      } else if (in_tag && (peek('global') || peek('const') || peek('let'))) {
-        parse_assignment();
-        parse_tag_list();
-      } else if (in_tag && peek('js_context')) {
-        parent.js = tok.data;
-        ast_node('js', { js: tok.data, pos: tok.pos, file: tok.file });
+        parseTagList();
+      } else if (inTag && (peek('global') || peek('let'))) {
+        parseAssignment();
+        parseTagList();
+      } else if (inTag && peek('js_context')) {
+        parentNode.js = tok.data;
+        astNode('js', { js: tok.data, pos: tok.pos, file: tok.file });
         next();
-        parse_tag_list();
+        parseTagList();
       }
     }
 
-    function parse_custom_tag() {
+    function parseCustomTag() {
       expect("tag");
-      let tag = tok.data;
-      let pos = tok.pos, file = tok.file;
+      const tag = tok.data;
+      const { pos, file } = tok;
       expect("ident");
       expect("[");
-      let node = ast_node('custom', { name: tag, pos: pos, file: file });
-      let current = parent;
-      parent = node;
-      parse_custom_tag_body();
-      parent = current;
+      const node = astNode('custom', { name: tag, pos: pos, file: file });
+      const current = parentNode;
+      parentNode = node;
+      parseCustomTagBody();
+      parentNode = current;
       expect("]");
       return tag;
     }
 
-    function parse_strict_string () {
-      expect('string');
-      let data = tok.data;
-      next();
-      if (peek('{')) {
-        throw_adom_error({
-          msg: 'cannot interpolate here',
-          pos: tok.pos,
-          file: tok.file
-        });
-      }
-      return data;
-    }
-
-    const parse_rhs = () => {
+    function parseRight() {
       let val;
       if (accept("file")) {
         const t = tok;
-        const curr = getPathInfo(tok.file);
-        const pathInfo = getPathInfo(parse_strict_string(), curr.parent);
+        const curr = getPathInfo(fullpath);
+        const pathInfo = getPathInfo(parseString(true), curr.parent);
         let file;
         try {
           file = openFile(pathInfo.full);
@@ -1217,37 +1112,37 @@ module.exports = (config) => {
           data: [{ type: 'chunk', data: file }]
         };
       } else {
-        val = parse_expr();
+        val = parseExpr();
       }
       return val;
     }
 
-    function parse_assignment () {
+    function parseAssignment() {
       const global = tok.data === 'global';
       next();
-      let dst = { data: tok.data, pos: tok.pos, file: tok.file };
+      const dst = { data: tok.data, pos: tok.pos, file: tok.file };
       expect('ident');
       accept("=");
-      let val = parse_rhs();
-      ast_node('set', {
+      const val = parseRight();
+      astNode('set', {
         global,
         lhs: dst,
         rhs: val
       });
     }
 
-    function parse_file () {
-      while (true) {
-        if (tok.type === "file_begin") {
-          next();
-        } else if (tok.type === "eof") {
-          if (!next()) {
-            break;
-          }
-        } else if (accept('import')) {
+    function parseFile() {
+      if (tok.type === 'file_begin') {
+        next();
+        if (peek('<')) {
+          htmlMode = true;
+        }
+      }
+      while (tok.type !== 'eof') {
+        if (accept('import')) {
           const t = tok;
-          const curr = getPathInfo(tok.file);
-          const pathStr = parse_strict_string();
+          const curr = getPathInfo(fullpath);
+          const pathStr = parseString(true);
           let ns;
           if (accept('as')) {
             ns = tok.data;
@@ -1270,45 +1165,42 @@ module.exports = (config) => {
               file: t.file
             });
           }
-          let toks = tokenize(file, pathInfo.full);
-          let _ast = parse(toks);
+          const _ast = parse(file, pathInfo.full);
           if (ns) _ast.data.namespace = ns;
-          let node = ast_node('file', _ast.data);
+          const node = astNode('file', _ast.data);
           node.children = _ast.children;
         } else if (accept("export")) {
-          let id, pos = tok.pos;
-          let file = tok.file;
+          const pos = tok.pos;
+          const file = tok.file;
+          let id;
           if (peek('tag')) {
-            id = parse_custom_tag();
+            id = parseCustomTag();
           } else {
             id = tok.data;
             expect('ident');
           }
-          ast_node('export', {
+          astNode('export', {
             name: id,
             pos: pos,
             file: file
           });
         } else if (tok.type === "ident") {
-          parse_tag_list();
+          parseTagList();
         } else if (peek("tag")) {
-          parse_custom_tag();
-        } else if (peek('const') || peek('let') || peek('global')) {
-          parse_assignment();
+          parseCustomTag();
+        } else if (peek('let') || peek('global')) {
+          parseAssignment();
         } else if (peek('js_context')) {
-          ast_node('js', { js: tok.data, pos: tok.pos, file: tok.file });
-          js_found = true;
+          astNode('js', { js: tok.data, pos: tok.pos, file: tok.file });
           next();
         } else {
           throw_adom_error({ msg: "unexpected: " + tok.type, pos: tok.pos, file: tok.file });
         }
       }
     }
-
-    parse_file();
-
+    parseFile();
     return ast;
-  };
+  }
 
   const execute = (ast, initial_state, js, flush) => {
     let html = '';
@@ -2686,8 +2578,7 @@ module.exports = (config) => {
 
   const renderToAst = async (file, actions) => {
     const fileText = openFile(file);
-    const tokens = tokenize(fileText, file);
-    const ast = parse(tokens);
+    const ast = parse(fileText, file);
     const runtime = generateRuntime(ast, actions);
     let js;
 
