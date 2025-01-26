@@ -2145,7 +2145,7 @@ module.exports = (config) => {
       const oldp = $state.props;
       $$emit_event.call($state, 'prerender');
       if (newp !== oldp) {
-        $$emit_event.call($state, 'change', JSON.parse(oldp));
+        $$emit_event.call($state, 'change', props, JSON.parse(oldp));
         for (let k in props) {
           $state.props_ptr[k] = props[k];
         }
