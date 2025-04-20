@@ -1999,7 +1999,7 @@ module.exports = (config) => {
     } else if (typeof list === 'object' && list != null) {
       var keys = Object.keys(list);
       for (var i = 0; i < keys.length; i++) {
-        fn(keys[i], list[keys[i]]);
+        fn(keys[i], list[keys[i]], i);
       }
     } else {
       throw new Error(list + ' is not iterable');
