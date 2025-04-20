@@ -2250,9 +2250,9 @@ module.exports = (config) => {
           emit('$$each(');
           walk(node.data.list);
           emit(', function (');
-          let it = node.data.iterators.concat([`__index${loop_depth}`]);
-          emit(it.filter(i => i).join(','));
-          emit(') {\n');
+          const arg0 = node.data.iterators[0];
+          const arg1 = node.data.iterators[1] || '___value';
+          emit(`${arg0}, ${arg1}, __index${loop_depth}) {\n`);
           loop_depth++;
           node.children.forEach(walk);
           loop_depth--;
