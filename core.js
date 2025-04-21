@@ -2111,19 +2111,13 @@ module.exports = (config) => {
   }
 
   function $$set_event (events, event, fn) {
-    if (events[event]) {
-      events[event].push(fn);
-    } else {
-      events[event] = [fn];
-    }
+    events[event] = fn;
   }
 
   function $$emit_event (event, data) {
-    var callbacks = this.events[event];
-    if (callbacks) {
-      callbacks.forEach(function (fn) {
-        fn(data);
-      })
+    var callback = this.events[event];
+    if (callback) {
+      callback(data);
     }
   };
 
@@ -2137,10 +2131,10 @@ module.exports = (config) => {
         $state.body = init(props, $$emit_event.bind($state), function (event, cb) {
           $$set_event($state.events, event, cb);
         });
-        for (var event in events) {
-          $$set_event($state.events, event, events[event]);
-        }
         isNew = true;
+      }
+      for (var event in events) {
+        $$set_event($state.events, event, events[event]);
       }
       const oldp = $state.props;
       $$emit_event.call($state, 'prerender');
